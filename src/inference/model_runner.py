@@ -451,15 +451,48 @@ class ModelRunner:
             intervention: Optional intervention to apply during generation
 
         Returns:
-            GeneratedTrajectory containing all tokens with logprobs
+            GeneratedTrajectory containing all tokens with logprobs. The
+            ``prefill_text``/``generated_text``/``prefill_length`` text fields
+            are populated so downstream generation/scoring can read the text.
         """
+        # Cloud API backends that implement a prefill-aware trajectory method
+        # (OpenAI, Anthropic) delegate to it; it returns token ids + logprobs
+        # plus the split prefill/generated text.
+        if self._backend_type in (
+            ModelBackend.OPENAI,
+            ModelBackend.ANTHROPIC,
+            ModelBackend.GEMINI,
+        ) and hasattr(self._backend, "generate_trajectory_from_prompt"):
+            all_token_ids, all_logprobs, prefill_text, generated_text = (
+                self._backend.generate_trajectory_from_prompt(
+                    prompt, max_new_tokens, temperature, prefilling
+                )
+            )
+            traj = GeneratedTrajectory.from_logprobs(all_token_ids, all_logprobs)
+            traj.prefill_text = prefill_text
+            traj.generated_text = generated_text
+            traj.prefill_length = len(self.encode_ids(prompt)) + len(
+                self.encode_ids(prefilling)
+            )
+            return traj
+
+        # Local backends: token-based generation.
         formatted = self.apply_chat_template(prompt) + prefilling
         token_ids = self.encode_ids(formatted, add_special_tokens=True)
+        prefill_length = len(token_ids)  # Where generated content starts
         if intervention is not None:
-            return self.generate_trajectory_with_intervention(
+            traj = self.generate_trajectory_with_intervention(
                 token_ids, intervention, max_new_tokens, temperature
             )
-        return self.generate_trajectory(token_ids, max_new_tokens, temperature)
+        else:
+            traj = self.generate_trajectory(token_ids, max_new_tokens, temperature)
+
+        # Populate the text fields the generation/scoring pipeline relies on.
+        full_text = self.decode_ids(traj.token_ids)
+        traj.prefill_text = prefilling  # Trunk/branch/twig text
+        traj.generated_text = full_text[len(formatted):]  # Model-generated text
+        traj.prefill_length = prefill_length
+        return traj
 
     # Optimized inference APIs (for classes like BinaryChoiceRunner)
 
@@ -965,6 +998,12 @@ class ModelRunner:
         "gpt-4o", or "gemini-2.5-pro" route to the right cloud API backend.
         """
         name = model_name.lower()
+
+        # Claude shorthand aliases ("haiku", "opus", "sonnet", ...) denote
+        # Anthropic models even though they don't start with "claude"/"anthropic".
+        # (Alias -> full id resolution happens later in _init_anthropic.)
+        if name in CLAUDE_MODEL_ALIASES:
+            return ModelBackend.ANTHROPIC
 
         # Google Gemini
         gemini_prefixes = ["gemini", "google/", "google-"]
