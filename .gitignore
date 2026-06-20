@@ -80,6 +80,13 @@ cython_debug/
 
 # Note: uv.lock IS committed (kept in version control for reproducibility).
 
+# Datasets — vendored external corpora kept LOCAL only (not committed).
+# Root-anchored so it does NOT match the tracked Python package src/datasets/.
+# The provenance manifest (datasets/README.md) is kept tracked; re-download the
+# actual data per its instructions.
+/datasets/*
+!/datasets/README.md
+
 # Project artifacts (large or ephemeral)
 data/
 results/
