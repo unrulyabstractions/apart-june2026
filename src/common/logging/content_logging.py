@@ -1,4 +1,7 @@
-"""Content output utilities for structured data logging."""
+"""Content output utilities for structured data logging.
+
+Provides functions for logging key-value pairs, lists, and wrapped text.
+"""
 
 from __future__ import annotations
 
@@ -16,8 +19,20 @@ def log_kv(key: str, value: str, indent_str: str = "  ") -> None:
     log(f"{indent_str}{key}: {value}")
 
 
-def log_items(header: str, items: list[str | list[str]], prefix: str = "", indent_str: str = "    ") -> None:
-    """Log a list of items with optional bundling."""
+def log_items(
+    header: str,
+    items: list[str | list[str]],
+    prefix: str = "",
+    indent_str: str = "    ",
+) -> None:
+    """Log a list of items with optional bundling.
+
+    Args:
+        header: Section header (e.g., "Categorical judgments (3):")
+        items: List of strings or bundled lists
+        prefix: Label prefix (e.g., "c" for c1, c2, ...)
+        indent_str: Indentation
+    """
     log(f"  {header}")
     for i, item in enumerate(items):
         label = f"[{prefix}{i + 1}]" if prefix else f"[{i + 1}]"

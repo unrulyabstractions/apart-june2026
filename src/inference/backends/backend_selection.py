@@ -1,7 +1,7 @@
 """Recommended backend selection based on use case and hardware.
 
 Usage:
-    from src.inference.backends import get_recommended_backend
+    from src.inference.backends import get_recommended_backend_inference
 
     # Pure inference (fastest generation)
     backend = get_recommended_backend_inference()

@@ -7,7 +7,7 @@ Provides native/numpy/torch implementations of:
 from __future__ import annotations
 
 import math
-from typing import Sequence
+from collections.abc import Sequence
 
 import numpy as np
 import torch
@@ -30,31 +30,33 @@ def _escort_logprobs_native(logprobs: Sequence[float], q: float) -> list[float]:
     if not logprobs:
         return []
 
+    n = len(logprobs)
+
     # q → +∞: all mass on argmax (the mode)
     if q == float("inf"):
         finite_lps = [(i, lp) for i, lp in enumerate(logprobs) if math.isfinite(lp)]
         if not finite_lps:
-            return [float("-inf")] * len(logprobs)
+            return [float("-inf")] * n
         max_lp = max(lp for _, lp in finite_lps)
         max_indices = [i for i, lp in finite_lps if lp == max_lp]
-        log_uniform = -math.log(len(max_indices))
-        return [log_uniform if i in max_indices else float("-inf") for i in range(len(logprobs))]
+        log_weight = -math.log(len(max_indices))  # Uniform over ties
+        return [log_weight if i in max_indices else float("-inf") for i in range(n)]
 
     # q → -∞: all mass on argmin (the antimode/rarest)
     if q == float("-inf"):
         finite_lps = [(i, lp) for i, lp in enumerate(logprobs) if math.isfinite(lp)]
         if not finite_lps:
-            return [float("-inf")] * len(logprobs)
+            return [float("-inf")] * n
         min_lp = min(lp for _, lp in finite_lps)
         min_indices = [i for i, lp in finite_lps if lp == min_lp]
-        log_uniform = -math.log(len(min_indices))
-        return [log_uniform if i in min_indices else float("-inf") for i in range(len(logprobs))]
+        log_weight = -math.log(len(min_indices))  # Uniform over ties
+        return [log_weight if i in min_indices else float("-inf") for i in range(n)]
 
     # q=0: uniform over support
     if q == 0:
         finite_count = sum(1 for lp in logprobs if math.isfinite(lp))
         if finite_count == 0:
-            return [float("-inf")] * len(logprobs)
+            return [float("-inf")] * n
         log_uniform = -math.log(finite_count)
         return [log_uniform if math.isfinite(lp) else float("-inf") for lp in logprobs]
 

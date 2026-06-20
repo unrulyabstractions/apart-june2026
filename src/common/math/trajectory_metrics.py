@@ -12,11 +12,13 @@ in the context of sequential token generation.
 
 from __future__ import annotations
 
-from typing import Sequence
+from collections.abc import Sequence
 
-from .math_primitives import argmin, argmax
-from .entropy_diversity import _EPS, surprise, rarity, power_mean_from_logprobs
+import torch
+import torch.nn.functional as F
 
+from .entropy_diversity import _EPS, power_mean_from_logprobs, rarity, surprise
+from .math_primitives import argmax, argmin
 
 # ── Pointwise (per-token) metrics ────────────────────────────────────────────
 
@@ -211,9 +213,6 @@ def top_p_normalized_logprobs(
     Returns:
         [n_sequence] normalized logprobs
     """
-    import torch
-    import torch.nn.functional as F
-
     if full_logits is None:
         return [0.0] * len(token_ids)
 

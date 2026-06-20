@@ -1,16 +1,92 @@
 """Vector math utilities.
 
-Supports both numpy arrays and torch tensors.
+Supports both numpy arrays and torch tensors for the array-based operations
+(cosine similarity, projection, normalization, etc.), as well as pure-Python
+``list[float]`` operations used by the estimation pipeline (L2 norm/distance
+and orientation vectors).
 """
 
 from __future__ import annotations
 
+import math
 from typing import Union
 
 import numpy as np
 import torch
 
 ArrayLike = Union[np.ndarray, torch.Tensor]
+
+
+# ── Pure-Python list[float] operations ───────────────────────────────────────
+# Used by the estimation pipeline, which works with plain Python lists of floats
+# (system cores). Kept separate from the array-based helpers below so callers do
+# not need numpy/torch for these lightweight operations.
+
+
+def l2_norm(v: list[float]) -> float:
+    """Compute L2 (Euclidean) norm of a vector.
+
+    Args:
+        v: Input vector
+
+    Returns:
+        ||v||_2 = sqrt(sum(v_i^2))
+    """
+    return math.sqrt(sum(x * x for x in v))
+
+
+def l2_distance(a: list[float], b: list[float]) -> float:
+    """Compute L2 (Euclidean) distance between two vectors.
+
+    Args:
+        a: First vector
+        b: Second vector
+
+    Returns:
+        ||a - b||_2
+
+    Raises:
+        ValueError: If vectors have different lengths
+    """
+    if len(a) != len(b):
+        raise ValueError(f"Vector length mismatch: {len(a)} vs {len(b)}")
+    return math.sqrt(sum((x - y) ** 2 for x, y in zip(a, b)))
+
+
+def compute_orientation_vector(
+    source_core: list[float],
+    reference_core: list[float] | None,
+) -> tuple[list[float], float]:
+    """Compute orientation vector and its norm from source to reference.
+
+    Orientation = source_core - reference_core (vector difference).
+    The norm is the Euclidean distance (L2 norm).
+
+    Args:
+        source_core: The source core vector (e.g., branch core)
+        reference_core: The reference core vector (e.g., trunk core).
+            If None or empty, returns empty vector and zero norm.
+
+    Returns:
+        Tuple of (orientation_vector, orientation_norm).
+        If reference_core is None or either core is empty, returns ([], 0.0).
+    """
+    if reference_core is None or not source_core or not reference_core:
+        return [], 0.0
+
+    if len(source_core) != len(reference_core):
+        raise ValueError(
+            f"Core dimension mismatch: source has {len(source_core)}, "
+            f"reference has {len(reference_core)}"
+        )
+
+    orientation = [source_core[i] - reference_core[i] for i in range(len(source_core))]
+    norm = math.sqrt(sum(v * v for v in orientation))
+
+    return orientation, norm
+
+
+# ── Array-based helpers (numpy / torch) ──────────────────────────────────────
 
 
 def _is_torch_tensor(x: ArrayLike) -> bool:

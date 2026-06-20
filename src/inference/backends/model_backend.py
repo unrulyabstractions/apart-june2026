@@ -96,10 +96,19 @@ class Backend(ABC):
         prompt: str,
         max_new_tokens: int,
         temperature: float,
-        intervention: Optional[Intervention],
+        intervention: Optional[Intervention] = None,
         past_kv_cache: Any = None,
     ) -> str:
-        """Generate text from a prompt."""
+        """Generate text from a prompt.
+
+        Args:
+            prompt: Input text prompt.
+            max_new_tokens: Maximum number of tokens to generate.
+            temperature: Sampling temperature (0.0 = greedy).
+            intervention: Optional intervention to apply during generation.
+                Backends without intervention support may ignore this.
+            past_kv_cache: Optional pre-computed KV cache.
+        """
         ...
 
     @abstractmethod

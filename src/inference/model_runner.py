@@ -19,6 +19,94 @@ from .generated_trajectory import (
 )
 
 
+# Claude model aliases → full model IDs
+# Latest models default to their API aliases (no date suffix needed)
+CLAUDE_MODEL_ALIASES: dict[str, str] = {
+    # Default aliases (latest recommended models)
+    "claude": "claude-sonnet-4-6",
+    "anthropic": "claude-sonnet-4-6",
+    "sonnet": "claude-sonnet-4-6",
+    "haiku": "claude-haiku-4-5",
+    "opus": "claude-opus-4-6",
+    # Latest generation (4.6 / 4.5)
+    "opus-4.6": "claude-opus-4-6",
+    "opus-4-6": "claude-opus-4-6",
+    "sonnet-4.6": "claude-sonnet-4-6",
+    "sonnet-4-6": "claude-sonnet-4-6",
+    "haiku-4.5": "claude-haiku-4-5",
+    "haiku-4-5": "claude-haiku-4-5",
+    # Previous generation (4.5 for sonnet/opus, 4.1 for opus)
+    "opus-4.5": "claude-opus-4-5",
+    "opus-4-5": "claude-opus-4-5",
+    "sonnet-4.5": "claude-sonnet-4-5",
+    "sonnet-4-5": "claude-sonnet-4-5",
+    "opus-4.1": "claude-opus-4-1",
+    "opus-4-1": "claude-opus-4-1",
+    # Claude 4.0 generation
+    "opus-4.0": "claude-opus-4-0",
+    "opus-4-0": "claude-opus-4-0",
+    "sonnet-4.0": "claude-sonnet-4-0",
+    "sonnet-4-0": "claude-sonnet-4-0",
+    "opus-4": "claude-opus-4-0",
+    "sonnet-4": "claude-sonnet-4-0",
+    "haiku-4": "claude-haiku-4-5",  # No haiku 4.0, point to 4.5
+    # Claude 3.5 generation
+    "sonnet-3.5": "claude-3-5-sonnet-20241022",
+    "sonnet-3-5": "claude-3-5-sonnet-20241022",
+    "haiku-3.5": "claude-3-5-haiku-20241022",
+    "haiku-3-5": "claude-3-5-haiku-20241022",
+    # Claude 3 generation
+    "opus-3": "claude-3-opus-20240229",
+    "sonnet-3": "claude-3-sonnet-20240229",
+    "haiku-3": "claude-3-haiku-20240307",
+}
+
+
+def resolve_claude_model(model: str) -> str:
+    """Resolve Claude model alias to full model ID.
+
+    Handles formats:
+        - "claude" or "anthropic" → claude-sonnet-4-6 (latest)
+        - "sonnet", "haiku", "opus" → latest version of that model
+        - "opus-4.6", "opus-4-6" → claude-opus-4-6
+        - "anthropic/sonnet-4.6", "claude/haiku" → resolved model
+        - "claude-opus-4-6" → passed through (already valid)
+        - Full model IDs with dates → passed through unchanged
+
+    Args:
+        model: Model name or alias
+
+    Returns:
+        Full model ID for Anthropic API
+    """
+    model = model.strip()
+
+    # Handle provider/model format: "anthropic/sonnet" or "claude/haiku"
+    if "/" in model:
+        prefix, suffix = model.split("/", 1)
+        if prefix.lower() in ("anthropic", "claude"):
+            # Recursively resolve the suffix
+            return resolve_claude_model(suffix)
+
+    # Normalize: lowercase and replace dots with dashes for lookup
+    normalized = model.lower().replace(".", "-")
+
+    # Direct alias lookup (try both original and normalized)
+    if model.lower() in CLAUDE_MODEL_ALIASES:
+        return CLAUDE_MODEL_ALIASES[model.lower()]
+    if normalized in CLAUDE_MODEL_ALIASES:
+        return CLAUDE_MODEL_ALIASES[normalized]
+
+    # Handle "claude-X" format by stripping "claude-" prefix and re-resolving
+    if normalized.startswith("claude-"):
+        suffix = normalized[7:]  # Remove "claude-"
+        if suffix in CLAUDE_MODEL_ALIASES:
+            return CLAUDE_MODEL_ALIASES[suffix]
+
+    # Return as-is (assume it's already a valid model ID)
+    return model
+
+
 class ModelRunner:
     """Model runner for inference with intervention support."""
 
@@ -27,12 +115,12 @@ class ModelRunner:
         model_name: str,
         device: Optional[str] = None,
         dtype: Optional[torch.dtype] = None,
-        backend: ModelBackend = get_recommended_backend_inference(),
+        backend: Optional[ModelBackend] = None,
     ):
         # Parse cloud API model specs (e.g., "openai:gpt-4o", "anthropic:claude-sonnet-4-20250514")
         if model_name.startswith("openai:"):
             self.model_name = model_name[7:]  # Strip "openai:" prefix
-            self._backend = ModelBackend.OPENAI
+            self._backend_type = ModelBackend.OPENAI
             self.device = "cpu"  # Not applicable for API
             self.dtype = torch.float32
             self._model = None
@@ -42,7 +130,7 @@ class ModelRunner:
             return
         elif model_name.startswith("anthropic:"):
             self.model_name = model_name[10:]  # Strip "anthropic:" prefix
-            self._backend = ModelBackend.ANTHROPIC
+            self._backend_type = ModelBackend.ANTHROPIC
             self.device = "cpu"  # Not applicable for API
             self.dtype = torch.float32
             self._model = None
@@ -52,7 +140,7 @@ class ModelRunner:
             return
         elif model_name.startswith("gemini:"):
             self.model_name = model_name[7:]
-            self._backend = ModelBackend.GEMINI
+            self._backend_type = ModelBackend.GEMINI
             self.device = "cpu"
             self.dtype = torch.float32
             self._model = None
@@ -62,6 +150,44 @@ class ModelRunner:
             return
 
         self.model_name = model_name
+
+        # Auto-detect backend from the (bare) model name when not provided.
+        # This lets ModelRunner("claude"), ModelRunner("gpt-4o"),
+        # ModelRunner("gemini-2.5-pro") route to the right API backend without
+        # an explicit prefix, while still falling back to the recommended local
+        # backend for everything else.
+        if backend is None:
+            backend = self._detect_backend(model_name)
+
+        # Cloud API backends loaded via auto-detection (bare names) take the
+        # same setup path as the prefixed specs above.
+        if backend == ModelBackend.OPENAI:
+            self.device = "cpu"
+            self.dtype = torch.float32
+            self._model = None
+            self._backend_type = backend
+            self._init_openai()
+            self._is_chat_model = True
+            print(f"Model loaded: OpenAI API {self.model_name}")
+            return
+        elif backend == ModelBackend.ANTHROPIC:
+            self.device = "cpu"
+            self.dtype = torch.float32
+            self._model = None
+            self._backend_type = backend
+            self._init_anthropic()
+            self._is_chat_model = True
+            print(f"Model loaded: Anthropic API {self.model_name}")
+            return
+        elif backend == ModelBackend.GEMINI:
+            self.device = "cpu"
+            self.dtype = torch.float32
+            self._model = None
+            self._backend_type = backend
+            self._init_gemini()
+            self._is_chat_model = True
+            print(f"Model loaded: Gemini API {self.model_name}")
+            return
 
         if device is None:
             device = get_device()
@@ -73,8 +199,8 @@ class ModelRunner:
         # IMPORTANT: self._model should never be used outside ModelRunner + Children + Backends
         self._model = None
 
-        # IMPORTANT: self._backend should never be used outside ModelRunner + Children
-        self._backend = backend
+        # IMPORTANT: self._backend_type should never be used outside ModelRunner + Children
+        self._backend_type = backend
         if backend == ModelBackend.TRANSFORMERLENS:
             self._init_transformerlens()
         elif backend == ModelBackend.NNSIGHT:
@@ -89,7 +215,7 @@ class ModelRunner:
             except ValueError as e:
                 if "not supported" in str(e):
                     print("MLX doesn't support this model, using HuggingFace...")
-                    self._backend = ModelBackend.HUGGINGFACE
+                    self._backend_type = ModelBackend.HUGGINGFACE
                     self._init_huggingface()
                 else:
                     raise
@@ -143,6 +269,11 @@ class ModelRunner:
     @property
     def d_model(self) -> int:
         return self._backend.get_d_model()
+
+    @property
+    def vocab_size(self) -> int:
+        """Get vocabulary size."""
+        return self._tokenizer.vocab_size
 
     def encode(
         self, text: str, add_special_tokens: bool = True, prepend_bos: bool = False
@@ -826,6 +957,45 @@ class ModelRunner:
     #### Internal ####
     ##################
 
+    def _detect_backend(self, model_name: str) -> ModelBackend:
+        """Detect the appropriate backend based on the (bare) model name.
+
+        Used when no backend is explicitly provided and the model name is not
+        given via an explicit "provider:" prefix. Lets bare names like "claude",
+        "gpt-4o", or "gemini-2.5-pro" route to the right cloud API backend.
+        """
+        name = model_name.lower()
+
+        # Google Gemini
+        gemini_prefixes = ["gemini", "google/", "google-"]
+        if any(name.startswith(prefix) for prefix in gemini_prefixes):
+            return ModelBackend.GEMINI
+
+        # OpenAI models (GPT-3/4/5, o1/o3/o4 reasoning models)
+        openai_prefixes = [
+            "openai",
+            "gpt-3",
+            "gpt-4",
+            "gpt-5",
+            "o1",
+            "o3",
+            "o4",
+        ]
+        if any(
+            name.startswith(prefix) or name == prefix for prefix in openai_prefixes
+        ):
+            return ModelBackend.OPENAI
+
+        # Anthropic models
+        anthropic_prefixes = ["anthropic", "claude"]
+        if any(
+            name.startswith(prefix) or name == prefix for prefix in anthropic_prefixes
+        ):
+            return ModelBackend.ANTHROPIC
+
+        # Default to recommended local backend
+        return get_recommended_backend_inference()
+
     def _init_transformerlens(self, process_weights: bool = True) -> None:
         from .backends import TransformerLensBackend
         from transformer_lens import HookedTransformer
@@ -946,25 +1116,42 @@ class ModelRunner:
     def _init_openai(self) -> None:
         from .backends import OpenAIBackend
 
-        self._backend = OpenAIBackend(self, model=self.model_name)
+        # Strip a leading "openai/" provider prefix if present (bare-name form).
+        model = self.model_name
+        if "/" in model:
+            model = model.split("/", 1)[1]
+        elif model.lower() == "openai":
+            model = "gpt-4o"  # Default to gpt-4o
+        self.model_name = model
+        self._backend = OpenAIBackend(self, model=model)
 
     def _init_anthropic(self) -> None:
         from .backends import AnthropicBackend
 
-        self._backend = AnthropicBackend(self, model=self.model_name)
+        # Resolve aliases (e.g., "anthropic/haiku" -> "claude-haiku-4-5",
+        # "claude" -> "claude-sonnet-4-6"). Already-valid IDs pass through.
+        model = resolve_claude_model(self.model_name)
+        self.model_name = model
+        self._backend = AnthropicBackend(self, model=model)
 
     def _init_gemini(self) -> None:
         from .backends import GeminiBackend
 
-        self._backend = GeminiBackend(self, model=self.model_name)
+        # Strip a leading "gemini/" or "google/" provider prefix if present.
+        model = self.model_name
+        if "/" in model:
+            model = model.split("/", 1)[1]
+        self.model_name = model
+        self._backend = GeminiBackend(self, model=model)
 
     def _detect_chat_model(self, model_name: str) -> bool:
         """Detect if model is a chat/instruct model based on name.
 
         Detection strategy (name-based only, tokenizer check was unreliable):
         1. Check for explicit base model indicators (return False)
-        2. Special case Qwen3 (always chat/instruct, no base variant exists)
-        3. Check for instruct/chat/etc. indicators in name
+        2. API-based models are always chat models
+        3. Special case Qwen3 (always chat/instruct, no base variant exists)
+        4. Check for instruct/chat/etc. indicators in name
         """
         if not model_name:
             model_name = self.model_name
@@ -973,6 +1160,25 @@ class ModelRunner:
         # Explicit base model indicators
         if any(x in name for x in ["-base", "_base"]):
             return False
+
+        # API-based models are always chat models
+        if any(
+            x in name
+            for x in [
+                "claude",
+                "anthropic",
+                "gpt-3",
+                "gpt-4",
+                "gpt-5",
+                "openai",
+                "o1",
+                "o3",
+                "o4",
+                "gemini",
+                "google/",
+            ]
+        ):
+            return True
 
         # Qwen3/Qwen3.5 models are instruct/reasoning by default (no base variant)
         if any(x in name for x in ["qwen3", "qwen-3", "qwen_3"]):
@@ -991,8 +1197,8 @@ class ModelRunner:
         name = self.model_name.lower()
 
         # Explicit non-reasoning model indicators
-        # Qwen3-*-Instruct-2507 variants are non-reasoning
-        non_reasoning_indicators = ["-2507", "_2507"]
+        # Qwen3-*-Instruct-2507 variants and base models are non-reasoning
+        non_reasoning_indicators = ["-2507", "_2507", "-base", "_base"]
         if any(ind in name for ind in non_reasoning_indicators):
             return False
 
@@ -1057,7 +1263,7 @@ class ModelRunner:
             return "<think>\n</think>\n\n"
         return ""
 
-    def unload(self) -> None:
+    def cleanup(self) -> None:
         """Unload model from memory and clear GPU/MPS memory.
 
         Call this before spawning subprocesses to free memory in the main process.
@@ -1065,4 +1271,11 @@ class ModelRunner:
         if self._model is not None:
             del self._model
             self._model = None
+        if hasattr(self, "_backend"):
+            del self._backend
         clear_gpu_memory(aggressive=True)
+
+    # Backward-compatible alias: the temporal-manifolds fork named this unload().
+    def unload(self) -> None:
+        """Alias for cleanup(); kept for backward compatibility."""
+        self.cleanup()

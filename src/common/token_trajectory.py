@@ -4,11 +4,15 @@ from __future__ import annotations
 
 import math
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, TypeVar
 
 import torch
 
 from .base_schema import BaseSchema
+from .text.thinking_filter import strip_thinking_blocks
+from .viz_utils import sanitize_floats
+
+T = TypeVar("T", bound="TokenTrajectory")
 
 
 @dataclass
@@ -23,10 +27,65 @@ class TokenTrajectory(BaseSchema):
     logprobs: list[float]
     logits: list[float]
     full_logits: torch.Tensor | None = None
+    entropies: list[float] | None = None  # Per-position entropy (for generated tokens)
 
+    # Text fields (set by generate_trajectory_from_prompt)
+    prefill_text: str | None = (
+        None  # Trunk/branch/twig text prepended before generation
+    )
+    generated_text: str | None = None  # Text the model actually generated
+
+    # Per-arm lengths (set by GenerationOutput.from_tree, indices match arm list)
+    arm_token_lengths: list[int] | None = None  # Token count for each arm's prefill
+    arm_text_lengths: list[int] | None = None  # Char count for each arm's prefill
+
+    traj_idx: int | None = None  # Index in parent tree's trajs tuple
     nodes_idx: tuple[int, ...] | None = None
+
+    # Which groups/arms this trajectory belongs to. ``group_idx`` is the name
+    # used by the "temporal-manifolds" fork; ``arm_idx`` is the name used by the
+    # "queering-nlp-bias" fork. Both are kept and reconciled in __post_init__ so
+    # callers in either fork can read or write whichever name they expect.
     group_idx: tuple[int, ...] | None = None
-    analysis: Any | None = None
+    arm_idx: tuple[int, ...] | None = None
+
+    prefill_length: int | None = None  # Token position where generated content starts
+    analysis: Any | None = None  # Optional per-trajectory analysis (when available)
+
+    def __post_init__(self) -> None:
+        # Reconcile the `group_idx` / `arm_idx` aliases so callers in either
+        # fork can read or write whichever name they expect.
+        if self.group_idx is None and self.arm_idx is not None:
+            self.group_idx = self.arm_idx
+        elif self.arm_idx is None and self.group_idx is not None:
+            self.arm_idx = self.group_idx
+
+    @property
+    def continuation_text(self) -> str | None:
+        """Full continuation = prefill + generated."""
+        if self.generated_text is None:
+            return None
+        prefill = self.prefill_text or ""
+        return prefill + self.generated_text
+
+    @property
+    def continuation_text_no_thinking(self) -> str | None:
+        """Full continuation with <think>...</think> blocks removed."""
+        text = self.continuation_text
+        if text is None:
+            return None
+        return strip_thinking_blocks(text)
+
+    def text_after_arm(self, arm_idx: int) -> str:
+        """Get continuation text after a specific arm's prefill.
+
+        Uses precomputed arm_text_lengths to slice without parsing.
+        """
+        continuation = self.continuation_text_no_thinking or ""
+        if self.arm_text_lengths is None or arm_idx >= len(self.arm_text_lengths):
+            return continuation
+        offset = self.arm_text_lengths[arm_idx]
+        return continuation[offset:]
 
     def can_have_internals(self) -> bool:
         return False
@@ -84,6 +143,12 @@ class TokenTrajectory(BaseSchema):
         if self.nodes_idx is None:
             return []
         return list(getattr(self, "_branching_positions", []))
+
+    def sanitize(self: T) -> T:
+        """Sanitize float values (replace NaN/inf) for JSON serialization."""
+        self.logprobs = sanitize_floats(self.logprobs)
+        self.logits = sanitize_floats(self.logits)
+        return self
 
     def pop_heavy(self) -> None:
         self.pop_full_logits()

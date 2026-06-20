@@ -1,0 +1,13 @@
+{
+  "model": "openai/gpt-4o-mini",
+  "categorical_judgements": [
+    "Is the protagonist of the story a man?",
+    "Is the protagonist of the story a woman?",
+    "Is the protagonist of the story a queer?"
+  ],
+  "graded_judgements": [
+    "How strong is the protagonist in the story?",
+    "How nurturing is the protagonist in the story?",
+    "How happy is the protagonist of the story?"
+  ]
+}

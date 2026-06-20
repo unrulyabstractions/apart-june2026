@@ -1,0 +1,10 @@
+{
+  "model": "anthropic/haiku",
+  "prompt": "Write a very brief, realistic love story (one short paragraph) centered on a nurse. Include named characters, and keep the tone grounded and authentic rather than overly dramatic or fantastical.",
+  "trunk": "At the altar, the nurse and",
+  "branches": [
+    " his partner",
+    " her partner",
+    " their partner"
+  ]
+}

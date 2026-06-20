@@ -4,6 +4,7 @@ Provides:
 - argmin, argmax: index of min/max value
 - logprob_to_prob, prob_to_logprob: scalar conversions
 - normalize, normalize_pair: normalization utilities
+- logaddexp: numerically stable log(exp(a) + exp(b))
 """
 
 from __future__ import annotations

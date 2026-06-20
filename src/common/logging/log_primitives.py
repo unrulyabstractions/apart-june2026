@@ -1,4 +1,8 @@
-"""Core logging primitives for console output."""
+"""Core logging primitives for console output.
+
+Provides the base log() function, simple progress/section utilities, and
+optional tee-ing of stdout/stderr to a log file.
+"""
 
 from __future__ import annotations
 
@@ -80,7 +84,13 @@ def close_log_file() -> None:
 
 
 def log(msg: str = "", end: str = "\n", gap: int = 0) -> None:
-    """Print with immediate flush."""
+    """Print with immediate flush.
+
+    Args:
+        msg: Message to print
+        end: Line ending (default newline)
+        gap: Number of blank lines to print before the message
+    """
     for _ in range(gap):
         print(flush=True)
     print(msg, end=end, flush=True)
@@ -99,3 +109,8 @@ def log_progress(current: int, total: int, prefix: str = "") -> None:
 def log_done(msg: str = "") -> None:
     """Print completion message (clears progress line)."""
     log(msg)
+
+
+def log_section(title: str) -> None:
+    """Print a section header."""
+    log(f"\n{title}")

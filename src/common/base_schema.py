@@ -22,6 +22,12 @@ from .file_io import load_json
 
 def _qfloat(x: float, places: int = 8) -> float:
     """Stable decimal rounding: converts via str -> Decimal -> quantize."""
+    # Guard against special values for callers that invoke _qfloat directly
+    # (within _canon, NaN/Inf are already mapped to strings before this runs).
+    if math.isnan(x):
+        return 0.0  # Replace NaN with 0
+    if math.isinf(x):
+        return 1e10 if x > 0 else -1e10  # Replace inf with large finite
     q = Decimal(1) / (Decimal(10) ** places)  # e.g. 1e-8
     d = Decimal(str(x)).quantize(q, rounding=ROUND_HALF_EVEN)
     # normalize -0.0 to 0.0 for stability

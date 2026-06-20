@@ -7,11 +7,17 @@ from .section_headers import log_divider
 from .text_formatting import pad_left, pad_right
 
 
-def log_table_header(columns: list[tuple[str, int, str]], indent_str: str = "  ", divider_width: int = 62) -> None:
-    """Log a table header row.
+def log_table_header(
+    columns: list[tuple[str, int, str]],
+    indent_str: str = "  ",
+    divider_width: int = 62,
+) -> None:
+    """Log a table header row with column formatting.
 
     Args:
         columns: List of (label, width, align) where align is '<', '>', or '^'
+        indent_str: Indentation prefix
+        divider_width: Width of divider line
     """
     parts = []
     for label, width, align in columns:
@@ -25,11 +31,15 @@ def log_table_header(columns: list[tuple[str, int, str]], indent_str: str = "  "
     log_divider(divider_width, indent_str)
 
 
-def log_table_row(cells: list[tuple[str, int, str]], indent_str: str = "  ") -> None:
-    """Log a table row.
+def log_table_row(
+    cells: list[tuple[str, int, str]],
+    indent_str: str = "  ",
+) -> None:
+    """Log a table row with column formatting.
 
     Args:
         cells: List of (value, width, align) where align is '<', '>', or '^'
+        indent_str: Indentation prefix
     """
     parts = []
     for value, width, align in cells:

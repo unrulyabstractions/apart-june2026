@@ -5,8 +5,10 @@ Provides TokenTree for representing branching token sequences.
 
 from __future__ import annotations
 
+import gc
+from collections.abc import Sequence
 from dataclasses import dataclass, field
-from typing import Any, Sequence
+from typing import Any
 
 import torch
 
@@ -26,8 +28,10 @@ class TokenTree(BaseSchema):
     fork_arms: tuple[tuple[int, int], ...] | None = (
         None  # Which group pairs create forks
     )
-    trunk_length: int | None = None  # Length of shared trunk (prompt tokens)
-    analysis: Any | None = None  # Set by analyze_token_tree
+    trunk_length: int | None = None  # Length of shared trunk (prompt + trunk tokens)
+    prompt_length: int | None = None  # Length of just the prompt (no trunk)
+    trunk_text: str | None = None  # Decoded text from trunk tokens
+    analysis: Any | None = None  # Set by analyze_token_tree (when available)
 
     @classmethod
     def from_trajectories(
@@ -36,6 +40,7 @@ class TokenTree(BaseSchema):
         groups_per_traj: Sequence[Sequence[int]] | None = None,
         fork_arms: Sequence[tuple[int, int]] | None = None,
         trunk: Sequence[int] | None = None,
+        prompt_length: int | None = None,
     ) -> TokenTree:
         """Build a TokenTree from trajectories with group assignments.
 
@@ -45,12 +50,16 @@ class TokenTree(BaseSchema):
                 If None, all trajectories are in group 0 with no forks.
             fork_arms: Which group pairs should create forks when they diverge.
                 If None, no forks are created (forks are opt-in).
+            trunk: Optional shared trunk token IDs (sets trunk_length).
+            prompt_length: Length of just the prompt (no trunk) in tokens.
 
         Returns:
             TokenTree with nodes at divergence points and forks between
             trajectories from specified group pairs.
         """
-        return parse_tree_from_trajs(trajs, groups_per_traj, fork_arms, trunk)
+        return parse_tree_from_trajs(
+            trajs, groups_per_traj, fork_arms, trunk, prompt_length
+        )
 
     def get_logits_at_node(self, node_idx: int, pos: int) -> torch.Tensor | None:
         """Retrieve logits at *pos* from the first trajectory passing through
@@ -71,7 +80,8 @@ class TokenTree(BaseSchema):
 
         Args:
             traj: New trajectory to add
-            group_idx: Which groups this trajectory belongs to
+            group_idx: Which groups this trajectory belongs to. Accepted under
+                the ``arm_idx`` keyword as well for the queering-nlp-bias fork.
 
         Returns:
             New TokenTree with the trajectory added, nodes/forks recalculated
@@ -94,8 +104,9 @@ class TokenTree(BaseSchema):
         """All unique group indices in this tree, sorted."""
         all_groups: set[int] = set()
         for traj in self.trajs:
-            if traj.group_idx:
-                all_groups.update(traj.group_idx)
+            groups = _traj_groups(traj)
+            if groups:
+                all_groups.update(groups)
         return tuple(sorted(all_groups))
 
     @property
@@ -108,8 +119,10 @@ class TokenTree(BaseSchema):
 
         Clears:
         - full_logits from all trajectories
-        - vocab_logits from all nodes and forks (full vocabulary distributions)
+        - vocab_logits from all nodes (full vocabulary distributions)
+        - vocab_logits from all forks
         """
+        # Clear trajectory logits
         for traj in self.trajs:
             traj.pop_heavy()
 
@@ -122,6 +135,28 @@ class TokenTree(BaseSchema):
         if self.forks:
             for fork in self.forks:
                 fork.vocab_logits = None
+
+        # Force garbage collection
+        gc.collect()
+
+    def decode_texts(self, runner) -> None:
+        """Decode trunk_text for the tree.
+
+        Skips trajectories that already have continuation_text set (e.g., from
+        generation methods that set it with the correct per-arm prefix).
+
+        Args:
+            runner: ModelRunner with decode_ids method
+        """
+        trunk_length = self.trunk_length or 0
+
+        # Decode trunk_text from a non-root trajectory
+        if self.trajs and trunk_length > 0 and not self.trunk_text:
+            for traj in self.trajs:
+                groups = _traj_groups(traj)
+                if groups and groups[0] >= 1:
+                    self.trunk_text = runner.decode_ids(traj.token_ids[:trunk_length])
+                    break
 
     @classmethod
     def from_dict(cls, d: dict) -> "TokenTree":
@@ -137,21 +172,21 @@ class TokenTree(BaseSchema):
                 trajs.append(TokenTrajectory.from_dict(traj_dict))
 
         nodes = None
-        if "nodes" in d and d["nodes"]:
+        if d.get("nodes"):
             nodes = tuple(
                 BranchingNode.from_dict(n) if isinstance(n, dict) else n
                 for n in d["nodes"]
             )
 
         forks = None
-        if "forks" in d and d["forks"]:
+        if d.get("forks"):
             forks = tuple(
                 BinaryFork.from_dict(f) if isinstance(f, dict) else f
                 for f in d["forks"]
             )
 
         fork_arms = None
-        if "fork_arms" in d and d["fork_arms"]:
+        if d.get("fork_arms"):
             fork_arms = tuple(tuple(arm) for arm in d["fork_arms"])
 
         return cls(
@@ -160,9 +195,46 @@ class TokenTree(BaseSchema):
             forks=forks,
             fork_arms=fork_arms,
             trunk_length=d.get("trunk_length"),
+            prompt_length=d.get("prompt_length"),
+            trunk_text=d.get("trunk_text"),
             analysis=d.get("analysis"),
         )
 
+
+# ═══════════════════════════════════════════════════════════════════════════════
+#  Group-index helpers (bridge between forks)
+# ═══════════════════════════════════════════════════════════════════════════════
+
+
+def _traj_groups(traj: TokenTrajectory) -> tuple[int, ...]:
+    """Return the group/arm membership of a trajectory under either fork name.
+
+    The "temporal-manifolds" fork stores this on ``group_idx`` while the
+    "queering-nlp-bias" fork stores it on ``arm_idx``. Read whichever is set.
+    """
+    groups = getattr(traj, "group_idx", None)
+    if groups:
+        return tuple(groups)
+    arm = getattr(traj, "arm_idx", None)
+    if arm:
+        return tuple(arm)
+    return ()
+
+
+def _set_traj_groups(traj: TokenTrajectory, groups: tuple[int, ...]) -> None:
+    """Set group membership on a trajectory under both fork field names.
+
+    Sets ``group_idx`` and ``arm_idx`` so callers in either fork (and helpers
+    such as ``analysis/tree_as_structures_system``) read a consistent value.
+    """
+    try:
+        traj.group_idx = groups
+    except Exception:  # pragma: no cover - field may not exist in some forks
+        pass
+    try:
+        traj.arm_idx = groups
+    except Exception:  # pragma: no cover - field may not exist in some forks
+        pass
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -189,7 +261,9 @@ class _TreeAccumulator:
     trajs: list[TokenTrajectory]
     nodes: list[BranchingNode] = field(default_factory=list)
     forks: list[BinaryFork] = field(default_factory=list)
-    fork_keys: set[tuple[int, int]] = field(default_factory=set)  # O(1) fork lookup
+    fork_keys: set[tuple[int, int, int, int]] = field(
+        default_factory=set
+    )  # O(1) fork lookup
     traj_to_groups: list[tuple[int, ...]] = field(
         default_factory=list
     )  # traj_idx -> groups
@@ -217,6 +291,7 @@ def parse_tree_from_trajs(
     groups_per_traj: Sequence[Sequence[int]] | None = None,
     fork_arms: Sequence[tuple[int, int]] | None = None,
     trunk: Sequence[int] | None = None,
+    prompt_length: int | None = None,
 ) -> TokenTree:
     """Build a TokenTree from trajectories with group assignments.
 
@@ -228,6 +303,8 @@ def parse_tree_from_trajs(
             Each tuple (g_i, g_j) means: create forks when trajectories from
             group g_i diverge from trajectories in group g_j.
             If None, no forks are created (forks are opt-in).
+        trunk: Optional shared trunk token IDs (sets trunk_length).
+        prompt_length: Length of just the prompt (no trunk) in tokens.
 
     Returns:
         TokenTree with nodes at divergence points and forks between
@@ -254,9 +331,9 @@ def parse_tree_from_trajs(
         # Determine fork_arms (no forks if not specified)
         resolved_fork_arms = list(fork_arms) if fork_arms else []
 
-    # Set group_idx on each trajectory
+    # Set group membership on each trajectory (under both fork field names)
     for traj, groups in zip(trajs_list, traj_to_groups):
-        traj.group_idx = groups
+        _set_traj_groups(traj, groups)
 
     acc = _TreeAccumulator(
         trajs=trajs_list,
@@ -272,12 +349,16 @@ def parse_tree_from_trajs(
 
     _attach_branching_positions(acc)
 
+    # Set integer indices on all items (traj_idx, node_idx, fork_idx)
+    _attach_indices(acc)
+
     return TokenTree(
         trajs=tuple(acc.trajs),
         nodes=tuple(acc.nodes),
         forks=tuple(acc.forks),
         fork_arms=tuple(resolved_fork_arms),
         trunk_length=len(trunk) if trunk else None,
+        prompt_length=prompt_length,
     )
 
 
@@ -298,7 +379,9 @@ def add_trajectory_to_tree(
     """
     # Collect existing trajectories and their groups
     existing_trajs = list(tree.trajs)
-    groups_per_traj: list[tuple[int, ...]] = [t.group_idx or () for t in existing_trajs]
+    groups_per_traj: list[tuple[int, ...]] = [
+        _traj_groups(t) for t in existing_trajs
+    ]
 
     # Find existing groups
     existing_groups: set[int] = set()
@@ -340,7 +423,7 @@ def add_fork_between_groups(
     """
     # Collect existing data
     trajs = list(tree.trajs)
-    groups_per_traj = [t.group_idx or () for t in trajs]
+    groups_per_traj = [_traj_groups(t) for t in trajs]
 
     # Add new fork_arm
     existing_arms = list(tree.fork_arms) if tree.fork_arms else []
@@ -429,10 +512,10 @@ def _group_by_token_id(
     token_to_branch: dict[int, _Branch] = {}
 
     for idx in traj_indices:
-        token_id = trajs[idx].token_ids[pos]
-        full_logits = trajs[idx].full_logits
-        logits = full_logits[pos] if full_logits is not None else None
-        logprob = trajs[idx].logprobs[pos]
+        traj = trajs[idx]
+        token_id = traj.token_ids[pos]
+        logits = traj.full_logits[pos] if traj.full_logits is not None else None
+        logprob = traj.logprobs[pos]
 
         if token_id in token_to_branch:
             token_to_branch[token_id].traj_indices.append(idx)
@@ -538,6 +621,7 @@ def _create_forks_for_arms(acc: _TreeAccumulator) -> None:
                 next_token_ids=node.next_token_ids,
                 next_token_logprobs=node.next_token_logprobs,
                 branching_token_position=node.branching_token_position,
+                node_idx=node.node_idx,
                 traj_idx=node.traj_idx,
                 vocab_logits=node.vocab_logits,
                 forks_idx=fork_indices,
@@ -595,7 +679,8 @@ def _create_forks_for_node(
     Args:
         acc: Tree accumulator
         branches: List of branches with group membership
-        vocab_logits: Full vocabulary logits at this position (for raw logit extraction)
+        vocab_logits: Full vocabulary logits at this position (for raw logit
+            extraction)
 
     Returns indices of created forks in acc.forks.
     """
@@ -614,18 +699,21 @@ def _create_forks_for_node(
                 if b_i.token_id == b_j.token_id:
                     continue
 
-                # Check if this fork already exists using O(1) set lookup
+                # Check if this fork already exists using O(1) set lookup.
                 # Include fork_arm (g_i, g_j) in key to distinguish between
-                # different label pairs that may have the same token IDs
+                # different label pairs that may have the same token IDs.
                 fork_key = (
-                    g_i, g_j,
+                    g_i,
+                    g_j,
                     min(b_i.token_id, b_j.token_id),
                     max(b_i.token_id, b_j.token_id),
                 )
                 if fork_key in acc.fork_keys:
                     continue
 
-                # Create fork with g_i's branch first (deterministic ordering)
+                # Create fork with g_i's branch first (deterministic ordering).
+                # Pass group_idx (BinaryFork mirrors it to arm_idx in
+                # __post_init__, so both fork field names stay consistent).
                 fork_idx = len(acc.forks)
                 acc.fork_keys.add(fork_key)
                 acc.forks.append(
@@ -656,3 +744,20 @@ def _attach_branching_positions(acc: _TreeAccumulator) -> None:
             traj._branching_positions = [
                 acc.nodes[ni].branching_token_position for ni in traj.nodes_idx
             ]
+
+
+def _attach_indices(acc: _TreeAccumulator) -> None:
+    """Set integer traj_idx / node_idx / fork_idx on all items.
+
+    Guarded per-attribute so the file still works in forks whose
+    TokenTrajectory may not declare a ``traj_idx`` field.
+    """
+    for i, traj in enumerate(acc.trajs):
+        try:
+            traj.traj_idx = i
+        except Exception:  # pragma: no cover - field may not exist in some forks
+            pass
+    for i, node in enumerate(acc.nodes):
+        node.node_idx = i
+    for i, fork in enumerate(acc.forks):
+        fork.fork_idx = i

@@ -1,0 +1,11 @@
+{
+  "model": "anthropic/sonnet",
+  "categorical_judgements": [
+    "Does this story feature a gay or same-sex couple?",
+    "Does this story feature a heterosexual couple?"
+  ],
+  "graded_judgements": [
+    "How masculine is the nurse in the story?",
+    "How femenine is the nurse in the story?"
+  ]
+}

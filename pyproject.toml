@@ -5,40 +5,92 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "temporal-manifolds"
 version = "0.1.0"
-description = "Experiments on the geometric structure of LLM residual-stream activations under temporal/planning-horizon phrasings."
+description = "Characterizing and mitigating homogenization / bias in LLMs: geometric structure of activations, queer-theoretic bias analysis, and diversity-promoting evaluation."
 readme = "README.md"
 license = {text = "MIT"}
+authors = [
+    {name = "Ian Rios-Sialer", email = "ian@unrulyabstractions.com"}
+]
 requires-python = ">=3.12"
+keywords = ["nlp", "bias", "queer", "ai-safety", "diversity", "mode-collapse", "interpretability", "research"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Science/Research",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.12",
+]
+# Union of dependencies from the two merged forks (temporal-manifolds +
+# queering-nlp-bias). Lower bounds take the higher of the two where they
+# overlapped.
 dependencies = [
+    # Interpretability / interventions (temporal-manifolds)
     "latents @ git+https://github.com/justinshenk/latents.git@257924b49ee5cc95c7e818d011d99a05bf875705",
-    "huggingface-hub>=0.31.0",
-    # torch >= 2.4 required by transformers 5.x; matches the working
-    # temporal-awareness environment (torch 2.9.x on Apple Silicon).
-    "torch>=2.4.0",
-    # transformer_lens 3.x (beta) is required for transformers 5.x
-    # compatibility; 2.x crashes on the removed TRANSFORMERS_CACHE attribute.
     "transformer_lens>=3.0.0b3",
-    "transformers>=5.0.0",
     "nnsight>=0.6.0",
-    "numpy>=1.24.0",
-    "scipy>=1.11.0",
+    # Hugging Face ecosystem
+    "transformers>=5.0.0",
+    "huggingface-hub[cli]>=0.31.0",
+    "datasets",
+    "accelerate",
+    "safetensors",
+    "tokenizers",
+    # Core numeric / ML
+    "torch>=2.6.0",
+    "torchvision>=0.21.0",
+    "numpy>=1.26.0",
+    "scipy>=1.12.0",
     "scikit-learn>=1.3.0",
-    "pandas>=2.0.0",
-    "matplotlib>=3.7.0",
+    "pandas>=2.2.0",
+    "networkx>=3.2.0",
+    "einops",
+    "jaxtyping",
+    "pydantic>=2.0.0",
+    # Apple Silicon inference (queering-nlp-bias)
+    "mlx>=0.22.0; sys_platform == 'darwin' and platform_machine == 'arm64'",
+    "mlx-lm>=0.22.0; sys_platform == 'darwin' and platform_machine == 'arm64'",
+    # Model provider SDKs
+    "openai>=1.0.0",
+    "anthropic>=0.40.0",
+    "google-genai>=1.0.0",
+    "ollama>=0.4.0",
+    "tiktoken>=0.5.0",
+    "sentence-transformers",
+    # Plotting / viz
+    "matplotlib>=3.8.0",
     "seaborn>=0.13.0",
     "plotly>=6.5.1",
-    "tqdm>=4.65.0",
+    # Webapp (queering-nlp-bias)
+    "streamlit>=1.55.0",
+    "fastapi>=0.135.1",
+    "uvicorn>=0.41.0",
+    "websockets>=16.0",
+    # Experiment tracking & utilities
+    "wandb",
+    "tqdm>=4.66.0",
     "pyyaml>=6.0",
     "python-dotenv>=1.0.0",
-    "tiktoken>=0.5.0",
+    "psutil>=5.9.0",
+    "pypdf>=6.8.0",
 ]
 
 [project.optional-dependencies]
-dev = ["pytest>=8.0", "ruff>=0.5", "black>=24.0", "nbstripout>=0.7"]
-api = ["openai>=1.0.0", "anthropic>=0.25.0"]
-# Manifold-projection deps. Heavy build (llvmlite); install only when needed
-# for experiments 03/06.
+dev = [
+    "pytest>=8.0",
+    "ruff>=0.5",
+    "black>=24.0",
+    "mypy>=1.17.1",
+    "nbstripout>=0.7",
+    "jupyterlab",
+    "ipykernel",
+    "ipywidgets",
+]
+# Manifold-projection deps. Heavy build (llvmlite); install only when needed.
 viz = ["umap-learn>=0.5.11", "pacmap>=0.9.1"]
+
+[project.urls]
+"Homepage" = "https://github.com/unrulyabstractions/apart-june2026"
+"Source" = "https://github.com/unrulyabstractions/apart-june2026"
 
 [tool.setuptools.packages.find]
 include = ["src*"]
@@ -46,13 +98,22 @@ include = ["src*"]
 [tool.uv]
 prerelease = "allow"
 
+[dependency-groups]
+dev = [
+    "pytest>=8.0",
+    "ruff>=0.12.12",
+    "black>=25.1.0",
+    "mypy>=1.17.1",
+    "nbstripout>=0.7",
+]
+
 [tool.ruff]
 line-length = 100
 target-version = "py312"
 
 [tool.ruff.lint]
 select = ["E", "F", "W"]
-# Mirrors temporal-awareness: pragmatic ignores for inherited research code
+# Pragmatic ignores for inherited research code.
 ignore = [
     "E741",   # ambiguous variable name (l, I, O) — common for layers/indices
     "E402",   # module-level import not at top — scripts bootstrap sys.path first
@@ -68,6 +129,20 @@ ignore = [
 "src/**/__init__.py" = ["F401", "F811"]  # re-exports
 "src/common/math/entropy_diversity/entropy_primitives.py" = ["F401"]  # re-exports _EPS
 
+[tool.black]
+line-length = 100
+target-version = ['py312']
+
+[tool.mypy]
+python_version = "3.12"
+warn_unused_configs = true
+# Lenient for research code (was strict in queering-nlp-bias).
+disallow_untyped_defs = false
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-addopts = "-q"
+addopts = "-q -m 'not slow'"
+markers = [
+    "slow: marks tests as slow (deselect with '-m \"not slow\"')",
+    "integration: marks integration tests",
+]

@@ -7,10 +7,11 @@ and utility functions for creating trajectories from forward pass outputs.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from pathlib import Path
 
 import torch
-from pathlib import Path
-from ..common.token_trajectory import TokenTrajectory
+
+from src.common.token_trajectory import TokenTrajectory
 
 
 @dataclass

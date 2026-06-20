@@ -9,14 +9,13 @@ Provides native/numpy/torch implementations of:
 from __future__ import annotations
 
 import math
-from typing import Sequence
+from collections.abc import Sequence
 
 import numpy as np
 import torch
 from scipy.special import logsumexp as scipy_logsumexp
 
 from .core_impl import _EPS, _log_sum_exp_native
-
 
 # ── Power mean (raw values) ───────────────────────────────────────────────────
 
