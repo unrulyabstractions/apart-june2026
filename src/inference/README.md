@@ -59,10 +59,10 @@ sims = runner.similarities("hello", ["hi", "bye"])
 ## Backends Directory
 
 - `model_backend.py`: Base `Backend` abstract class
-- `huggingface_backend.py`: HuggingFace + transformers
-- `mlx_backend.py`: MLX for Apple Silicon
-- `openai_backend.py`: OpenAI API
-- `anthropic_backend.py`: Anthropic API (no logprobs)
+- `backend_huggingface.py`: HuggingFace + transformers
+- `backend_mlx.py`: MLX for Apple Silicon
+- `backend_openai.py`: OpenAI API
+- `backend_anthropic.py`: Anthropic API (no logprobs)
 - `backend_selection.py`: Hardware detection logic
 
 See [EXPLANATION.md](./EXPLANATION.md) for detailed architecture and API specifications.

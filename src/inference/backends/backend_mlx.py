@@ -31,6 +31,20 @@ def _get_stream_generate():
     return stream_generate
 
 
+def _get_make_sampler():
+    """Lazy import of mlx_lm make_sampler.
+
+    Tries the current mlx-lm location (``mlx_lm.sample_utils``) first and
+    falls back to the older top-level ``mlx_lm`` export for compatibility.
+    """
+    try:
+        from mlx_lm.sample_utils import make_sampler
+    except ImportError:
+        from mlx_lm import make_sampler
+
+    return make_sampler
+
+
 class MLXBackend(Backend):
     """Backend using MLX for Apple Silicon inference."""
 
@@ -108,8 +122,7 @@ class MLXBackend(Backend):
             generate = _get_generate()
 
             if temperature > 0:
-                from mlx_lm.sample_utils import make_sampler
-
+                make_sampler = _get_make_sampler()
                 sampler = make_sampler(temp=temperature)
             else:
                 sampler = None
@@ -300,8 +313,7 @@ class MLXBackend(Backend):
 
         # Create sampler based on temperature
         if temperature > 0:
-            from mlx_lm.sample_utils import make_sampler
-
+            make_sampler = _get_make_sampler()
             sampler = make_sampler(temp=temperature)
         else:
             sampler = None
@@ -531,8 +543,7 @@ class MLXBackend(Backend):
         # Build kwargs for stream_generate
         kwargs = {}
         if temperature > 0:
-            from mlx_lm.sample_utils import make_sampler
-
+            make_sampler = _get_make_sampler()
             kwargs["sampler"] = make_sampler(temp=temperature)
 
         all_token_ids = list(token_ids)

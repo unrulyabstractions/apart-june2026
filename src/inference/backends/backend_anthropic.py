@@ -15,6 +15,7 @@ For binary choice, use the prefill technique with max_tokens=1.
 from __future__ import annotations
 
 import os
+import time
 from collections.abc import Sequence
 from typing import Any, Optional
 
@@ -23,6 +24,86 @@ import torch
 from .api_tokenizer import APITokenizer
 from .model_backend import Backend, BinaryChoiceResult
 from ..interventions import Intervention
+
+# Retry configuration
+MAX_RETRIES = 5
+INITIAL_BACKOFF = 1.0  # seconds
+MAX_BACKOFF = 60.0  # seconds
+BACKOFF_MULTIPLIER = 2.0
+
+
+def _retry_api_call(func, *args, **kwargs):
+    """Execute API call with exponential backoff retry.
+
+    Handles transient errors like empty responses, connection errors,
+    rate limits, and server errors (5xx). Client errors (4xx) are not retried.
+
+    Note: anthropic exception types are imported lazily so the module can be
+    imported without the anthropic package installed.
+    """
+    from anthropic import APIConnectionError, APIStatusError, RateLimitError
+
+    last_exception = None
+    backoff = INITIAL_BACKOFF
+
+    for attempt in range(MAX_RETRIES):
+        try:
+            return func(*args, **kwargs)
+        except RateLimitError as e:
+            # Rate limit - use longer backoff
+            last_exception = e
+            wait_time = min(backoff * 2, MAX_BACKOFF)
+            print(
+                f"  [Retry {attempt + 1}/{MAX_RETRIES}] Rate limited, "
+                f"waiting {wait_time:.1f}s..."
+            )
+            time.sleep(wait_time)
+            backoff = min(backoff * BACKOFF_MULTIPLIER, MAX_BACKOFF)
+        except APIConnectionError as e:
+            # Connection error - retry with backoff
+            last_exception = e
+            print(
+                f"  [Retry {attempt + 1}/{MAX_RETRIES}] Connection error, "
+                f"waiting {backoff:.1f}s..."
+            )
+            time.sleep(backoff)
+            backoff = min(backoff * BACKOFF_MULTIPLIER, MAX_BACKOFF)
+        except APIStatusError as e:
+            # Server errors (5xx) - retry; client errors (4xx) - don't retry
+            if e.status_code >= 500:
+                last_exception = e
+                print(
+                    f"  [Retry {attempt + 1}/{MAX_RETRIES}] Server error "
+                    f"{e.status_code}, waiting {backoff:.1f}s..."
+                )
+                time.sleep(backoff)
+                backoff = min(backoff * BACKOFF_MULTIPLIER, MAX_BACKOFF)
+            else:
+                # Client error (4xx) - don't retry
+                raise
+        except Exception as e:
+            # Catch JSON decode errors and other transient issues
+            error_str = str(e).lower()
+            if (
+                "json" in error_str
+                or "expecting value" in error_str
+                or "empty" in error_str
+            ):
+                last_exception = e
+                print(
+                    f"  [Retry {attempt + 1}/{MAX_RETRIES}] Empty/invalid "
+                    f"response, waiting {backoff:.1f}s..."
+                )
+                time.sleep(backoff)
+                backoff = min(backoff * BACKOFF_MULTIPLIER, MAX_BACKOFF)
+            else:
+                # Unknown error - re-raise
+                raise
+
+    # All retries exhausted
+    raise RuntimeError(
+        f"API call failed after {MAX_RETRIES} retries. Last error: {last_exception}"
+    ) from last_exception
 
 
 class AnthropicBackend(Backend):
@@ -128,7 +209,8 @@ class AnthropicBackend(Backend):
         if self._supports_temperature():
             kwargs["temperature"] = temperature if temperature > 0 else 0.0
 
-        response = client.messages.create(**kwargs)
+        # Use retry wrapper for robustness against transient API errors
+        response = _retry_api_call(client.messages.create, **kwargs)
 
         # Extract text from response
         if response.content and len(response.content) > 0:
@@ -195,7 +277,7 @@ class AnthropicBackend(Backend):
         }
         if self._supports_temperature():
             kwargs["temperature"] = 0
-        response = client.messages.create(**kwargs)
+        response = _retry_api_call(client.messages.create, **kwargs)
 
         # Extract the generated token
         generated = ""
@@ -380,3 +462,94 @@ class AnthropicBackend(Backend):
         all_logprobs = [0.0] * len(all_token_ids)
 
         return all_token_ids, all_logprobs
+
+    def generate_trajectory_from_prompt(
+        self,
+        prompt: str,
+        max_new_tokens: int,
+        temperature: float,
+        prefilling: str = "",
+    ) -> tuple[list[int], list[float], str, str]:
+        """Generate trajectory with proper prefill handling for Anthropic.
+
+        Uses an assistant message to implement true prefill - the API returns
+        only the continuation after the prefill.
+
+        Note: Some Claude models (e.g., Claude 4.x) don't support assistant
+        message prefill. For these models, we fall back to non-prefill mode
+        and return the full response as continuation.
+
+        Args:
+            prompt: User prompt text
+            max_new_tokens: Maximum tokens to generate
+            temperature: Sampling temperature (0.0 = greedy)
+            prefilling: Text to prefill the assistant response with
+
+        Returns:
+            Tuple of (all_token_ids, logprobs, prefill_text, generated_text)
+            where logprobs are all 0.0 (Anthropic doesn't provide them).
+        """
+        from anthropic import APIStatusError
+
+        client = self._get_client()
+
+        # Build messages with prefill as assistant message
+        # Strip trailing whitespace - Anthropic API rejects it
+        messages = [{"role": "user", "content": prompt}]
+        prefill_stripped = prefilling.rstrip() if prefilling else ""
+        use_prefill = bool(prefill_stripped)
+
+        if use_prefill:
+            messages.append({"role": "assistant", "content": prefill_stripped})
+
+        kwargs: dict[str, Any] = {
+            "model": self._model,
+            "max_tokens": max_new_tokens,
+            "messages": messages,
+        }
+        if self._supports_temperature():
+            kwargs["temperature"] = temperature if temperature > 0 else 0.0
+
+        try:
+            # Use retry wrapper for robustness
+            response = _retry_api_call(client.messages.create, **kwargs)
+        except APIStatusError as e:
+            # Handle models that don't support prefill (e.g., Claude 4.x)
+            if "does not support assistant message prefill" in str(e) and use_prefill:
+                # Retry without prefill
+                kwargs["messages"] = [{"role": "user", "content": prompt}]
+                response = _retry_api_call(client.messages.create, **kwargs)
+
+                # Return full response (no prefill applied)
+                continuation = ""
+                if response.content and len(response.content) > 0:
+                    continuation = response.content[0].text
+
+                prompt_ids = self._tokenizer.encode(prompt)
+                response_ids = self._tokenizer.encode(continuation)
+                all_token_ids = prompt_ids + response_ids
+                all_logprobs = [0.0] * len(all_token_ids)
+
+                # Return with empty prefill (model didn't support it)
+                return all_token_ids, all_logprobs, "", continuation
+            raise
+
+        # Extract continuation (text after prefill)
+        continuation = ""
+        if response.content and len(response.content) > 0:
+            continuation = response.content[0].text
+
+        # Full response = prefill + continuation
+        full_response = prefilling + continuation
+
+        # Tokenize prompt and full response
+        prompt_ids = self._tokenizer.encode(prompt)
+        response_ids = self._tokenizer.encode(full_response)
+
+        # Build full token sequence
+        all_token_ids = prompt_ids + response_ids
+
+        # All logprobs are 0.0 (Anthropic doesn't provide them)
+        all_logprobs = [0.0] * len(all_token_ids)
+
+        return all_token_ids, all_logprobs, prefilling, continuation

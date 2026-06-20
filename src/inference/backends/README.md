@@ -48,8 +48,8 @@ All backends implement:
 
 - `model_backend.py` - `ModelBackend` enum and `Backend` abstract class
 - `backend_selection.py` - Auto-selection logic based on hardware
-- `huggingface_backend.py` - HuggingFace Transformers backend
-- `mlx_backend.py` - MLX backend for Apple Silicon
-- `openai_backend.py` - OpenAI API backend
-- `anthropic_backend.py` - Anthropic API backend
+- `backend_huggingface.py` - HuggingFace Transformers backend
+- `backend_mlx.py` - MLX backend for Apple Silicon
+- `backend_openai.py` - OpenAI API backend
+- `backend_anthropic.py` - Anthropic API backend
 - `api_tokenizer.py` - Shared tokenizer for API-based backends

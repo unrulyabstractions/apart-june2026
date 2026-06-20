@@ -74,18 +74,29 @@ class TokenTree(BaseSchema):
         return None
 
     def add_trajectory(
-        self, traj: TokenTrajectory, group_idx: Sequence[int]
+        self,
+        traj: TokenTrajectory,
+        group_idx: Sequence[int] | None = None,
+        arm_idx: Sequence[int] | None = None,
     ) -> TokenTree:
         """Add a trajectory and return a new tree.
 
         Args:
             traj: New trajectory to add
-            group_idx: Which groups this trajectory belongs to. Accepted under
-                the ``arm_idx`` keyword as well for the queering-nlp-bias fork.
+            group_idx: Which groups this trajectory belongs to. The
+                queering-nlp-bias fork passes this under the ``arm_idx``
+                keyword; both names are accepted and are equivalent.
+            arm_idx: Alias for ``group_idx`` (queering-nlp-bias naming).
 
         Returns:
             New TokenTree with the trajectory added, nodes/forks recalculated
         """
+        if group_idx is None:
+            group_idx = arm_idx
+        if group_idx is None:
+            raise TypeError(
+                "add_trajectory() missing required argument: 'group_idx' (or 'arm_idx')"
+            )
         return add_trajectory_to_tree(self, traj, group_idx)
 
     def add_fork_between_groups(self, fork_arm: tuple[int, int]) -> TokenTree:
