@@ -582,7 +582,12 @@ $0.13$ and a leading principal component explaining $63\%$ of the variance at th
 answer position (\Cref{fig:stab-div}(b), \Cref{fig:scaffold-effects}(b)). The
 geometry condition is \texttt{interpretive\_direction} rather than the
 behaviorally selected $s^\star$, so its shift indexes scaffold-induced movement
-in general, not yet $s^\star$ specifically.
+in general, not yet $s^\star$ specifically. Funnelling the answer-position
+representation through every SESGO label (\Cref{fig:geometry-axes}) is telling:
+the embedding separates by \emph{scaffold} but \emph{not} along origin
+(original vs.\ BBQ-adapted), language, bias category, question polarity, or
+target/other identity---each has silhouette $\approx 0$, so the pilot geometry
+encodes the \emph{intervention}, not the social content of the item.
 
 \begin{table}[t]
   \centering
@@ -614,6 +619,8 @@ in general, not yet $s^\star$ specifically.
    no-scaffold baseline; the behaviorally selected $s^\star$ was not run through
    the geometry pipeline in this pilot.}
 \end{table}
+
+\plotfig{../out/sesgo/geometry/Qwen3-0.6B/plots/pca_axes_grid.png}{pca_axes_grid.png}{0.95\linewidth}{Answer-position residual geometry (PCA, layer-averaged, $n{=}25$) funnelled through every SESGO label. The representation separates by \emph{scaffold} (top-left) but collapses along the data axes---origin, language, bias category, question polarity, and target/other identity all have silhouette $\approx 0$: the pilot model encodes the intervention, not the social content. Identity panels show the top-8 groups $+$ \emph{(other)}.}{fig:geometry-axes}
 
 \begin{figure}[t]\centering
   \begin{subfigure}{0.49\linewidth}\centering
