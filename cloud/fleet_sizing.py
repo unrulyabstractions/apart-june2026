@@ -48,13 +48,18 @@ def _gpu_for(params_b: float) -> tuple[str, float, int]:
     the weights. A fixed 60 GB box ran the 24-32B downloads out of space mid-pull
     ("OSError: No space left on device"), so the big tier gets 200 GB.
     """
+    # Price ceilings are GENEROUS on purpose: fleet_launch.sh selects offers
+    # reliability-first (not cheapest-first), so the ceiling only needs to be high
+    # enough that datacenter-grade, high-reliability hosts clear it. Uptime >> a few
+    # cents/hr here.
     if params_b <= 8:
-        return "RTX_4090", 0.60, 60
+        return "RTX_4090", 1.20, 60
     if params_b <= 16:
-        return "A100_PCIE", 1.60, 120
+        return "A100_PCIE", 3.00, 120
     # H100_PCIE is frequently sold out on Vast; H100_SXM is always 80 GB (fits a
-    # 32B in bf16) and usually has cheap offers, so target it for the big tier.
-    return "H100_SXM", 3.50, 200
+    # 32B in bf16). Reliability-first selection needs price headroom to land a
+    # solid host, so the big tier gets a generous ceiling.
+    return "H100_SXM", 7.00, 200
 
 
 # The SESGO baseline size-sweep fleet: size ladders per family so we can read the

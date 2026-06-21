@@ -46,9 +46,19 @@ fi
 launch_one() {
   local model="$1" bare="$2" gpu="$3" price="$4" disk="$5" sidx="$6" scount="$7"
   local tag="${bare}__shard${sidx}of${scount}"
-  local q="gpu_name=${gpu} num_gpus>=1 verified=true rentable=true direct_port_count>=1 disk_space>=${disk} dph_total<=${price} cuda_max_good>=12.4"
+  # RELIABILITY-FIRST selection (money is not the constraint, uptime is): require a
+  # high reliability score + a datacenter-grade host so the box actually boots and
+  # is not reclaimed mid-run, and order by reliability DESC (not cheapest-first,
+  # which kept drawing flaky hosts that never reached 'running').
+  local q="gpu_name=${gpu} num_gpus>=1 verified=true rentable=true direct_port_count>=1 disk_space>=${disk} dph_total<=${price} cuda_max_good>=12.4 reliability2>=0.985"
   local offers oid create iid
-  offers="$(vastai search offers "$q" -o dph_total+ --raw)"
+  offers="$(vastai search offers "$q" -o reliability2- --raw)"
+  # Fallback: if no host clears the strict reliability bar, relax it once rather
+  # than silently giving up (still reliability-ordered, never cheapest-first).
+  if [ "$(printf '%s' "$offers" | python3 -c 'import sys,json;print(len(json.load(sys.stdin)))' 2>/dev/null || echo 0)" -eq 0 ]; then
+    q="gpu_name=${gpu} num_gpus>=1 verified=true rentable=true direct_port_count>=1 disk_space>=${disk} dph_total<=${price} cuda_max_good>=12.4 reliability2>=0.95"
+    offers="$(vastai search offers "$q" -o reliability2- --raw)"
+  fi
   oid="$(printf '%s' "$offers" | python3 -c 'import sys,json;o=json.load(sys.stdin);print(o[0]["id"] if o else "")')"
   if [ -z "$oid" ]; then echo "[$tag] NO OFFER (loosen price/gpu/disk)"; return 1; fi
   create="$(vastai create instance "$oid" --image "$IMAGE" --env "$PORTAL_ENV" \

@@ -113,6 +113,7 @@ python scripts/generate_by_simple_sampling.py trials/generation/example.json
 - Offload research, exploration, and parallel analysis to subagents
 - For complex problems, throw more compute at it via subagents
 - One task per subagent for focused execution
+- **Leverage git worktrees to parallelize aggressively — ALWAYS, by default.** For ANY independent workstream (a side experiment, a new pipeline, a refactor, a separate model run), spin up a dedicated worktree instead of working serially: `git worktree add ../apart-<name> -b <branch>`, symlink the gitignored `datasets/` into it (`ln -s <main>/datasets ../apart-<name>/datasets`), run `uv sync` there (never share/symlink the main `.venv`), and launch background agent(s)/teams to build inside it. Graceful-merge back: `git fetch` + rebase the branch onto `origin/main`, resolve only your own new files, push (on rejection: fetch + rebase + retry). Prefer many parallel worktree workstreams + cloud fleets over any serial path.
 
 3. Self-Improvement Loop
 - After ANY correction from the user: update `tasks/lessons.md` with the pattern
