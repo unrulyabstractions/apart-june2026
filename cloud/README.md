@@ -35,7 +35,7 @@ Flow:  **cloud `out/sesgo/` → local `sync/` (--ignore-existing) → human insp
 | `vast_launch.sh`   | local      | Search offers, create a GPU instance, poll until running, write the id to `cloud/.vast_instance_id`. **Spends money.** |
 | `at_vast.sh`       | local      | Resolve the SSH host fresh and run one command on the box. Used to invoke the remote `at_*` scripts. |
 | `sync_up.sh`       | local      | rsync the repo **up** to the box, excluding `out/ datasets/ sync/ .git .venv __pycache__ *.pyc paper/build`. Plus a narrow extra sync of `datasets/SESGO/prompts/*.xlsx` (required generation input). Safe direction; no `--delete`. |
-| `at_setup.sh`      | **remote** | `uv sync` (CUDA torch from PyPI; no MLX on Linux → HuggingFace/CUDA backend). Picks up `HF_TOKEN` from env if set. Device sanity check. |
+| `at_setup.sh`      | **remote** | `uv sync`, then **reinstall torch 2.6.0+cu124** (with its nvidia-cu12 runtime libs) over the cu130 wheel `uv sync` pulls, so CUDA initializes on the mixed cuda-12/cuda-13 fleet. All downstream steps use `.venv/bin/python` **directly** (NOT `uv run`, which re-syncs and reverts the pin). Picks up `HF_TOKEN`. Device check aborts the box if CUDA is unavailable. |
 | `at_run.sh`        | **remote** | Regenerate the 5 prompt datasets, then the **FULL** divergence + stability collections (no `--subsample`). Writes only to remote `out/sesgo/{divergence,stability}/`. |
 | `sync_back.sh`     | local      | **The safe pull.** rsync remote `out/sesgo/{divergence,stability}/` → local `sync/sesgo/...` with `--ignore-existing`, no `--delete`. Only ever adds new files to `sync/`. |
 | `merge_sync.sh`    | local      | Promote NEW files from `sync/` into `out/` (`--ignore-existing`, no `--delete`). Purely local; run after inspecting `sync/`. `--move` clears promoted files from `sync/`. |
@@ -166,6 +166,31 @@ list comes from the fleet plan so the two never drift.
 > built or pushed** here. A human runs them after review. vLLM is **CUDA-only** and
 > does not run on Apple Silicon — the batching logic is verified locally through the
 > equivalent HuggingFace batched path.
+
+### Known gotchas (hard-won, baked into the scripts)
+
+- **torch CUDA build mismatch.** `uv sync` pulls the latest torch wheel
+  (currently +cu130), which fails CUDA init on any host whose driver predates
+  CUDA 13. `at_setup.sh` reinstalls **torch 2.6.0+cu124** (WITH its nvidia-cu12
+  runtime libs — never `--no-deps`, or torch import dies with
+  `libcudart.so.11.0: cannot open shared object file`). cu124 runs on every
+  driver supporting CUDA ≥ 12.4, so the offer search filters `cuda_max_good>=12.4`.
+- **`uv run` reverts the pin.** Every `uv run` re-syncs the venv to the lockfile
+  first, silently reinstalling the cu130 wheel. `UV_NO_SYNC=1` did **not** prevent
+  this in practice. So all on-box python steps invoke `.venv/bin/python` directly.
+- **SSH-not-ready race.** A box reports `running` (v1 API) before sshd is
+  reachable; pushing then dies mid-rsync and leaves a half-synced box (no prompt
+  xlsx → generate writes 0 items → an EMPTY `response_samples.json`). `fleet_run`
+  now probes real SSH (`wait_ssh`), retries `sync_up`+`at_setup`, and
+  `fleet_model_run` aborts if a prompt dataset has 0 prompts.
+- **Disk too small for big weights.** 24-32B bf16 weights + the HF xet cache's
+  temp copy overflow a 60 GB box (`No space left on device` mid-download). Disk is
+  sized per model in `fleet_sizing.py` (60/120/200 GB).
+- **Vast preemption.** Cheap interruptible offers get outbid mid-run
+  (`intended_status` flips to `stopped`); the box stops and only a partial
+  checkpoint survives. Prefer `reliability>=0.95` offers and just re-launch the
+  affected models. Always sweep `vastai show instances-v1` at the end and destroy
+  any stragglers (`cloud/fleet_destroy.sh --yes-i-am-really-sure`, or by id).
 
 ---
 
