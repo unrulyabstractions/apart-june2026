@@ -63,6 +63,25 @@ panels show the dynamic states, the diversity series, and survival with the
 `p(τ=t|y)` curve overlaid. The band widths show how the outcome distribution
 "collapses" as the model commits.
 
+## Stage 5b — branching tree (`render_branching_tree.py`)
+
+The same `plot_forking_dynamics.py` run also emits a **branching tree** in the
+style of the homogenization paper's Fig. 11. It is built by `build_branching_tree`
+(in `src/dynamics/forking_paths/`) directly from the captured `{O_t}`:
+- **root** — an earlier base-path position (or the prior `o_0`), the shared frame;
+- **trunk** — the detected forking token, its barycenter `o_t` (Eq. 2);
+- **branches** — the trunk's top alternate continuations `w` (the realized base
+  token always kept), each with its own conditional outcome `o_{t,w}` (Eq. 1) and
+  the next-token mass `p(x_t=w)` on its edge.
+
+The renderer draws it left-to-right: each NODE is a horizontal STACKED BAR over the
+outcome categories (Okabe-Ito palette), each EDGE is a curved connector whose width
+encodes the branch mass and which carries its opening token label, and one legend
+names the outcome categories. The same renderer is imported by the divergence study
+(`sesgo/divergence/visualize_divergence_samples.py`), where the branches are the two
+NAMED identities of a representative ambiguous item — so both studies present the
+fork the same way the paper does.
+
 ## Verification status
 
 The full five-stage pipeline was run end-to-end on a TINY local pilot (Qwen3-0.6B,

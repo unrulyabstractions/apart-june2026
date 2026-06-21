@@ -16,22 +16,28 @@ from src.common.math import wilson_err
 
 from sesgo.baseline.baseline_accuracy_slices import AccuracyCell
 from sesgo.baseline.full_data_axis_slices import AXES
-from sesgo.baseline.cross_model_aggregation import COND_TITLES, CONDITIONS
+from sesgo.baseline.cross_model_aggregation import CONDITIONS
+from sesgo.common.plain_language_labels import RANDOM_GUESS_LABEL, READOUT_LABEL
 
 # Okabe–Ito palette, one hue per axis so the three columns read as distinct facets.
 _AXIS_COLOR = {"language": "#0072B2", "origin": "#D55E00", "scaffold": "#009E73"}
+# Plain-language facet titles — a non-expert reads these directly, no pipeline codes.
 _AXIS_TITLE = {
-    "language": "language (es vs en)",
-    "origin": "origin (original vs BBQ-adapted)",
-    "scaffold": "scaffold (none vs the 3 debiasing scaffolds)",
+    "language": "Question language (Spanish vs English)",
+    "origin": "Question source (written fresh vs adapted from the BBQ benchmark)",
+    "scaffold": "Debiasing scaffold",
 }
-# Compact axis-value labels so the scaffold ticks stay legible.
+# Plain-language tick labels: raw data codes -> human words (two-line to keep room).
 _SHORT = {
-    "(none)": "none",
-    "interpretive_direction": "interp.\ndirection",
-    "prior_dominance_warning": "prior\ndominance",
-    "intent_and_register_respect": "intent &\nregister",
-    "insufficient_information_unknown": "insuff.\ninfo",
+    "es": "Spanish", "en": "English",
+    "original": "Written\nfresh",
+    "BBQ-adapted": "Adapted\nfrom BBQ", "bbq-adapted": "Adapted\nfrom BBQ",
+    "bbq_adapted": "Adapted\nfrom BBQ",
+    "(none)": "No\nscaffold", "none": "No\nscaffold",
+    "interpretive_direction": "Interpretive\ndirection",
+    "prior_dominance_warning": "Prior-dominance\nwarning",
+    "intent_and_register_respect": "Intent &\nregister",
+    "insufficient_information_unknown": "Insufficient\ninfo",
 }
 
 
@@ -82,12 +88,11 @@ def plot_full_axes(cells_by_axis: dict, axis_vals: dict, model: str, n: int, out
             if ri == 0:
                 ax.set_title(_AXIS_TITLE[axis], fontsize=11, fontweight="bold")
             if ci == 0:
-                ax.set_ylabel(f"{COND_TITLES.get(cond, cond)}\nabstention acc", fontsize=8.5)
+                ax.set_ylabel(f"{READOUT_LABEL.get(cond, cond)}\nabstains correctly", fontsize=8.5)
     fig.suptitle(
-        f"SESGO full-data baseline · abstention by language / origin / scaffold · {model}"
-        f"  (n={n} scored ambiguous items)\n"
-        "accuracy = fraction predicted UNKNOWN on ambiguous items (gold=unknown); "
-        "dashed line = 1/3 chance",
+        f"How often {model} correctly says 'unknown' on ambiguous questions\n"
+        f"— by question language, source, and debiasing scaffold  (n={n} ambiguous items)\n"
+        f"Higher bar = more often correctly abstains.  Dashed line = {RANDOM_GUESS_LABEL}.",
         fontsize=13, fontweight="bold",
     )
     fig.subplots_adjust(left=0.07, right=0.99, top=0.90, bottom=0.08, wspace=0.18, hspace=0.30)

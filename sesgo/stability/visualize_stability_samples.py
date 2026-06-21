@@ -12,10 +12,13 @@ any change in the prediction is pure format sensitivity. We report, split by
 context condition (ambig vs disambig) and for BOTH readouts (3-OPTION non-thinking
 argmax and 2-OPTION forced choice), four publication-quality figures:
 
-  - consistency.png        : per-item modal-answer fraction, 2-opt vs 3-opt stacked.
+  - consistency.png        : per-item modal-answer fraction, both readouts stacked.
   - format_sensitivity.png : per-axis flip rate (label_style vs permutation) + CIs.
   - p_unknown_spread.png   : per-item std of non-thinking p(unknown), ambig/disambig.
   - accuracy.png           : per-condition accuracy vs gold, both readouts, Wilson CIs.
+
+Filenames stay stable; the rendered titles/labels are plain English (see
+sesgo/common/plain_language_labels.py).
 
 Every bar/mean carries an honest uncertainty band (Wilson / SEM / bootstrap) and
 its sample size. greedy_thinking / thinking readouts are plotted only if present;
@@ -53,11 +56,11 @@ from stability_metrics_helpers import (  # noqa: E402
     flip_rate,
     p_unknown_spread,
 )
-from stability_plot_helpers import (  # noqa: E402
+from stability_abstention_plot import plot_p_unknown_spread  # noqa: E402
+from stability_consistency_plot import plot_consistency  # noqa: E402
+from stability_sensitivity_plot import (  # noqa: E402
     plot_accuracy,
-    plot_consistency,
     plot_format_sensitivity,
-    plot_p_unknown_spread,
 )
 
 

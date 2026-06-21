@@ -50,6 +50,7 @@ from __future__ import annotations
 import argparse
 import pathlib
 import sys
+import textwrap
 from pathlib import Path
 
 import matplotlib
@@ -68,6 +69,11 @@ from sesgo.geometry.geometry_color_axes import (  # noqa: E402
     COLOR_AXES,
     KEY_SWEEP_AXIS_KEYS,
     SCAFFOLD_AXIS_KEY,
+)
+from sesgo.geometry.geometry_plain_labels import (  # noqa: E402
+    axis_title,
+    axis_value_label,
+    position_label,
 )
 from sesgo.geometry.geometry_feature_layer import (  # noqa: E402
     FeatureLayer,
@@ -126,6 +132,35 @@ def _colour(label: str, ordered: list[str]) -> str:
     return PALETTE[(rest.index(label) + 1) % len(PALETTE)]
 
 
+def _layer_phrase(feat: FeatureLayer) -> str:
+    """Plain "layer 14 of 28 (halfway through)" tag, no pipeline jargon."""
+    if feat.total_layers <= 0:
+        return "averaged over the prompt"
+    return (f"layer {feat.layer_index} of {feat.total_layers} "
+            f"({feat.relative_depth:.0%} of the way through the network)")
+
+
+def _wrap_tick(text: str, width: int = 14) -> str:
+    """Wrap a multi-word x-tick label across lines so dense axes stay readable."""
+    return "\n".join(textwrap.wrap(text, width=width)) or text
+
+
+def _separation_note(sil: float | None, lo=None, hi=None) -> str:
+    """Compact, plain separation-score phrase (empty when no score is available)."""
+    if sil is None:
+        return ""
+    note = f"Separation score {sil:.2f} (1 = fully apart, 0 = overlapping, below 0 = intermixed)"
+    return note + (f" [{lo:.2f}, {hi:.2f}]" if lo is not None else "")
+
+
+def _scatter_subtitle(ptype: str, feat: FeatureLayer, n: int, sep: str) -> str:
+    """One wrapped 'how to read it' subtitle line shared by the PCA scatters."""
+    base = f"Read at {position_label(ptype)}; {_layer_phrase(feat)}, n={n}"
+    if sep:
+        base += f". {sep}"
+    return wrapped(base, 90)
+
+
 def _ordered_scaffolds(labels: set[str]) -> list[str]:
     """Scaffold labels with the baseline first, the rest sorted after it."""
     rest = sorted(labels - {BASELINE})
@@ -173,7 +208,7 @@ def _draw_centroid_shift(ax, stats: dict, ordered: list[str]) -> None:
         ci = ""
         if "shift_ci_low" in sh:
             ci = f"\n[{sh['shift_ci_low']:.1f}, {sh['shift_ci_high']:.1f}]"
-        ax.annotate(f"shift = {sh['shift_magnitude']:.1f}{ci}",
+        ax.annotate(f"how far the scaffold\nmoved the state = {sh['shift_magnitude']:.1f}{ci}",
                     xy=((bx + tx) / 2, (by + ty) / 2), fontsize=8.5,
                     fontweight="bold", color="#333333", ha="center", va="bottom",
                     bbox=dict(boxstyle="round,pad=0.25", fc="white", ec="#999999",
@@ -192,17 +227,17 @@ def plot_pca_scatter(block: dict, ptype: str, feat: FeatureLayer, model: str, ou
     fig, ax = plt.subplots(figsize=(7.5, 6.5))
     for lab in ordered:
         idx = [i for i, l in enumerate(labels) if l == lab]
+        pretty = "No scaffold" if lab == BASELINE else axis_value_label(SCAFFOLD_AXIS_KEY, lab)
         ax.scatter(coords[idx, 0], coords[idx, 1], s=70, alpha=0.8,
                    color=_colour(lab, ordered), edgecolor="white", linewidth=0.6,
-                   label=f"{lab} (n={len(idx)})", zorder=4)
+                   label=f"{pretty} (n={len(idx)})", zorder=4)
     _draw_centroid_shift(ax, stats, ordered)
 
+    # Frame to the cluster (no forced equal aspect: it would expand the empty
+    # y-range and collapse both clouds into a single dot, hiding the separation).
     xlim, ylim = robust_limits(coords, cent_xy)
     ax.set_xlim(*xlim)
     ax.set_ylim(*ylim)
-    ax.set_aspect("equal", adjustable="datalim")
-    fig.canvas.draw()
-    xlim, ylim = ax.get_xlim(), ax.get_ylim()
     inside = ((coords[:, 0] >= xlim[0]) & (coords[:, 0] <= xlim[1])
               & (coords[:, 1] >= ylim[0]) & (coords[:, 1] <= ylim[1]))
     n_off = int((~inside).sum())
@@ -212,19 +247,17 @@ def plot_pca_scatter(block: dict, ptype: str, feat: FeatureLayer, model: str, ou
                 color="#777777", style="italic")
     ax.axhline(0, color="#cccccc", lw=0.8, zorder=1)
     ax.axvline(0, color="#cccccc", lw=0.8, zorder=1)
-    ax.set_xlabel(f"PC1  ({evr[0]:.0%} explained variance)")
-    ax.set_ylabel(f"PC2  ({evr[1]:.0%} explained variance)" if len(evr) > 1 else "PC2")
+    ax.set_xlabel(f"PC1  ({evr[0]:.0%} of variance)")
+    ax.set_ylabel(f"PC2  ({evr[1]:.0%} of variance)" if len(evr) > 1 else "PC2")
 
-    sil = stats.get("silhouette")
-    subtitle = f"{feat.title_suffix()}, n={block['n_samples']}"
-    if sil is not None:
-        lo, hi = stats.get("silhouette_ci_low"), stats.get("silhouette_ci_high")
-        subtitle += f", scaffold silhouette={sil:.2f}"
-        if lo is not None:
-            subtitle += f" [{lo:.2f}, {hi:.2f}]"
-    ax.set_title(wrapped(f"SESGO representational geometry @ {ptype}  ({model})")
-                 + f"\n{subtitle}", fontsize=12)
-    ax.legend(loc="best", frameon=True, framealpha=0.92)
+    sep = _separation_note(stats.get("silhouette"), stats.get("silhouette_ci_low"),
+                           stats.get("silhouette_ci_high"))
+    ax.set_title(
+        wrapped(f"The model's internal state, with vs without a debiasing scaffold "
+                f"({model})", 62)
+        + "\nFar-apart clouds mean the scaffold changed how the model reads the prompt."
+        + f"\n{_scatter_subtitle(ptype, feat, block['n_samples'], sep)}", fontsize=11)
+    ax.legend(loc="best", frameon=True, framealpha=0.92, title="Coloured by scaffold")
     return finish(fig, out_path)
 
 
@@ -265,7 +298,7 @@ def _draw_one_axis(ax, block: dict, axis, evr: list[float]):
         return draw_continuous_scatter(ax, coords, vals, evr), 0
     vals = [_cat_value(s, axis.key) for s in samples]
     coords = np.asarray([s["coord2d"] for s in samples], dtype=float)
-    return None, draw_axis_scatter(ax, coords, vals, evr)
+    return None, draw_axis_scatter(ax, coords, vals, evr, axis.key)
 
 
 def plot_pca_by_axis(block: dict, axis, feat: FeatureLayer, model: str, out_path: Path) -> Path:
@@ -277,20 +310,31 @@ def plot_pca_by_axis(block: dict, axis, feat: FeatureLayer, model: str, out_path
         ax.text(0.99, 0.01, f"{n_off} outlier point(s) off-view",
                 transform=ax.transAxes, ha="right", va="bottom", fontsize=8,
                 color="#777777", style="italic")
-    subtitle = f"@ {_AXIS_PANEL_POSITION}, {feat.title_suffix()}, n={block['n_samples']}"
+    pretty = axis_title(axis.key, axis.pretty)
+    sep, cap, n_distinct = "", None, None
     if mappable is not None:
-        fig.colorbar(mappable, ax=ax, fraction=0.046, pad=0.02, label=axis.pretty)
+        fig.colorbar(mappable, ax=ax, fraction=0.046, pad=0.02, label=pretty)
     else:
-        sil = _axis_silhouette(block, axis.key)
-        if sil is not None:
-            subtitle += f", silhouette={sil:.2f}"
-        cap = axis_caption([_cat_value(s, axis.key) for s in block["samples"]])
-        if cap:
-            subtitle += f"\n{cap}"
+        sep = _separation_note(_axis_silhouette(block, axis.key))
+        cat_values = [_cat_value(s, axis.key) for s in block["samples"]]
+        n_distinct = len({v for v in cat_values if v is not None})
+        cap = axis_caption(cat_values)
         ax.legend(loc="best", frameon=True, framealpha=0.92, fontsize=8,
-                  title=axis.pretty, title_fontsize=9)
-    ax.set_title(wrapped(f"SESGO geometry coloured by {axis.pretty}  ({model})")
-                 + f"\n{subtitle}", fontsize=12)
+                  title=f"Coloured by {pretty}", title_fontsize=9)
+    subtitle = _scatter_subtitle(_AXIS_PANEL_POSITION, feat, block["n_samples"], sep)
+    if cap:
+        subtitle += f"\n{cap}"
+    # The "separate clusters = encodes this" gloss only makes sense with >=2 colours to
+    # contrast; gate it so a single-value axis or a continuous colourbar reads honestly.
+    if mappable is not None:
+        howto = "\nColour = the value; a smooth gradient across the cloud means the state tracks it."
+    elif n_distinct is not None and n_distinct <= 1:
+        howto = "\nOnly one value is present in this run — no contrast to show."
+    else:
+        howto = "\nSeparate clusters mean the model encodes this; overlap means it does not."
+    ax.set_title(
+        wrapped(f"The model's internal state, coloured by {pretty}  ({model})", 62)
+        + howto + f"\n{subtitle}", fontsize=11)
     return finish(fig, out_path)
 
 
@@ -304,7 +348,7 @@ def plot_axes_grid(block: dict, feat: FeatureLayer, model: str, out_path: Path) 
     flat = axes.ravel()
     for ax, axis in zip(flat, _AXES):
         mappable, _ = _draw_one_axis(ax, block, axis, evr)
-        title = axis.pretty
+        title = axis_title(axis.key, axis.pretty)
         if axis.continuous:
             fig.colorbar(mappable, ax=ax, fraction=0.046, pad=0.02)
         else:
@@ -315,9 +359,12 @@ def plot_axes_grid(block: dict, feat: FeatureLayer, model: str, out_path: Path) 
         ax.set_title(title, fontsize=10)
     for ax in flat[n:]:
         ax.axis("off")
-    fig.suptitle(wrapped(f"SESGO answer-position geometry by every axis  ({model}, "
-                         f"{feat.title_suffix()}, n={block['n_samples']})", 78),
-                 fontsize=13, fontweight="bold")
+    fig.suptitle(
+        wrapped(f"The same internal state, coloured many ways  ({model})", 78)
+        + "\nEach panel recolours the model's state at the answer token. Separate "
+          "clusters = the model encodes that property; overlap = it does not."
+        + f"\n{_layer_phrase(feat)}, n={block['n_samples']}",
+        fontsize=12, fontweight="bold")
     return finish(fig, out_path)
 
 
@@ -342,32 +389,37 @@ def plot_centroid_shift_bars(results: dict, model: str, out_path: Path) -> Path:
     n_by_pos = {p: max((results[L][p]["n_samples"] for L in layers if p in results[L]),
                        default=0) for p in positions}
 
-    fig, ax = plt.subplots(figsize=(9.5, 5.8))
-    width = 0.8 / max(len(layers), 1)
+    fig, ax = plt.subplots(figsize=(13.0, 6.0))
+    width = 0.86 / max(len(layers), 1)
     x = np.arange(len(positions))
+    # Colour each layer along a depth gradient (shallow -> deep) so the 15 series
+    # read as one ordered ramp instead of clashing repeated hues. 120 bars would
+    # bury per-bar numbers, so we let the bars + CI whiskers carry the values.
+    cmap = plt.get_cmap("viridis")
     for j, layer in enumerate(layers):
         vals = [by_cell.get((p, layer), (0.0, 0.0, 0.0)) for p in positions]
         mags = [v[0] for v in vals]
         elo = [max(0.0, v[0] - v[1]) for v in vals]
         ehi = [max(0.0, v[2] - v[0]) for v in vals]
-        xpos = x + j * width - 0.4 + width / 2
-        ax.bar(xpos, mags, width, color=PALETTE[(j + 1) % len(PALETTE)],
-               label=f"layer={layer}", zorder=3)
-        ax.errorbar(xpos, mags, yerr=[elo, ehi], fmt="none", ecolor="#333333",
-                    elinewidth=1.4, capsize=4, capthick=1.4, zorder=4)
-        for xi, (m, _lo, hi) in zip(xpos, vals):
-            if m > 0:
-                ax.text(xi, hi + 0.02 * max(r[2] for r in rows), f"{m:.1f}",
-                        ha="center", va="bottom", fontsize=8.5, fontweight="bold")
+        xpos = x + j * width - 0.43 + width / 2
+        ax.bar(xpos, mags, width, color=cmap(j / max(len(layers) - 1, 1)),
+               label=f"Layer {layer}", zorder=3)
+        ax.errorbar(xpos, mags, yerr=[elo, ehi], fmt="none", ecolor="#555555",
+                    elinewidth=0.9, capsize=2, capthick=0.9, zorder=4)
     top = max((r[4] for r in rows), default=1.0)
     ax.set_ylim(0, top * 1.22)
     ax.set_xticks(x)
-    ax.set_xticklabels([f"{p}\n(n={n_by_pos[p]})".replace("_", " ") for p in positions])
-    ax.set_xlabel("structural position")
-    ax.set_ylabel("centroid shift magnitude\n(full-dim L2, baseline -> interpretive)")
-    ax.set_title(wrapped("How far the interpretive scaffold moves the representation "
-                         f"(bootstrap 95% CI)  ({model})", 64))
-    ax.legend(title="layer reduction", frameon=True)
+    ax.set_xticklabels([f"{_wrap_tick(position_label(p), 12)}\n(n={n_by_pos[p]})"
+                        for p in positions], fontsize=8)
+    ax.set_xlabel("Where in the prompt we read the model's state")
+    ax.set_ylabel("How far the scaffold moved the state\n(distance between cloud centres)")
+    ax.set_title(
+        wrapped(f"How much the debiasing scaffold shifts the model's internal state "
+                f"({model})", 64)
+        + "\nTaller bars = a bigger shift. Bars run shallow (dark) to deep (yellow); "
+          "whiskers show 95% confidence intervals.")
+    ax.legend(title="Read at layer", frameon=True, ncol=2, fontsize=8,
+              title_fontsize=9, loc="upper left")
     return finish(fig, out_path)
 
 
@@ -381,12 +433,14 @@ def plot_silhouette_separability(results: dict, feat: FeatureLayer, model: str, 
     pairs = [("scaffold", block["scaffold_stats"].get("silhouette"),
               block["scaffold_stats"].get("silhouette_ci_low"),
               block["scaffold_stats"].get("silhouette_ci_high"))]
+    # Skip the duplicate "scaffold" entry already shown from scaffold_stats above.
     for axis, sep in block.get("axis_separation", {}).items():
-        pairs.append((axis, sep.get("silhouette"), None, None))
+        if axis != "scaffold":
+            pairs.append((axis, sep.get("silhouette"), None, None))
     pairs = [(a, s, lo, hi) for a, s, lo, hi in pairs if s is not None]
     pairs.sort(key=lambda t: t[1], reverse=True)
 
-    fig, ax = plt.subplots(figsize=(9.5, 5.5))
+    fig, ax = plt.subplots(figsize=(12.0, 6.2))
     x = np.arange(len(pairs))
     vals = [p[1] for p in pairs]
     colours = [PALETTE[0] if p[0] == "scaffold" else "#999999" for p in pairs]
@@ -400,12 +454,19 @@ def plot_silhouette_separability(results: dict, feat: FeatureLayer, model: str, 
                 fontsize=8.5, fontweight="bold")
     ax.axhline(0, color="#888888", lw=1.0, zorder=2)
     ax.set_xticks(x)
-    ax.set_xticklabels([p[0].replace("_", "\n") for p in pairs], fontsize=8.5)
-    ax.set_ylabel("silhouette separability\n(full PCA space)")
-    ax.set_title(wrapped(f"Which axis separates the representation @ "
-                         f"{_AXIS_PANEL_POSITION}, {feat.title_suffix()}  "
-                         f"({model}, n={block['n_samples']})", 64)
-                 + "\nscaffold axis shows bootstrap 95% CI")
+    ax.set_xticklabels([_wrap_tick(axis_title(p[0], p[0]), 12) for p in pairs],
+                       fontsize=7.5, rotation=30, ha="right")
+    ax.set_ylabel("How cleanly the groups separate\n(0 = overlapping, 1 = fully apart)")
+    ax.text(0.0, -0.42, "Bars below 0 mean those groups land closer together than "
+            "random, i.e. the model does not separate them.",
+            transform=ax.transAxes, fontsize=8, color="#777777", style="italic",
+            ha="left", va="top")
+    ax.set_title(
+        wrapped(f"Which prompt or answer properties the model encodes in its state "
+                f"({model}, n={block['n_samples']})", 70)
+        + "\nTaller bars = the model separates those groups more strongly. Read at "
+        + f"{position_label(_AXIS_PANEL_POSITION)}, {_layer_phrase(feat)}."
+        + "\nBlue bar (scaffold) shows a 95% confidence interval.", fontsize=11)
     return finish(fig, out_path)
 
 
@@ -415,13 +476,14 @@ def plot_explained_variance(results: dict, feat: FeatureLayer, model: str, out_p
     cells = results[layer]
     positions = [p for p in _POSITIONS if p in cells]
     n_pc = 3
+    direction_labels = ("1st direction", "2nd direction", "3rd direction")
     fig, ax = plt.subplots(figsize=(8.5, 5.5))
     x = np.arange(len(positions))
     width = 0.8 / n_pc
     for c in range(n_pc):
         vals = [cells[p]["explained_variance_ratio"][c] for p in positions]
         bars = ax.bar(x + c * width - 0.4 + width / 2, vals, width,
-                      color=PALETTE[(c + 1) % len(PALETTE)], label=f"PC{c + 1}")
+                      color=PALETTE[(c + 1) % len(PALETTE)], label=direction_labels[c])
         for bar, v in zip(bars, vals):
             ax.text(bar.get_x() + bar.get_width() / 2, bar.get_height(),
                     f"{v:.0%}", ha="center", va="bottom", fontsize=8.5)
@@ -429,14 +491,18 @@ def plot_explained_variance(results: dict, feat: FeatureLayer, model: str, out_p
     tallest = max(cells[p]["explained_variance_ratio"][0] for p in positions)
     ax.set_ylim(0, min(1.0, tallest + 0.12))
     ax.set_xticks(x)
-    ax.set_xticklabels([f"{p}\n(n={cells[p]['n_samples']})".replace("_", " ")
-                        for p in positions])
-    ax.set_xlabel("structural position")
-    ax.set_ylabel("explained variance ratio")
-    cum_note = ",  ".join(f"{p} {c:.0%}" for p, c in zip(positions, cum3))
-    ax.set_title(wrapped(f"PCA explained variance (PC1-3) @ {feat.title_suffix()}  ({model})", 64)
-                 + "\n" + wrapped(f"cumulative PC1-3:  {cum_note}", 70), fontsize=11.5)
-    ax.legend(title="component", frameon=True)
+    ax.set_xticklabels([f"{_wrap_tick(position_label(p))}\n(n={cells[p]['n_samples']})"
+                        for p in positions], fontsize=8.5)
+    ax.set_xlabel("Where in the prompt we read the model's state")
+    ax.set_ylabel("Share of the spread captured")
+    cum_note = ",  ".join(f"{position_label(p)} {c:.0%}" for p, c in zip(positions, cum3))
+    ax.set_title(
+        wrapped(f"How much of the model's variation the 2D view captures  ({model})", 64)
+        + "\nThe scatter plots show the first two bars; higher means the 2D picture "
+          "is more faithful."
+        + "\n" + wrapped(f"First three together: {cum_note}", 78)
+        + f"\n{_layer_phrase(feat)}", fontsize=10.5)
+    ax.legend(title="Spread direction", frameon=True)
     return finish(fig, out_path)
 
 
@@ -448,9 +514,12 @@ def plot_silhouette_heatmap(table: dict, model: str, out_path: Path) -> Path:
     fig, ax = plt.subplots(figsize=(1.0 + 0.55 * len(table["layers"]),
                                     0.45 * len(table["axes"]) + 2.0))
     draw_silhouette_heatmap(ax, table)
-    ax.set_title(wrapped(f"Silhouette separability by layer x axis @ "
-                         f"{table['position']}  ({model})", 60)
-                 + "\nred = separable, white = not; read across to see depth")
+    ax.set_title(
+        wrapped(f"At which depth the model starts to encode each property  ({model})", 56)
+        + f"\nRead at {position_label(table['position'])}. "
+          "Red = cleanly separated, white = overlapping."
+        + "\nRead each row left to right to see how deep the separation appears.",
+        fontsize=10.5)
     return finish(fig, out_path)
 
 
@@ -458,8 +527,10 @@ def plot_silhouette_layer_sweep(table: dict, model: str, out_path: Path) -> Path
     """Silhouette-vs-layer sweep for the KEY axes (accuracy / context / role / scaffold)."""
     fig, ax = plt.subplots(figsize=(8.5, 5.5))
     draw_layer_sweep(ax, table, KEY_SWEEP_AXIS_KEYS, AXIS_PALETTE)
-    ax.set_title(wrapped(f"Where each key axis becomes separable (depth sweep) @ "
-                         f"{table['position']}  ({model})", 62))
+    ax.set_title(
+        wrapped(f"How deep in the network each property becomes readable  ({model})", 62)
+        + f"\nRead at {position_label(table['position'])}. A line rising above 0 marks "
+          "the depth where that property separates.", fontsize=11)
     return finish(fig, out_path)
 
 

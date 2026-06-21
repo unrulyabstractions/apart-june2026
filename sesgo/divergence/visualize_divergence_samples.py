@@ -15,14 +15,18 @@ Two complementary views:
     scored against the per-condition gold (ambiguous: abstain; disambiguated: the
     ground-truth role), with Wilson score CIs and n on every bar.
 
+All rendered text is plain-language (see sesgo/common/plain_language_labels.py).
+
 PLOTS (land at out/sesgo/divergence/<MODEL>/plots/):
-  accuracy_by_readout.png  Stacked ambig/disambig subfigures; 4 readouts; Wilson CIs.
-  role_mix.png             HERO — mean system-default role mix + bootstrap CIs.
-  default_per_item.png     Per-item UNKNOWN-fraction strip + density.
-  default_uncertainty.png  Per-item Shannon entropy + bootstrap-CI mean.
-  default_deviation.png    Per-item JS-divergence lollipop + bootstrap-CI mean.
-  default_dispersion.png   Per-item across-draw std per role + bootstrap-CI means.
-  <metric>_by_<axis>.png   uncertainty + deviation by category/polarity/language.
+  accuracy_by_readout.png         Stacked ambig/clear subfigures; 4 ways of asking; Wilson CIs.
+  role_mix.png                    HERO — mean ambiguous answer mix + bootstrap CIs.
+  thinking_outcome_mix.png        Direct vs reasoned answer mix, by social category.
+  thinking_abstention_contrast.png Direct vs reasoned abstention rate, by category x wording.
+  default_per_item.png            Per-question abstention-rate strip + density.
+  default_uncertainty.png         Per-question indecision (entropy) + bootstrap-CI mean.
+  default_deviation.png           Per-question drift-from-abstaining lollipop + CI mean.
+  default_dispersion.png          Per-question across-try wobble per answer + CI means.
+  <metric>_by_<axis>.png          indecision + drift by category/wording/language.
 
 Usage:
   uv run python sesgo/divergence/visualize_divergence_samples.py \
@@ -57,6 +61,10 @@ from sesgo.divergence.divergence_spread_panels import (  # noqa: E402
     plot_default_uncertainty,
     plot_dispersion,
 )
+from sesgo.divergence.thinking_contrast_panels import (  # noqa: E402
+    plot_abstention_contrast,
+    plot_outcome_mix,
+)
 from sesgo.divergence.divergence_item_metrics import (  # noqa: E402
     ambig_scored,
     group_values,
@@ -71,6 +79,11 @@ from sesgo.divergence.divergence_plot_styles import (  # noqa: E402
     LN3,
     ROLES,
 )
+from sesgo.divergence.build_divergence_tree import (  # noqa: E402
+    build_divergence_tree,
+    pick_representative_item,
+)
+from sesgo.forking.render_branching_tree import plot_branching_tree  # noqa: E402
 
 
 def parse_args() -> argparse.Namespace:
@@ -149,6 +162,8 @@ def main() -> None:
     written = [
         plot_accuracy_by_readout(by_cond, m, plots / "accuracy_by_readout.png"),
         plot_role_mix(mean_mix, len(ambig), ambig, m, plots / "role_mix.png"),
+        plot_outcome_mix(ambig, m, plots / "thinking_outcome_mix.png"),
+        plot_abstention_contrast(ambig, m, plots / "thinking_abstention_contrast.png"),
         plot_default_per_item(by_cond, m, plots / "default_per_item.png"),
         plot_default_uncertainty(ents, m, plots / "default_uncertainty.png"),
         plot_default_deviation(ambig, m, plots / "default_deviation.png"),
@@ -165,6 +180,16 @@ def main() -> None:
                        plots / f"uncertainty_by_{axis}.png", vmax=LN3 + 0.06))
         written.append(plot_breakdown("default-deviation", axis, dev_groups, m,
                        plots / f"deviation_by_{axis}.png", vmax=LN2 + 0.04))
+
+    # Branching-tree (arXiv:2601.06116, Fig. 11): branch a representative item's
+    # default on the marked identity — the same tree view the forking study emits.
+    rep = pick_representative_item(ambig)
+    if rep is not None:
+        tree = build_divergence_tree(rep, dataset.model)
+        title = f"How one ambiguous question's answer splits for {m}"
+        written.append(plot_branching_tree(tree, plots / "branching_tree.png", title))
+    else:
+        log("[viz] no representative ambiguous item for the branching tree — skipping")
 
     log(f"[viz] wrote {len(written)} plot(s):")
     for p in written:

@@ -52,8 +52,8 @@ capture (same hook point, opposite operation).
 | `steering_test_schema.py` | `SteeringTestResult` / `SweepPoint` / `ScaffoldReference` — BaseSchema, flat |
 | `calculate_steering_vectors.py` | **driver**: fit + split + save the bundle |
 | `run_steering_test.py` | **driver**: held-out (TEST) + in-sample (TRAIN) alpha sweep + scaffold reference -> `steering_test.json` |
-| `steering_plot_styles.py` | presentation-only: palette + per-model abstention-vs-alpha panel drawer |
-| `plot_steering_test.py` | **driver**: cross-model figure (TEST vs TRAIN curves, baseline/control/scaffold marks) -> `figures/abstention_vs_alpha.png` |
+| `steering_plot_styles.py` | presentation-only: Okabe-Ito palette + per-model panel drawer with plain-language labels and Wilson 95% whiskers on the abstention metric |
+| `plot_steering_test.py` | **driver**: cross-model figure (held-out vs fitted curves, no-steering/control/scaffold marks, plain-sentence title + "how to read this" subtitle) -> `figures/abstention_vs_alpha.png` and `figures/unknown_prob_vs_alpha.png` |
 
 ## Reuse (no re-implementation)
 

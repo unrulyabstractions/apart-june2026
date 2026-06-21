@@ -1,131 +1,110 @@
-"""Publication-quality SELECTION plots: stacked readouts/conditions, CIs + n.
+"""Low-level bar renderer for the SELECTION study: plain labels, CIs, n, no jargon.
 
-Every figure is ONE file. The comparisons the study cares about stack as SUBFIGURE
-rows so they read together: NON-THINKING vs THINKING (vs greedy-thinking) stack
-vertically; 2-OPTION vs 3-OPTION stack vertically per category. Each bar carries a
-Wilson 95% CI and its sample size, and the SELECTED scaffold keeps a gold highlight
-band + star. Context is split honestly: ambiguous bars read as ABSTENTION (gold =
-UNKNOWN), disambiguated bars read as ACCURACY (gold = the ground-truth role).
+One reusable panel draws a row of bars over an arbitrary categorical x-axis (readout
+levels, or bias categories) where the bar HEIGHT is a rate in [0, 1] (abstention or
+accuracy). Every bar carries a Wilson 95% CI whisker and its sample size; an empty
+cell gets a faint "no data" stub instead of a misleading 0%. An optional dotted line
+marks the random-guessing rate. All rendered text is plain English (see
+``sesgo/common/plain_language_labels.py``) — never pipeline tokens.
 """
 
 from __future__ import annotations
 
-import textwrap
 from pathlib import Path
+from textwrap import fill
 
 import matplotlib.pyplot as plt
 import numpy as np
 
 from src.common.math import wilson_err, wilson_interval
-from selection_metrics_helpers import LEVEL_TITLE, ScaffoldCount
+from sesgo.common.plain_language_labels import RANDOM_GUESS_LABEL
 
-# House palette: one hue per readout level (colorblind-safe Okabe-Ito).
-_LEVEL_COLOR = {
-    "non_thinking": "#0072B2",       # blue   – teacher-forced 3-option
-    "non_thinking_2opt": "#009E73",  # green  – forced-choice 2-option
-    "greedy_thinking": "#56B4E9",    # sky    – greedy reasoning baseline
-    "thinking": "#D55E00",           # red    – sampled reasoning
+# Colourblind-safe Okabe-Ito hues, one per series the study draws.
+SERIES_COLOR = {
+    "non_thinking": "#0072B2",   # blue   – answers directly
+    "thinking": "#D55E00",       # vermdn – free-form reasoning
+    "category": "#009E73",       # green  – per-category bars
 }
-_SELECT_BG = "#ffe9a8"   # warm gold band behind the SELECTED scaffold group
-_SELECT_EDGE = "#e0a800"
-_CHANCE = {3: 1 / 3, 2: 1 / 2}  # random-guess accuracy reference per option count
 
 
-def _wrap(text: str, width: int = 13) -> str:
-    """Soft-wrap a snake_case scaffold id onto multiple lines for a readable tick."""
-    return textwrap.fill(text.replace("_", "_ "), width=width).replace("_ ", "_")
+def _bar_label(rate: float, correct: int, total: int) -> str:
+    """Headline percentage over its sample size, e.g. ``80%`` then ``28 of 35``."""
+    return f"{rate:.0%}\n{correct} of {total}"
 
 
-def _ticklabels(scaffolds: list[str], selected: str | None) -> list[str]:
-    """Wrapped x-tick labels; the SELECTED scaffold gets a [SELECTED] caption."""
-    return [
-        f"{_wrap(sc)}\n[SELECTED]" if sc == selected else _wrap(sc) for sc in scaffolds
-    ]
-
-
-def _highlight(ax, x: np.ndarray, scaffolds: list[str], selected: str | None) -> None:
-    """Gold band + star for the SELECTED scaffold group (path marker, font-safe)."""
-    if selected is None or selected not in scaffolds:
-        return
-    i = scaffolds.index(selected)
-    ax.axvspan(x[i] - 0.5, x[i] + 0.5, color=_SELECT_BG, alpha=0.55, zorder=0)
-    for edge in (x[i] - 0.5, x[i] + 0.5):
-        ax.axvline(edge, color=_SELECT_EDGE, lw=1.0, ls=":", zorder=1)
-    ax.scatter([x[i]], [1.12], marker="*", s=260, color=_SELECT_EDGE,
-               edgecolor="#7a5c00", linewidth=0.6, zorder=6, clip_on=False)
-
-
-def _bold_selected_ticks(ax, scaffolds: list[str], selected: str | None) -> None:
-    """Bold + gold the SELECTED scaffold's x-tick label so it pops."""
-    for lbl, sc in zip(ax.get_xticklabels(), scaffolds):
-        if sc == selected:
-            lbl.set_fontweight("bold")
-            lbl.set_color("#8a6d00")
-
-
-def _bars_with_ci(ax, x, counts: dict[str, ScaffoldCount], scaffolds, color):
-    """Draw one bar per scaffold with Wilson 95% CI whiskers; annotate rate + n."""
-    heights, errs = [], [[], []]
-    for sc in scaffolds:
-        c = counts.get(sc)
+def _draw_bars(ax, x, labels, counts, colors) -> list[float]:
+    """One bar per category with Wilson 95% CI whiskers; annotate rate + n above."""
+    heights, lo_err, hi_err = [], [], []
+    for label in labels:
+        c = counts.get(label)
         p, _, _ = wilson_interval(c.correct, c.total) if c and c.total else (0.0, 0, 0)
         below, above = wilson_err(c.correct, c.total) if c and c.total else (0.0, 0.0)
         heights.append(0.0 if np.isnan(p) else p)
-        errs[0].append(below)
-        errs[1].append(above)
-    bars = ax.bar(x, heights, width=0.62, yerr=errs, capsize=4, color=color, zorder=3,
-                  error_kw={"elinewidth": 1.4, "ecolor": "#333333"})
-    # Annotate each bar above its OWN upper whisker (errs[1][i]); a degenerate
-    # (no-data) cell gets a faint "n/a" stub instead of a misleading 0% label.
-    for bar, sc, h, top_err in zip(bars, scaffolds, heights, errs[1]):
-        c = counts.get(sc)
+        lo_err.append(below)
+        hi_err.append(above)
+    # Narrow bars when only one or two categories so a panel never reads as a
+    # single fat slab; wider when many so they still fill the row.
+    width = 0.42 if len(labels) <= 2 else 0.6
+    bars = ax.bar(
+        x, heights, width=width, yerr=[lo_err, hi_err], capsize=5, color=colors,
+        zorder=3, error_kw={"elinewidth": 1.5, "ecolor": "#333333"},
+    )
+    for bar, label, h, top in zip(bars, labels, heights, hi_err):
+        c = counts.get(label)
         cx = bar.get_x() + bar.get_width() / 2
         if c is None or c.total == 0:
-            ax.text(cx, 0.02, "n/a", ha="center", va="bottom", fontsize=7.5,
-                    color="#9a9a9a")
+            ax.text(cx, 0.03, "no data", ha="center", va="bottom", fontsize=8,
+                    color="#9a9a9a", style="italic")
         else:
-            ax.text(cx, h + top_err + 0.012, f"{h:.0%}\n{c.correct}/{c.total}",
-                    ha="center", va="bottom", fontsize=8, linespacing=1.0)
+            ax.text(cx, h + top + 0.02, _bar_label(h, c.correct, c.total),
+                    ha="center", va="bottom", fontsize=9.5, linespacing=1.05)
     return heights
 
 
-def _panel(ax, counts, scaffolds, selected, level, ylabel, opt_count) -> None:
-    """One scaffold-accuracy panel: highlighted bars + CI + chance line + ticks."""
-    x = np.arange(len(scaffolds))
-    _highlight(ax, x, scaffolds, selected)
-    _bars_with_ci(ax, x, counts, scaffolds, _LEVEL_COLOR[level])
-    chance = _CHANCE.get(opt_count)
-    if chance is not None:
-        ax.axhline(chance, color="#888888", ls=":", lw=1.2, zorder=2)
-        ax.text(len(scaffolds) - 0.5, chance + 0.015, f"chance ({opt_count}-opt)",
-                fontsize=7.5, color="#777777", ha="right", va="bottom")
-    ax.set_xticks(x)
-    ax.set_xticklabels(_ticklabels(scaffolds, selected), fontsize=8.5)
-    _bold_selected_ticks(ax, scaffolds, selected)
-    ax.set_xlim(-0.6, len(scaffolds) - 0.4)
-    ax.set_ylim(0, 1.22)
-    ax.set_yticks(np.arange(0, 1.01, 0.25))
-    ax.set_ylabel(ylabel, fontsize=9.5)
-    # Panel label as an in-axes badge (top-left) so it never collides with the
-    # figure suptitle the way a matplotlib axes-title would when rows stack tight.
-    ax.text(0.012, 0.965, LEVEL_TITLE[level], transform=ax.transAxes, ha="left",
-            va="top", fontsize=10.5, fontweight="bold", zorder=7,
-            bbox={"boxstyle": "round,pad=0.3", "fc": "white", "ec": "#cccccc",
-                  "alpha": 0.9})
+def _random_guess_line(ax, chance: float, show_legend: bool) -> None:
+    """Dotted random-guessing reference line + optional collision-free legend.
 
-
-def _suptitle(fig, title: str, takeaway: str) -> None:
-    """Bold figure title over an italic plain-language takeaway, above the panels.
-
-    constrained_layout reserves room for both because they are placed via the
-    layout engine's title/text slots (suptitle) rather than overlapping the axes.
+    When labelled, a legend (top-right) names the line so the caption can never end
+    up behind a bar however tall the bars grow — unlike an inline text annotation.
     """
-    fig.suptitle(f"{title}\n", fontsize=13, fontweight="bold")
-    fig.text(0.5, 1.0, takeaway, ha="center", va="bottom", fontsize=9.5,
-             color="#444444", style="italic", transform=fig.transFigure)
+    line = ax.axhline(chance, color="#888888", ls=(0, (4, 3)), lw=1.3, zorder=2,
+                      label=f"{RANDOM_GUESS_LABEL} ({chance:.0%})")
+    if show_legend:
+        ax.legend(handles=[line], loc="upper right", fontsize=8.5, frameon=True,
+                  framealpha=0.9, borderpad=0.4, handlelength=1.8)
 
 
-def _save(fig, out_path: Path) -> Path:
+def panel(ax, labels, counts, colors, ylabel, chance,
+          badge=None, show_xticklabels=True, show_legend=True) -> None:
+    """Draw one plain bar panel: bars + CI + random-guessing line + clean ticks."""
+    x = np.arange(len(labels))
+    n = len(labels)
+    if chance is not None:
+        _random_guess_line(ax, chance, show_legend)
+    _draw_bars(ax, x, labels, counts, colors)
+    ax.set_xticks(x)
+    ax.set_xticklabels(labels if show_xticklabels else [""] * n, fontsize=11)
+    ax.set_xlim(-0.6, n - 0.4)
+    ax.set_ylim(0, 1.18)
+    ax.set_yticks(np.arange(0, 1.01, 0.25))
+    ax.set_yticklabels([f"{v:.0%}" for v in np.arange(0, 1.01, 0.25)], fontsize=9)
+    ax.set_ylabel(ylabel, fontsize=10.5)
+    if badge is not None:
+        ax.text(0.012, 0.96, badge, transform=ax.transAxes, ha="left", va="top",
+                fontsize=10, fontweight="bold", zorder=7,
+                bbox={"boxstyle": "round,pad=0.32", "fc": "white", "ec": "#cccccc",
+                      "alpha": 0.92})
+
+
+def figure_titles(fig, title: str, how_to_read: str) -> None:
+    """Bold plain-sentence title over a wrapped italic 'how to read this' line."""
+    fig.suptitle(title, fontsize=13.5, fontweight="bold")
+    fig.text(0.5, 1.0, fill(how_to_read, width=86), ha="center", va="bottom",
+             fontsize=9.5, color="#444444", style="italic",
+             transform=fig.transFigure, linespacing=1.25)
+
+
+def save_figure(fig, out_path: Path) -> Path:
     """Persist publication-clean: tight bbox, 150 dpi, then close."""
     fig.savefig(out_path, dpi=150, bbox_inches="tight")
     plt.close(fig)

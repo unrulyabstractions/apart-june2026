@@ -30,7 +30,15 @@ uv run python sesgo/forking/plot_forking_dynamics.py --model Qwen/Qwen3-0.6B
 
 Outputs land under `out/sesgo/forking/<MODEL>/`:
 `selected_item.json`, `forking_trajectory.json`, `forking_analysis.json`,
-`forking_dynamics.png`.
+`forking_dynamics.png`, `forking_branching_tree.png`.
+
+The **branching tree** (`forking_branching_tree.png`) renders the fork the way the
+paper's Fig. 11 does: a left-to-right `root → trunk → branches` tree whose NODES
+are horizontal-bar outcome distributions over `[target, other, unknown,
+unparseable]` and whose EDGES are the alternate continuation tokens (width ∝
+`p(x_t=w)`). The trunk is the detected forking token; the branches are its top
+alternate continuations, each carrying its own `o_{t,w}`. The same renderer
+(`render_branching_tree.py`) is reused by the divergence study.
 
 ## Files
 
@@ -39,9 +47,14 @@ Outputs land under `out/sesgo/forking/<MODEL>/`:
 | `select_forking_item.py` | Stage 0: pilot decodes, rank ambiguous items by outcome entropy, persist the top item. |
 | `collect_forking_rollouts.py` | Stages 1-3: capture `{O_t}` for the selected item, ONE batched decode over every branch. |
 | `analyze_forking_dynamics.py` | Stage 4: change-point + dynamic-state + diversity + survival analysis. |
-| `plot_forking_dynamics.py` | Stage 5: the stacked-area figure + companion panels. |
+| `plot_forking_dynamics.py` | Stage 5: the stacked-area figure + companion panels + the branching tree. |
+| `render_branching_tree.py` | Shared left-to-right branching-tree renderer (Fig. 11 style); reused by the divergence study. |
 | `forking_plot_styles.py` | shared palette / token-strip / saver (presentation only). |
 | `forking_item_io.py` | serialize/reload the selected `SesgoPromptSample` between drivers. |
+
+The branching tree's data model (`BranchingTree` / `BranchingTreeNode`) and the
+trajectory→tree builder (`build_branching_tree`) live with the analysis logic in
+`src/dynamics/forking_paths/` (`forking_tree_model.py`, `forking_tree_builder_logic.py`).
 
 ## Tiny local pilot (verified, Qwen3-0.6B on MPS)
 
@@ -52,9 +65,23 @@ uv run python sesgo/forking/analyze_forking_dynamics.py
 uv run python sesgo/forking/plot_forking_dynamics.py
 ```
 
-The cloud run is the SAME commands with `--max-positions 0` (all tokens),
-`--n-samples 30-40`, `--n-prior 300`, `--max-new-tokens 512`, on a vLLM CUDA box
-(the capture's batched decode rides vLLM continuous batching unchanged).
+## Local rich run (this deliverable, Qwen3-0.6B on MPS, ~100 min)
+
+```bash
+uv run python sesgo/forking/select_forking_item.py \
+    --categories gender,racism,xenophobia --n-pilot 16 --max-items 16
+HF_GEN_MICRO_BATCH=96 uv run python sesgo/forking/collect_forking_rollouts.py \
+    --n-samples 40 --n-prior 60 --max-positions 60 \
+    --max-new-tokens 384 --base-max-new-tokens 512
+uv run python sesgo/forking/analyze_forking_dynamics.py
+uv run python sesgo/forking/plot_forking_dynamics.py
+```
+
+`--max-positions` caps the branched leading base-path tokens (the expensive part)
+so MPS finishes in ~100 min while still covering a 60-token series for change-point
+detection. The cloud run is the SAME commands with `--max-positions 0` (all tokens),
+`--n-prior 300`, on a vLLM CUDA box (the batched decode rides vLLM continuous
+batching unchanged).
 
 ## Cloud scale-up
 

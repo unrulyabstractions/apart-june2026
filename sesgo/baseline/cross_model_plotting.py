@@ -22,16 +22,18 @@ from sesgo.baseline.cross_model_aggregation import (
     CONDITIONS,
     CrossModelPoint,
 )
+from sesgo.common.plain_language_labels import RANDOM_GUESS_LABEL
 
 # Okabe–Ito colorblind-safe hues, one per family (stable across panels/series).
 _FAMILY_COLORS = {
     "Qwen": "#0072B2", "Llama": "#D55E00", "Gemma": "#009E73", "Mistral": "#CC79A7",
 }
 # The three metric series share a family color but differ by marker + linestyle.
+# Labels are plain so a non-expert reads what each line measures at a glance.
 _SERIES_STYLE = {
-    "ambig": ("o", "-", "abstention (ambig, gold=unknown)"),
-    "disambig-target": ("^", "--", "disambig acc · gold=TARGET"),
-    "disambig-other": ("s", ":", "disambig acc · gold=OTHER"),
+    "ambig": ("o", "-", "Abstains on no-answer questions"),
+    "disambig-target": ("^", "--", "Correct when answer is the stereotyped group"),
+    "disambig-other": ("s", ":", "Correct when answer is the other group"),
 }
 
 
@@ -70,14 +72,15 @@ def _panel(ax, cond: str, points: list[CrossModelPoint]) -> None:
         _draw_series(ax, fam, slice_label, pts)
     ax.set_xscale("log")
     ax.set_ylim(-0.03, 1.08)
-    ax.set_ylabel("accuracy")
-    ax.set_title(COND_TITLES.get(cond, cond), fontsize=11, loc="left")
+    ax.set_ylabel("Accuracy (higher is better)", fontsize=10)
+    ax.set_title(COND_TITLES.get(cond, cond), fontsize=11.5, loc="left", fontweight="bold")
     ax.grid(True, which="both", axis="x", ls=":", alpha=0.4)
-    # 3-way chance baseline (1/3); abstention/3-opt sit against this. Light dashed
-    # so it reads as a reference without competing with the data lines.
+    # Random-guess reference (1 in 3 options); lines near it mean no real signal.
+    # Light dashed so it reads as a reference without competing with the data lines.
     ax.axhline(1.0 / 3, ls="--", lw=1.0, color="#888888", alpha=0.7, zorder=0)
-    ax.text(0.005, 1.0 / 3, " chance ⅓", transform=ax.get_yaxis_transform(),
-            ha="left", va="bottom", fontsize=7, color="#888888")
+    ax.text(0.005, 1.0 / 3, f" {RANDOM_GUESS_LABEL} (1 in 3)",
+            transform=ax.get_yaxis_transform(),
+            ha="left", va="bottom", fontsize=8, color="#777777")
 
 
 def _legend(fig, families: list[str]) -> None:
@@ -86,25 +89,30 @@ def _legend(fig, families: list[str]) -> None:
                               marker="o", linestyle="-", label=f) for f in families]
     series_handles = [plt.Line2D([], [], color="#444444", marker=m, linestyle=ls, label=lbl)
                       for m, ls, lbl in _SERIES_STYLE.values()]
-    fig.legend(handles=fam_handles, title="family", loc="upper left",
-               bbox_to_anchor=(1.005, 0.97), frameon=False, fontsize=9, title_fontsize=9)
-    fig.legend(handles=series_handles, title="metric", loc="upper left",
-               bbox_to_anchor=(1.005, 0.62), frameon=False, fontsize=9, title_fontsize=9)
+    fig.legend(handles=fam_handles, title="Model family (colour)", loc="upper left",
+               bbox_to_anchor=(1.005, 0.97), frameon=False, fontsize=9.5, title_fontsize=10)
+    fig.legend(handles=series_handles, title="What each line measures", loc="upper left",
+               bbox_to_anchor=(1.005, 0.66), frameon=False, fontsize=9.5, title_fontsize=10)
 
 
 def plot_size_sweep(points: list[CrossModelPoint], out_path, n_models: int) -> None:
     """Stacked 3-panel size-sweep figure (one panel per generation condition)."""
     conds = [c for c, _ in CONDITIONS]
-    fig, axes = plt.subplots(len(conds), 1, figsize=(9.5, 11), sharex=True)
+    fig, axes = plt.subplots(len(conds), 1, figsize=(11, 13), sharex=True)
     for ax, cond in zip(np.atleast_1d(axes), conds):
         _panel(ax, cond, [p for p in points if p.condition == cond])
-    np.atleast_1d(axes)[-1].set_xlabel("model size (billion params, log scale)")
+    np.atleast_1d(axes)[-1].set_xlabel(
+        "Model size (billions of parameters, log scale -> bigger model to the right)",
+        fontsize=11)
     families = sorted({p.family for p in points})
     _legend(fig, families)
     fig.suptitle(
-        f"SESGO baseline size sweep · accuracy vs model size  ({n_models} model(s))",
+        f"Does a bigger model behave better on the bias questions?  "
+        f"({n_models} models)\n"
+        "Each panel is one way of answering; each line tracks one model family as it "
+        "grows. Higher is better.",
         fontsize=13, fontweight="bold",
     )
-    fig.tight_layout(rect=(0, 0, 0.82, 0.97))
+    fig.tight_layout(rect=(0, 0, 0.82, 0.96))
     fig.savefig(out_path, dpi=150, bbox_inches="tight")
     plt.close(fig)

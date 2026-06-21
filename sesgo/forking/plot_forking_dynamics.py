@@ -27,7 +27,7 @@ import numpy as np  # noqa: E402
 
 from sesgo.shard_output_paths import shard_out_dir  # noqa: E402
 from src.common.logging import log, log_header  # noqa: E402
-from src.dynamics.forking_paths import ForkingTrajectory  # noqa: E402
+from src.dynamics.forking_paths import ForkingTrajectory, build_branching_tree  # noqa: E402
 from src.dynamics.forking_paths.forking_analysis_result import ForkingAnalysis  # noqa: E402
 
 from sesgo.forking.forking_plot_styles import (  # noqa: E402
@@ -36,6 +36,7 @@ from sesgo.forking.forking_plot_styles import (  # noqa: E402
     titled,
     token_strip,
 )
+from sesgo.forking.render_branching_tree import plot_branching_tree  # noqa: E402
 
 
 def parse_args() -> argparse.Namespace:
@@ -118,8 +119,28 @@ def _figure(traj: ForkingTrajectory, analysis: ForkingAnalysis):
     return fig
 
 
+def _trunk_index(traj: ForkingTrajectory, analysis: ForkingAnalysis) -> int:
+    """Decision-token position for the branching tree: the detected forking token.
+
+    Prefers the change-point argmax (the localized forking token); falls back to
+    the most-forking Δ_t position when no change point is significant, so the tree
+    always sits on the trajectory's strongest branch point.
+    """
+    cp = analysis.change_points
+    if 0 <= cp.forking_token_index < len(traj.positions):
+        return cp.forking_token_index
+    return max(0, analysis.dynamic_states.most_forking_index)
+
+
+def _branching_tree_figure(traj: ForkingTrajectory, analysis: ForkingAnalysis, path) -> str:
+    """Build + render the left-to-right branching tree at the forking token."""
+    tree = build_branching_tree(traj, _trunk_index(traj, analysis), max_branches=3)
+    title = f"Forking branching tree — {traj.model} (item {traj.item_question_id[:8]})"
+    return plot_branching_tree(tree, path, title)
+
+
 def main() -> None:
-    """Load the trajectory + analysis and render the forking-paths figure."""
+    """Load the trajectory + analysis and render the forking-paths figures."""
     args = parse_args()
     log_header(f"PLOT FORKING DYNAMICS ({args.model})")
 
@@ -130,6 +151,9 @@ def main() -> None:
     fig = _figure(traj, analysis)
     out_path = save_fig(fig, out_dir / "forking_dynamics.png")
     log(f"[plot] wrote {out_path}")
+
+    tree_path = _branching_tree_figure(traj, analysis, out_dir / "forking_branching_tree.png")
+    log(f"[plot] wrote {tree_path}")
 
 
 if __name__ == "__main__":

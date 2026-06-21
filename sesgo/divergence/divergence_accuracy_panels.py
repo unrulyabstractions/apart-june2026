@@ -49,11 +49,11 @@ def _draw_condition(ax, samples, condition: str, gold_note: str) -> None:
     for x, readout in zip(xs, READOUTS):
         k, n = _counts(samples, readout)
         color = READOUT_COLORS[readout]
-        if n == 0:  # undefined here (e.g. 2-opt on ambiguous): hollow placeholder
+        if n == 0:  # undefined here (forced two-way on ambiguous): hollow placeholder
             ax.bar(x, 1.0, color="none", edgecolor=color, hatch="///",
                    width=0.7, lw=1.4, alpha=0.6)
-            ax.text(x, 0.5, "N/A\n(no UNKNOWN)", ha="center", va="center",
-                    fontsize=8.5, color=REF, style="italic")
+            ax.text(x, 0.5, "Not applicable\n(no 'unknown' option\nto choose here)",
+                    ha="center", va="center", fontsize=8.5, color=REF, style="italic")
             continue
         p = k / n
         lo, hi = wilson_err(k, n)
@@ -66,26 +66,32 @@ def _draw_condition(ax, samples, condition: str, gold_note: str) -> None:
     ax.set_xticklabels([READOUT_LABELS[r] for r in READOUTS], fontsize=9)
     ax.set_ylim(0, 1.18)
     ax.set_yticks([0, 0.25, 0.5, 0.75, 1.0])
-    ax.set_ylabel("accuracy")
+    ax.set_ylabel("Share of questions answered correctly")
     ax.axhline(1.0, color=REF, ls=":", lw=1.0, alpha=0.6)
     n_total = max((_counts(samples, r)[1] for r in READOUTS), default=0)
-    ax.set_title(f"{condition}  —  {gold_note}  (n={n_total} items)",
+    ax.set_title(f"{condition}   {gold_note}   (n={n_total} questions)",
                  fontsize=11.5, fontweight="bold", loc="left")
 
 
 def plot_accuracy_by_readout(by_condition, model, out_path):
-    """Stacked subfigures: ambiguous (top) vs disambiguated (bottom) accuracy."""
+    """Stacked subfigures: ambiguous (top) vs clear (bottom) accuracy."""
     fig, axes = plt.subplots(2, 1, figsize=(8.8, 8.4), layout="constrained",
                              sharex=True)
-    _draw_condition(axes[0], by_condition.get("ambig", []), "AMBIGUOUS",
-                    "correct = abstain (gold UNKNOWN)")
-    _draw_condition(axes[1], by_condition.get("disambig", []), "DISAMBIGUATED",
-                    "correct = pick ground-truth role")
+    _draw_condition(axes[0], by_condition.get("ambig", []),
+                    "Ambiguous questions (no clear answer)",
+                    "— correct means abstaining, i.e. answering 'unknown'")
+    _draw_condition(axes[1], by_condition.get("disambig", []),
+                    "Clear questions (the answer is stated)",
+                    "— correct means naming the group the question points to")
     fig.suptitle(
-        f"SESGO divergence: per-condition accuracy across readouts  ({model})",
-        fontsize=13.5, fontweight="bold")
+        f"How often does {model} answer correctly, four ways of asking?",
+        fontsize=13.5, fontweight="bold", y=1.07)
+    fig.text(0.5, 1.025,
+             "Taller bar = more often correct. Whiskers show the 95% confidence range; "
+             "n = questions behind each bar.",
+             ha="center", fontsize=9, color=REF, style="italic")
     fig.text(0.5, -0.01,
-             "bars = accuracy, whiskers = Wilson 95% score CI; n labelled on every bar. "
-             "2-option has no UNKNOWN → N/A on ambiguous items.",
+             "The forced two-way choice offers no 'unknown' option, so on ambiguous "
+             "questions there is nothing correct to abstain to.",
              ha="center", fontsize=8.5, color=REF, style="italic")
     return save_fig(fig, out_path)

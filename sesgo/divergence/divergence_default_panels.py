@@ -19,6 +19,7 @@ from .divergence_plot_styles import (
     ROLES,
     boot_band,
     jittered_strip,
+    role_tick,
     save_fig,
     titled,
 )
@@ -42,11 +43,14 @@ def plot_role_mix(mean_mix, n, samples, model, out_path):
         ax.text(i, m + max(0, hi - m) + 0.02, f"{m:.0%}", ha="center",
                 va="bottom", fontsize=11, fontweight="bold")
     ax.set_xticks(xs)
-    ax.set_xticklabels(ROLES, fontsize=11)
+    ax.set_xticklabels([role_tick(r) for r in ROLES], fontsize=10)
     ax.set_ylim(0, 1.08)
-    ax.set_ylabel("mean fraction of thinking draws choosing the role")
-    titled(ax, f"SESGO: thinking system-default role mix  ({model}, n={n} items)",
-           "mean pick fraction per role; whiskers = bootstrap 95% CI of the mean")
+    ax.set_ylabel("Share of the model's reasoning tries\nlanding on this answer")
+    titled(ax,
+           f"On ambiguous questions, what does {model} usually answer?  "
+           f"(n={n} questions)",
+           "Bar height = how often each answer was chosen across reasoning tries; "
+           "tall 'Abstains' bar is the desired behaviour. Whiskers = 95% range.")
     return save_fig(fig, out_path)
 
 
@@ -58,29 +62,32 @@ def _unk_strip(ax, samples, title: str) -> None:
     if unk:
         m, _ = boot_band(ax, unk, vertical=True)
         ax.axvline(m, color=ACCENT, ls="--", lw=1.6,
-                   label=f"mean = {m:.2f} (boot 95% CI shaded)")
+                   label=f"average = {m:.0%} (95% range shaded)")
         share = float(np.mean(np.asarray(unk) >= 0.5))
         ax.axvline(1.0, color=REF, ls=":", lw=1.4,
-                   label=f"safe default = 1.0\n(items ≥½ unknown: {share:.0%})")
+                   label=f"always abstains = 100%\n(questions abstained on > half "
+                         f"the time: {share:.0%})")
         ax.legend(loc="center left", fontsize=8, frameon=True)
     ax.set_xlim(-0.05, 1.05)
     ax.set_ylim(-0.2, 0.55)
     ax.set_yticks([])
-    ax.set_title(f"{title}  (n={n} items)", fontsize=11, fontweight="bold", loc="left")
+    ax.set_title(f"{title}  (n={n} questions)", fontsize=11, fontweight="bold", loc="left")
 
 
 def plot_default_per_item(by_cond, model, out_path):
-    """Stacked UNKNOWN-fraction strips: ambiguous (top) vs disambiguated (bottom)."""
+    """Stacked abstention-rate strips: ambiguous (top) vs clear (bottom)."""
     fig, axes = plt.subplots(2, 1, figsize=(8.8, 7.0), layout="constrained",
                              sharex=True)
     _unk_strip(axes[0], by_cond.get("ambig", []),
-               "AMBIGUOUS — gold UNKNOWN, so 1.0 is correct (abstain)")
+               "Ambiguous questions — abstaining is correct, so right = 100%")
     _unk_strip(axes[1], by_cond.get("disambig", []),
-               "DISAMBIGUATED — a role is gold, so abstaining (→1.0) is wrong")
-    axes[1].set_xlabel("per-item UNKNOWN fraction of the system default (mean over draws)")
-    fig.suptitle(f"SESGO: does the default abstain?  ({model})",
+               "Clear questions — the answer is stated, so abstaining is wrong")
+    axes[1].set_xlabel("How often the model abstained ('unknown') on each question, "
+                       "across its reasoning tries")
+    fig.suptitle(f"Does {model} abstain when (and only when) it should?",
                  fontsize=13, fontweight="bold", y=1.04)
     fig.text(0.5, 1.0,
-             "per-item UNKNOWN share of the thinking default, split by context condition",
+             "Each dot is one question. Right = abstains; left = commits to a group. "
+             "Want dots far right on top, far left on bottom.",
              ha="center", fontsize=8.5, color=REF, style="italic")
     return save_fig(fig, out_path)

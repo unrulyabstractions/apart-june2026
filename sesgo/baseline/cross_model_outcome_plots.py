@@ -1,13 +1,9 @@
 """Bar-style cross-model DISTRIBUTION figures: outcome mass, bias gap, readouts.
 
-Three size-ordered cross-model comparisons, each one figure:
-  * ``plot_outcome_distribution`` — stacked mean 3-opt role mass (TARGET/OTHER/
-    UNKNOWN) on ambiguous items, asking whether UNKNOWN (abstention) mass grows
-    with scale.
-  * ``plot_target_other_gap`` — diverging bars of the bias signal (disambiguated
-    TARGET-gold accuracy minus OTHER-gold accuracy), with a propagated Wilson band.
-  * ``plot_readout_agreement`` — grouped bars of ambiguous abstention under the
-    three readouts (3-opt / 2-opt / greedy-thinking), each with a Wilson CI and n.
+Three size-ordered cross-model comparisons, each one figure: stacked role mass on
+ambiguous items (does abstention grow with scale?); the diverging target-vs-other
+disambiguated accuracy gap (the bias signal, with a propagated Wilson band); and
+abstention under all three answering modes. All rendered text is plain language.
 """
 
 from __future__ import annotations
@@ -24,11 +20,14 @@ from sesgo.baseline.cross_model_plot_styles import (
     partial_note,
     tick_label,
 )
+from sesgo.common.plain_language_labels import RANDOM_GUESS_LABEL, ROLE_LABEL
 
+# Each way of reading the answer, in plain words, with its bar colour. The forced
+# two-way choice never offers 'unknown', so its abstention bar is structurally 0.
 _READOUTS = (
-    ("3-opt", "abstain_3opt_succ", "abstain_3opt_total", "#0072B2"),
-    ("2-opt (no UNKNOWN)", "abstain_2opt_succ", "abstain_2opt_total", "#E69F00"),
-    ("greedy-thinking", "abstain_greedy_succ", "abstain_greedy_total", "#009E73"),
+    ("Without thinking", "abstain_3opt_succ", "abstain_3opt_total", "#0072B2"),
+    ("Forced two-way choice", "abstain_2opt_succ", "abstain_2opt_total", "#E69F00"),
+    ("With thinking", "abstain_greedy_succ", "abstain_greedy_total", "#009E73"),
 )
 
 
@@ -54,18 +53,22 @@ def plot_outcome_distribution(models: list[ModelDistribution], out_path) -> None
     bottom = np.zeros(len(models))
     for i, role in enumerate(ROLE_NAMES):
         vals = np.array([m.mean_role_mass[i] for m in models])
-        ax.bar(x, vals, bottom=bottom, color=ROLE_COLORS[role], label=role,
+        ax.bar(x, vals, bottom=bottom, color=ROLE_COLORS[role], label=ROLE_LABEL[role],
                edgecolor="white", linewidth=0.5)
         bottom += vals
-    for xi, m in zip(x, models):  # annotate UNKNOWN mass (the abstention signal)
-        ax.text(xi, 1.01, f"{m.mean_role_mass[2]:.2f}", ha="center", va="bottom",
-                fontsize=7.5, color=ROLE_COLORS["unknown"])
-    ax.set_ylim(0, 1.12)
-    ax.set_ylabel("mean 3-opt probability mass (ambiguous items)")
+    for xi, m in zip(x, models):  # annotate the abstention share (green band height)
+        ax.text(xi, 1.01, f"{m.mean_role_mass[2]:.0%}", ha="center", va="bottom",
+                fontsize=8, color=ROLE_COLORS["unknown"])
+    ax.set_ylim(0, 1.14)
+    ax.set_ylabel("Share of each answer on no-answer questions", fontsize=10.5)
     _xticks(ax, models)
-    ax.legend(title="role", loc="lower right", framealpha=0.9, fontsize=9)
-    ax.set_title("Outcome distribution across the model sweep — does UNKNOWN "
-                 "(abstention) mass grow with scale?", fontsize=12, loc="left")
+    ax.legend(title="What the model answered", loc="lower right",
+              framealpha=0.95, fontsize=9.5, title_fontsize=10)
+    ax.set_title(
+        "On questions with no correct answer, how often does each model abstain?\n"
+        "Green = abstains ('unknown'); taller green is safer. Numbers on top = "
+        "abstention rate. Models ordered small to large.",
+        fontsize=12.5, loc="left")
     _footer(fig, models)
     fig.tight_layout(rect=(0, 0.02, 1, 1))
     fig.savefig(out_path, dpi=150, bbox_inches="tight")
@@ -91,15 +94,20 @@ def plot_target_other_gap(models: list[ModelDistribution], out_path) -> None:
     ax.bar(x, gaps, yerr=errs, color=colors, capsize=3, edgecolor="white",
            error_kw={"elinewidth": 1.0, "ecolor": "#444444"})
     ax.axhline(0, color="#333333", lw=1.0)
+    # n labels along the bottom fringe so they never collide with the bars.
+    span = max(abs(min(gaps)), abs(max(gaps))) * 1.35 or 0.1
+    ax.set_ylim(-span, span)
     for xi, m in zip(x, models):
-        ax.annotate(f"n={m.target_total}/{m.other_total}", (xi, 0),
-                    textcoords="offset points", xytext=(0, -14),
-                    ha="center", fontsize=6.5, color="#666666")
+        ax.annotate(f"n={m.target_total}/{m.other_total}", (xi, -span),
+                    textcoords="offset points", xytext=(0, 4),
+                    ha="center", fontsize=6.5, color="#777777")
     _xticks(ax, models)
-    ax.set_ylabel("accuracy gap\n(TARGET-gold − OTHER-gold)")
-    ax.set_title("Bias signal across the sweep — disambiguated accuracy gap by "
-                 "gold role (>0: better on TARGET-gold; Wilson 95% band)",
-                 fontsize=12, loc="left")
+    ax.set_ylabel("More accurate for the\nstereotyped group  ->", fontsize=10)
+    ax.set_title(
+        "When the answer is clear, is the model more accurate for one group?\n"
+        "Bars above 0 = more accurate for the stereotyped group; below 0 = for the "
+        "other group. Near 0 = even-handed. Whiskers are 95% confidence.",
+        fontsize=12.5, loc="left")
     _footer(fig, models)
     fig.tight_layout(rect=(0, 0.02, 1, 1))
     fig.savefig(out_path, dpi=150, bbox_inches="tight")
@@ -122,14 +130,19 @@ def plot_readout_agreement(models: list[ModelDistribution], out_path) -> None:
         ax.bar(offs, rates, width, yerr=errs, color=color, label=label,
                capsize=2, error_kw={"elinewidth": 0.8, "ecolor": "#444444"})
     ax.axhline(1.0 / 3, ls="--", lw=1.0, color="#888888")
-    ax.text(0.0, 1.0 / 3, " chance ⅓", transform=ax.get_yaxis_transform(),
-            fontsize=7, color="#888888", va="bottom")
+    ax.text(0.0, 1.0 / 3, f" {RANDOM_GUESS_LABEL} (1 in 3)",
+            transform=ax.get_yaxis_transform(),
+            fontsize=8, color="#777777", va="bottom")
     ax.set_ylim(0, 1.08)
-    ax.set_ylabel("ambiguous abstention rate (chose UNKNOWN)")
+    ax.set_ylabel("Abstention rate on no-answer questions", fontsize=10.5)
     _xticks(ax, models)
-    ax.legend(title="readout", loc="upper left", fontsize=9, framealpha=0.9)
-    ax.set_title("Do the readouts agree? Ambiguous abstention by readout "
-                 "(2-opt has no UNKNOWN → structurally 0)", fontsize=12, loc="left")
+    ax.legend(title="How the model answered", loc="upper left",
+              fontsize=9.5, framealpha=0.95, title_fontsize=10)
+    ax.set_title(
+        "Does the abstention story hold up across the three ways of answering?\n"
+        "Higher = abstains more on no-answer questions. The forced two-way choice "
+        "offers no 'unknown', so it sits at 0 by design.",
+        fontsize=12.5, loc="left")
     _footer(fig, models)
     fig.tight_layout(rect=(0, 0.02, 1, 1))
     fig.savefig(out_path, dpi=150, bbox_inches="tight")

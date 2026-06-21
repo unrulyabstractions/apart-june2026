@@ -47,11 +47,10 @@ from sesgo.baseline.baseline_accuracy_slices import (  # noqa: E402
     categories_of,
     cells_for,
 )
-from sesgo.baseline.baseline_sample_plots import (  # noqa: E402
-    plot_accuracy,
-    plot_role_prob,
-)
-from sesgo.baseline.cross_model_aggregation import COND_TITLES  # noqa: E402
+from sesgo.baseline.baseline_role_prob_plot import plot_role_prob  # noqa: E402
+from sesgo.baseline.baseline_sample_plots import plot_accuracy  # noqa: E402
+from sesgo.baseline.cross_model_aggregation import CONDITIONS  # noqa: E402
+from sesgo.common import READOUT_LABEL  # noqa: E402
 
 
 def parse_args() -> argparse.Namespace:
@@ -83,8 +82,8 @@ def _log_stats(cells: list[AccuracyCell], cats: list[str]) -> None:
     """Emit the per-condition x per-slice accuracy table to the log."""
     log_section("BASELINE ACCURACY BY CATEGORY (slice = ambig / disambig-target / -other)")
     lut = {(c.condition, c.category, c.slice_label): c for c in cells}
-    for cond, title in COND_TITLES.items():
-        log(f"  {title}:")
+    for cond, _ in CONDITIONS:
+        log(f"  {READOUT_LABEL.get(cond, cond)}:")
         for cat in cats:
             parts = []
             for slc in ("ambig", "disambig-target", "disambig-other"):

@@ -13,22 +13,30 @@ import numpy as np
 from scipy.stats import gaussian_kde
 
 from src.common.math import bootstrap_ci
+from sesgo.common.plain_language_labels import ROLE_LABEL
 
 # Canonical role order for every length-3 vector in a SesgoThinking readout.
 ROLES = ("target", "other", "unknown")
-# Gold one-hot for the ambiguous SESGO context: always UNKNOWN ("safe default").
+# Plain-language tick labels for the three answer outcomes (short, two-line).
+ROLE_TICKS = {
+    "target": "Picks the\nstereotyped group",
+    "other": "Picks the\nother group",
+    "unknown": "Abstains\n('unknown')",
+}
+# Gold one-hot for the ambiguous SESGO context: always abstain ("safe answer").
 GOLD_UNKNOWN = [0.0, 0.0, 1.0]
 # Colorblind-safe per-role palette (Okabe-Ito): target / other / unknown.
 ROLE_COLORS = {"target": "#D55E00", "other": "#E69F00", "unknown": "#0072B2"}
 ACCENT = "#CC79A7"  # mean / deviation accent
 REF = "#555555"     # reference / max lines
-# The four model readouts, in escalating "effort" order, with stable colors.
+# The four ways the model was asked, in escalating "effort" order, plain-language
+# two-line labels for crowded x-axes, plus stable Okabe-Ito colors.
 READOUTS = ("non_thinking", "non_thinking_2opt", "greedy_thinking", "thinking")
 READOUT_LABELS = {
-    "non_thinking": "non-thinking\n(3-opt)",
-    "non_thinking_2opt": "non-thinking\n(2-opt)",
-    "greedy_thinking": "greedy-thinking\n(baseline)",
-    "thinking": "thinking\n(sampled)",
+    "non_thinking": "Without thinking\n(answers directly)",
+    "non_thinking_2opt": "Forced two-way choice\n(no 'unknown')",
+    "greedy_thinking": "With thinking\n(reasons first)",
+    "thinking": "Free-form thinking\n(many tries)",
 }
 READOUT_COLORS = {
     "non_thinking": "#56B4E9",
@@ -37,8 +45,19 @@ READOUT_COLORS = {
     "thinking": "#CC79A7",
 }
 BREAKDOWN_AXES = ("bias_category", "question_polarity", "language")
-SUBTITLE = "system default over sampled thinking draws (arXiv:2601.06116)"
+# Plain-language axis names for the breakdown figures (no pipeline field names).
+AXIS_LABEL = {
+    "bias_category": "social-group category",
+    "question_polarity": "question wording",
+    "language": "language",
+}
+SUBTITLE = "Measured over the model's free-form reasoning tries on ambiguous questions"
 LN3, LN2 = float(np.log(3)), float(np.log(2))
+
+
+def role_tick(role: str) -> str:
+    """Short two-line plain-language tick for one answer outcome."""
+    return ROLE_TICKS.get(role, ROLE_LABEL.get(role, role))
 
 
 def save_fig(fig, path):

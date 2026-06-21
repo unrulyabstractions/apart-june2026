@@ -21,6 +21,9 @@ import numpy as np
 from src.common.math import wilson_err
 from src.datasets.sesgo_eval import GeometryDataset
 
+from sesgo.geometry.geometry_plain_labels import axis_value_label
+
+# Internal sentinel for the no-scaffold group; rendered as "No scaffold".
 BASELINE = "(baseline)"
 # Colourblind-safe Okabe-Ito palette; index 0 anchors the baseline / first group.
 PALETTE = ("#0072B2", "#D55E00", "#009E73", "#CC79A7", "#E69F00", "#56B4E9")
@@ -150,12 +153,15 @@ def _axis_colour(label: str, ordered: list[str]) -> str:
     return AXIS_PALETTE[ordered.index(label) % len(AXIS_PALETTE)]
 
 
-def draw_axis_scatter(ax, coords: np.ndarray, values: list[str], evr: list[float]) -> int:
+def draw_axis_scatter(ax, coords: np.ndarray, values: list[str], evr: list[float],
+                      axis_key: str = "") -> int:
     """Scatter the PCA cloud coloured by one axis; return the off-view count.
 
     Each group's centroid anchors the robust framing so a minority group can never
-    be clipped entirely out of view. Shared by the standalone per-axis figures and
-    the small-multiples grid (single source of truth for capping / colour / frame).
+    be clipped entirely out of view. ``axis_key`` selects the plain-language value
+    relabelling so the legend reads in human terms, not raw row codes. Shared by
+    the standalone per-axis figures and the small-multiples grid (single source of
+    truth for capping / colour / frame).
     """
     ordered = legend_order(values)
     kept = {v for v in ordered if v != OTHER_BUCKET}
@@ -165,18 +171,19 @@ def draw_axis_scatter(ax, coords: np.ndarray, values: list[str], evr: list[float
         if not idx:
             continue
         centroids.append(coords[idx].mean(axis=0).tolist())
+        pretty = axis_value_label(axis_key, lab) if axis_key else lab
         ax.scatter(
             coords[idx, 0], coords[idx, 1], s=60, alpha=0.8,
             color=_axis_colour(lab, ordered), edgecolor="white", linewidth=0.5,
-            label=f"{lab} (n={len(idx)})", zorder=4,
+            label=f"{pretty} (n={len(idx)})", zorder=4,
         )
     xlim, ylim = robust_limits(coords, np.asarray(centroids, dtype=float))
     ax.set_xlim(*xlim)
     ax.set_ylim(*ylim)
     ax.axhline(0, color="#cccccc", lw=0.8, zorder=1)
     ax.axvline(0, color="#cccccc", lw=0.8, zorder=1)
-    ax.set_xlabel(f"PC1  ({evr[0]:.0%} EV)")
-    ax.set_ylabel(f"PC2  ({evr[1]:.0%} EV)" if len(evr) > 1 else "PC2")
+    ax.set_xlabel(f"PC1  ({evr[0]:.0%} of variance)")
+    ax.set_ylabel(f"PC2  ({evr[1]:.0%} of variance)" if len(evr) > 1 else "PC2")
     inside = (
         (coords[:, 0] >= xlim[0]) & (coords[:, 0] <= xlim[1])
         & (coords[:, 1] >= ylim[0]) & (coords[:, 1] <= ylim[1])
@@ -185,21 +192,21 @@ def draw_axis_scatter(ax, coords: np.ndarray, values: list[str], evr: list[float
 
 
 def axis_caption(values: list[str]) -> str | None:
-    """Note capping when a high-cardinality axis was folded to top-K + (other)."""
+    """Note capping when many distinct values were folded to the top few + rest."""
     n_distinct = len(set(values))
     if n_distinct <= TOP_K:
         return None
-    return f"{n_distinct} distinct values; legend shows top {TOP_K} + (other)"
+    return f"{n_distinct} distinct values; legend shows the {TOP_K} most common, rest grouped"
 
 
 # ── Behavioural accuracy plots (per condition, Wilson-CI'd) ───────────────────
 
-# Context conditions in display order, with the per-condition gold rule annotated.
+# Context conditions in display order, with the plain right-answer rule annotated.
 _CONDITIONS = (
-    ("ambig", "ambiguous\n(gold = UNKNOWN)"),
-    ("disambig", "disambiguated\n(gold = role)"),
+    ("ambig", "Ambiguous question\n(right answer: 'unknown')"),
+    ("disambig", "Clear question\n(right answer is stated)"),
 )
-# Bar colour per condition: blue = ambiguous (abstain), orange = disambiguated.
+# Bar colour per condition: blue = ambiguous, orange = clear.
 _COND_COLOUR = {"ambig": PALETTE[0], "disambig": PALETTE[1]}
 
 
@@ -231,48 +238,53 @@ def _condition_panel(ax, buckets: dict, ylabel: str, title: str) -> None:
 
 
 def plot_accuracy_by_condition(dataset: GeometryDataset, out_path: Path) -> Path:
-    """STACKED 3-option (top) vs 2-option (bottom) accuracy, split by condition."""
+    """How often the model is right, three-way (top) vs forced two-way (bottom)."""
     samples = dataset.samples
     fig, (ax3, ax2) = plt.subplots(2, 1, figsize=(8.0, 9.0), sharey=True)
     _condition_panel(
         ax3,
         _bucket_by_condition(samples, "correct_non_thinking",
                              lambda s: s.predicted_non_thinking is not None),
-        "accuracy\n(vs per-condition gold)", "3-OPTION non-thinking readout")
-    # The 2-option forced choice is undefined for ambiguous items (no UNKNOWN to
-    # pick), so only score items where correct_2opt is a bool (disambiguated).
+        "Share of answers that are right",
+        "Three-way answer (model may say 'unknown')")
+    # The forced two-way choice is undefined for ambiguous items (no 'unknown' to
+    # pick), so only score items where correct_2opt is a bool (clear question).
     _condition_panel(
         ax2,
         _bucket_by_condition(samples, "correct_2opt",
                              lambda s: s.picked_2opt is not None and s.correct_2opt is not None),
-        "accuracy\n(picked ground-truth group)",
-        "2-OPTION forced choice (target vs other, no UNKNOWN)")
-    ax2.text(0.0, -0.04, "ambiguous N/A: no group is correct when gold = UNKNOWN",
-             transform=ax2.transAxes, fontsize=8, color="#777777", style="italic",
-             ha="left", va="top")
-    fig.suptitle(wrapped("SESGO accuracy by context condition: 3-option vs 2-option "
-                         f"readout  ({dataset.model_name})", 66),
-                 fontsize=13, fontweight="bold")
+        "Share that pick the right group",
+        "Forced two-way choice (no 'unknown' offered)")
+    # Annotate the blank ambiguous bar in the empty space above it (not below the
+    # axis, where it would collide with the two-line tick labels).
+    ax2.text(0.25, 0.5, "No bar here: with no\n'unknown' option, no\ngroup can be correct",
+             transform=ax2.transAxes, fontsize=8.5, color="#777777", style="italic",
+             ha="center", va="center")
+    fig.suptitle(wrapped("How often the model answers correctly, by question type "
+                         f"({dataset.model_name})", 66)
+                 + "\nTaller bars are better. Top: with an 'unknown' option. "
+                   "Bottom: forced to pick a group.",
+                 fontsize=12, fontweight="bold")
     return finish(fig, out_path)
 
 
 def plot_accuracy_by_readout(dataset: GeometryDataset, out_path: Path) -> Path:
-    """STACKED non-thinking / greedy-thinking / sampled-thinking accuracy subfigures."""
+    """Accuracy under each way of reading the answer out, split by question type."""
     samples = dataset.samples
     readouts = [
-        ("non-thinking (3-option teacher-forced)", "correct_non_thinking",
+        ("Without thinking (answers directly)", "correct_non_thinking",
          lambda s: s.predicted_non_thinking is not None),
-        ("greedy-thinking (single deterministic reasoning decode)",
+        ("With thinking (single reasoned answer)",
          "correct_greedy_thinking", lambda s: s.predicted_greedy_thinking is not None),
-        ("sampled thinking (parsed free-form draws)", "correct_thinking",
+        ("Free-form thinking (sampled reasoning draws)", "correct_thinking",
          lambda s: s.predicted_thinking is not None),
     ]
     fig, axes = plt.subplots(len(readouts), 1, figsize=(8.0, 4.0 * len(readouts)),
                              sharey=True)
     for ax, (title, attr, defined) in zip(axes, readouts):
         _condition_panel(ax, _bucket_by_condition(samples, attr, defined),
-                         "accuracy\n(vs per-condition gold)", title)
-    fig.suptitle(wrapped("SESGO accuracy by readout (non-thinking vs greedy-thinking "
-                         f"vs thinking)  ({dataset.model_name})", 66),
+                         "Share of answers that are right", title)
+    fig.suptitle(wrapped("Does letting the model reason change how often it is right? "
+                         f"({dataset.model_name})", 66),
                  fontsize=13, fontweight="bold")
     return finish(fig, out_path)

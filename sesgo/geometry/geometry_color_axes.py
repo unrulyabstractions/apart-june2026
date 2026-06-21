@@ -35,28 +35,30 @@ class ColorAxis(BaseSchema):
 # distribution scalars get a sequential colormap with a colorbar (no silhouette).
 COLOR_AXES: tuple[ColorAxis, ...] = (
     # ── Categorical (discrete legend + silhouette separability) ──────────────
-    ColorAxis("scaffold_id", "scaffold"),
-    ColorAxis("scaffold", "scaffold vs no-scaffold"),
-    ColorAxis("origin", "origin (BBQ-adapted vs original)"),
-    ColorAxis("language", "language"),
+    # ``pretty`` strings are plain-language headlines a non-expert reads at a
+    # glance (see sesgo.geometry.geometry_plain_labels for the value relabelling).
+    ColorAxis("scaffold_id", "which debiasing scaffold"),
+    ColorAxis("scaffold", "debiasing scaffold vs none"),
+    ColorAxis("origin", "question source (adapted vs original)"),
+    ColorAxis("language", "question language"),
     ColorAxis("bias_category", "bias category"),
-    ColorAxis("question_polarity", "question polarity (negative-framed vs not)"),
-    ColorAxis("context_condition", "context condition (ambig vs disambig)"),
-    ColorAxis("accuracy", "accuracy (correct vs incorrect)"),
-    ColorAxis("thinking_outcome", "thinking changed the answer (unchanged/changed/unparsable)"),
-    ColorAxis("selected_role", "selected role (target/other/unknown)"),
-    ColorAxis("gold_role", "gold role (target/other/unknown)"),
-    ColorAxis("readout", "readout (2-opt vs 3-opt)"),
-    ColorAxis("target_identity", "target identity"),
-    ColorAxis("other_identity", "other identity"),
-    ColorAxis("gold_label", "gold label"),
-    ColorAxis("label_style", "label style"),
+    ColorAxis("question_polarity", "question wording"),
+    ColorAxis("context_condition", "whether the answer is stated"),
+    ColorAxis("accuracy", "whether the model was right"),
+    ColorAxis("thinking_outcome", "did reasoning change the answer"),
+    ColorAxis("selected_role", "which group the model picked"),
+    ColorAxis("gold_role", "which group is correct"),
+    ColorAxis("readout", "how the model answered"),
+    ColorAxis("target_identity", "stereotyped group named"),
+    ColorAxis("other_identity", "other group named"),
+    ColorAxis("gold_label", "correct answer"),
+    ColorAxis("label_style", "answer-option style"),
     # ── Continuous answer-distribution signals (colormap + colorbar) ─────────
-    ColorAxis("top_choice_prob", "top-choice probability", continuous=True),
-    ColorAxis("top_choice_logit", "top-choice logit", continuous=True),
-    ColorAxis("vocab_entropy", "answer-distribution entropy (nats)", continuous=True),
-    ColorAxis("answer_diversity", "answer-distribution diversity (Hill D1)", continuous=True),
-    ColorAxis("inv_perplexity", "inverse perplexity of top option", continuous=True),
+    ColorAxis("top_choice_prob", "confidence in its top answer", continuous=True),
+    ColorAxis("top_choice_logit", "raw score of its top answer", continuous=True),
+    ColorAxis("vocab_entropy", "how spread out the answer was", continuous=True),
+    ColorAxis("answer_diversity", "how many answers were plausible", continuous=True),
+    ColorAxis("inv_perplexity", "how predictable the top answer was", continuous=True),
 )
 
 # The scaffold axis carries None as the no-scaffold baseline; handled specially.

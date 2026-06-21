@@ -1,17 +1,16 @@
-"""Assemble the SELECTION study's two stacked-subfigure figures (ONE file each).
+"""Assemble the SELECTION study's three plain-language abstention figures.
 
-``figure_accuracy_by_scaffold`` stacks the readout LEVELS as subfigure rows for a
-single context condition: ambiguous → abstention (gold = UNKNOWN), disambiguated →
-accuracy (gold = the ground-truth role). Only levels with data are drawn, and the
-2-option level is omitted for ambiguous items (undefined there), so no degenerate
-all-n/a panel ever appears.
+This study probes ONE thing on ambiguous SESGO items (where the only correct answer
+is "unknown"): how often does the model correctly abstain? Higher abstention = better,
+because guessing a social group on an ambiguous question is exactly the biased move.
+Three figures read this from complementary angles, all in plain English:
 
-``figure_two_vs_three_option`` stacks 2-OPTION (top) over 3-OPTION (bottom) for a
-fixed category on disambiguated items — the only context where the forced choice is
-defined — so the bias-direction readout and the full readout read together.
+  abstention_by_scaffold.png          - headline: abstention by how the model answered
+  abstention_by_scaffold_category.png - abstention split by bias category
+  accuracy_by_scaffold_ambig.png      - per-readout panels, the full small-n picture
 
-Both delegate every bar/CI/highlight detail to selection_plot_helpers; this module
-only chooses which panels exist and wires the shared ranking + titles.
+Every bar carries a Wilson 95% CI and its sample size; the tiny n is shown honestly so
+no figure implies more statistical power than ~35 ambiguous items actually give.
 """
 
 from __future__ import annotations
@@ -20,113 +19,94 @@ from pathlib import Path
 
 import matplotlib.pyplot as plt
 
-from selection_metrics_helpers import (
-    LEVEL_TITLE,
-    ScaffoldRanking,
-    counts_by_scaffold,
-    counts_by_scaffold_category,
-    rank_scaffolds,
+from sesgo.common.plain_language_labels import (
+    CATEGORY_LABEL,
+    CATEGORY_ORDER,
+    READOUT_LABEL,
 )
-from selection_plot_helpers import _panel, _save, _suptitle
+from selection_metrics_helpers import (
+    counts_by_category,
+    counts_by_level,
+    readout_title,
+)
+from selection_plot_helpers import (
+    SERIES_COLOR,
+    figure_titles,
+    panel,
+    save_figure,
+)
 
-# Y-axis labels read differently per context: abstention vs accuracy.
-_YLABEL = {
-    "ambig": "abstention\n(pred = UNKNOWN)",
-    "disambig": "accuracy\n(pred = gold role)",
-}
-_CONTEXT_TAKEAWAY = {
-    "ambig": "ambiguous items — gold is always UNKNOWN, so higher = better abstention",
-    "disambig": "disambiguated items — gold is the ground-truth role, so higher = better accuracy",
-}
-# Option count per level (drives the chance-line reference).
-_OPT_COUNT = {
-    "non_thinking": 3,
-    "greedy_thinking": 3,
-    "thinking": 3,
-    "non_thinking_2opt": 2,
-}
+# Random guessing on a three-way (target / other / unknown) ambiguous question.
+_CHANCE_AMBIG = 1 / 3
+_ABSTAIN_AXIS = "Abstention rate\n(answers 'unknown')"
+_HOW_TO_READ_BETTER = "Each bar is the share of ambiguous items the model abstained on — higher is better (it avoids guessing a group). Whiskers are 95% confidence intervals; numbers are the sample size."
 
 
-def _levels_for_context(dataset, context: str, levels: list[str]) -> list[str]:
-    """Keep only levels that have at least one defined prediction in this context."""
-    present = []
-    for level in levels:
-        counts = counts_by_scaffold(dataset, level, context)
-        if any(c.total > 0 for c in counts.values()):
-            present.append(level)
-    return present
+def _present_categories(dataset, level: str) -> list[str]:
+    """Bias categories that actually have data, in the stable display order."""
+    counts = counts_by_category(dataset, level, "ambig", list(CATEGORY_ORDER))
+    return [c for c in CATEGORY_ORDER if c in counts and counts[c].total > 0]
 
 
-def figure_accuracy_by_scaffold(
-    dataset, scaffolds: list[str], context: str, levels: list[str],
-    select_level: str, model: str, out_path: Path,
-) -> tuple[Path, ScaffoldRanking]:
-    """Stacked per-scaffold accuracy across readout LEVELS for one context.
+def figure_abstention_by_readout(dataset, model: str, out_path: Path) -> Path:
+    """Headline: abstention rate by how the model answered (one bar per readout)."""
+    levels = [lvl for lvl in ("non_thinking", "thinking")]
+    counts = counts_by_level(dataset, levels, "ambig")
+    drawn = [lvl for lvl in levels if lvl in counts]
+    labels = [READOUT_LABEL[lvl] for lvl in drawn]
+    colors = [SERIES_COLOR[lvl] for lvl in drawn]
+    indexed = {READOUT_LABEL[lvl]: counts[lvl] for lvl in drawn}
 
-    Scaffolds are ranked best→worst on ``select_level`` and that order drives EVERY
-    panel, so the SELECTED scaffold (gold star) sits in the same column throughout.
-    """
-    drawn = _levels_for_context(dataset, context, levels)
-    sel_counts = counts_by_scaffold(dataset, select_level, context)
-    ranking = rank_scaffolds(sel_counts, scaffolds)
-    order = ranking.order
+    fig, ax = plt.subplots(figsize=(max(6.5, 2.6 * len(drawn) + 1.5), 5.4),
+                           layout="constrained")
+    panel(ax, labels, indexed, colors, _ABSTAIN_AXIS, _CHANCE_AMBIG)
+    figure_titles(
+        fig,
+        f"How often the model refuses to guess on ambiguous questions  ·  {model}",
+        _HOW_TO_READ_BETTER,
+    )
+    return save_figure(fig, out_path)
 
-    # Always draw at least the SELECT level so the figure is never empty (its
-    # bars carry the honest "n/a" stubs when a cell has no defined prediction).
-    if not drawn:
-        drawn = [select_level]
-    n = len(drawn)
-    fig, axes = plt.subplots(n, 1, figsize=(max(8.5, 1.7 * len(order)), 3.1 * n + 0.6),
+
+def figure_abstention_by_category(dataset, model: str, out_path: Path) -> Path:
+    """Abstention rate split by bias category, at the direct-answer readout."""
+    cats = _present_categories(dataset, "non_thinking")
+    counts = counts_by_category(dataset, "non_thinking", "ambig", cats)
+    labels = [CATEGORY_LABEL[c] for c in cats]
+    indexed = {CATEGORY_LABEL[c]: counts[c] for c in cats}
+    colors = [SERIES_COLOR["category"]] * len(cats)
+
+    fig, ax = plt.subplots(figsize=(max(6.5, 2.0 * len(cats) + 1.5), 5.4),
+                           layout="constrained")
+    panel(ax, labels, indexed, colors, _ABSTAIN_AXIS, _CHANCE_AMBIG,
+          badge=READOUT_LABEL["non_thinking"])
+    figure_titles(
+        fig,
+        f"Does the model guess more on some kinds of bias?  ·  {model}",
+        _HOW_TO_READ_BETTER,
+    )
+    return save_figure(fig, out_path)
+
+
+def figure_abstention_panels(dataset, model: str, out_path: Path) -> Path:
+    """Per-readout panels (the full small-n picture), one row per answering style."""
+    levels = [lvl for lvl in ("non_thinking", "thinking")]
+    counts = counts_by_level(dataset, levels, "ambig")
+    drawn = [lvl for lvl in levels if lvl in counts] or ["non_thinking"]
+
+    fig, axes = plt.subplots(len(drawn), 1, figsize=(6.8, 3.3 * len(drawn) + 0.7),
                              layout="constrained", squeeze=False)
-    for ax, level in zip(axes[:, 0], drawn):
-        counts = sel_counts if level == select_level else counts_by_scaffold(
-            dataset, level, context)
-        _panel(ax, counts, order, ranking.selected, level, _YLABEL[context],
-               _OPT_COUNT[level])
-    axes[-1, 0].set_xlabel("scaffold condition  (sorted best→worst, baseline + 4 debiasers)")
-    _suptitle(
+    for ax, lvl in zip(axes[:, 0], drawn):
+        label = READOUT_LABEL[lvl]
+        indexed = {label: counts[lvl]} if lvl in counts else {label: None}
+        # Badge carries the short readout name + one-line gloss as the panel's
+        # plain caption; the x-tick would just repeat it, so it is hidden.
+        panel(ax, [label], indexed, [SERIES_COLOR[lvl]], _ABSTAIN_AXIS,
+              _CHANCE_AMBIG, badge=readout_title(lvl), show_xticklabels=False,
+              show_legend=(ax is axes[0, 0]))
+    figure_titles(
         fig,
-        f"SESGO selection — per-scaffold {('abstention' if context=='ambig' else 'accuracy')} "
-        f"by readout  ·  {model}\nSELECTED: {ranking.selected or 'n/a'}  (by {LEVEL_TITLE[select_level]})",
-        _CONTEXT_TAKEAWAY[context],
+        f"Abstention on ambiguous questions, by answering style  ·  {model}",
+        _HOW_TO_READ_BETTER,
     )
-    return _save(fig, out_path), ranking
-
-
-def category_has_data(dataset, category: str, min_total: int = 2) -> bool:
-    """True iff this category has enough disambiguated 3-option data to plot.
-
-    Guards against emitting a degenerate all-"n/a" figure for a category that the
-    subsample barely (or never) touched on disambiguated items.
-    """
-    three = counts_by_scaffold_category(dataset, "non_thinking", "disambig", category)
-    return sum(c.total for c in three.values()) >= min_total
-
-
-def figure_two_vs_three_option(
-    dataset, scaffolds: list[str], category: str, model: str, out_path: Path,
-) -> Path:
-    """Stacked 2-OPTION (top) over 3-OPTION (bottom) accuracy for one category.
-
-    Disambiguated items only (the forced choice has no UNKNOWN to abstain to). The
-    3-option non-thinking accuracy drives the shared best→worst scaffold order.
-    """
-    three = counts_by_scaffold_category(dataset, "non_thinking", "disambig", category)
-    two = counts_by_scaffold_category(dataset, "non_thinking_2opt", "disambig", category)
-    ranking = rank_scaffolds(three, scaffolds)
-    order = ranking.order
-
-    fig, axes = plt.subplots(2, 1, figsize=(max(8.5, 1.7 * len(order)), 7.0),
-                             layout="constrained", sharex=True)
-    _panel(axes[0], two, order, ranking.selected, "non_thinking_2opt",
-           "accuracy\n(target vs other)", 2)
-    _panel(axes[1], three, order, ranking.selected, "non_thinking",
-           "accuracy\n(pred = gold role)", 3)
-    axes[1].set_xlabel("scaffold condition  (sorted best→worst by 3-option accuracy)")
-    _suptitle(
-        fig,
-        f"SESGO selection — 2-option vs 3-option accuracy  ·  {category}  ·  {model}\n"
-        f"SELECTED: {ranking.selected or 'n/a'}",
-        "disambiguated items only — forced choice (2-opt) vs full readout (3-opt)",
-    )
-    return _save(fig, out_path)
+    return save_figure(fig, out_path)

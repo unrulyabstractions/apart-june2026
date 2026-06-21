@@ -1,18 +1,19 @@
-"""Plot the held-out SESGO steering test: abstention vs steering strength alpha.
+"""Plot the held-out SESGO steering test: abstention vs steering strength.
 
 Reads one or more ``steering_test.json`` bundles (one per model) and draws a
 single multi-panel figure — one panel per model — of abstention against the
-steering strength alpha. Each panel overlays the held-out TEST curve (the causal
-claim) and the in-sample TRAIN curve (generalization check), and marks the
-alpha=0 unsteered baseline, the negative-alpha control region, and the real
-debiasing-scaffold reference (the target behaviour +v aims to reproduce).
+steering strength. Each panel overlays the held-out curve (the causal claim) and
+the in-sample curve (the fitted items), and marks the no-steering point, the
+push-the-opposite-way control region, and the debiasing scaffold's own level (the
+behaviour the steering direction is trying to reproduce).
 
-The figure is the visual statement of the causal finding: on items the steering
-vector was NEVER fit on, does adding +alpha*v raise abstention (UNKNOWN mass)
-monotonically, while the negative control drops it, approaching the scaffold?
+The figure is the visual statement of the causal finding: on questions the
+steering direction was NEVER fit on, does pushing harder toward the scaffold
+direction raise abstention (the model answering 'unknown') the way the real
+scaffold does — while pushing the opposite way lowers it?
 
 Usage (defaults to all three Qwen3 models under out/sesgo/steer/):
-  uv run python sesgo/steer/plot_steering_test.py \
+  .venv/bin/python sesgo/steer/plot_steering_test.py \
       out/sesgo/steer/Qwen3-0.6B/steering_test.json \
       out/sesgo/steer/Qwen3-1.7B/steering_test.json \
       out/sesgo/steer/Qwen3-4B/steering_test.json \
@@ -36,9 +37,22 @@ from src.common.logging import log, log_header  # noqa: E402
 from src.steer import SteeringTestResult  # noqa: E402
 from steering_plot_styles import draw_panel, save_fig  # noqa: E402
 
-_METRIC_LABELS = {
-    "abstain_rate": "abstention rate  (argmax = UNKNOWN)",
-    "mean_unknown_prob": "mean UNKNOWN probability",
+# Plain-language y-axis title and a one-line "how to read this" line per metric.
+_METRIC_AXIS = {
+    "abstain_rate": "How often the model answered 'unknown'",
+    "mean_unknown_prob": "Probability the model gave to answering 'unknown'",
+}
+_METRIC_HOWTO = {
+    "abstain_rate": (
+        "Each line shows how often the model abstained (answered 'unknown') as we "
+        "push harder toward the scaffold direction. Higher up = more abstaining. "
+        "Whiskers are 95% confidence intervals."
+    ),
+    "mean_unknown_prob": (
+        "Each line shows how much probability the model placed on answering "
+        "'unknown' as we push harder toward the scaffold direction. Higher up = "
+        "closer to abstaining."
+    ),
 }
 _DEFAULT_INPUTS = (
     "out/sesgo/steer/Qwen3-0.6B/steering_test.json",
@@ -54,7 +68,7 @@ def parse_args() -> argparse.Namespace:
         "results", type=Path, nargs="*", help="steering_test.json bundle(s), one per model"
     )
     parser.add_argument(
-        "--metric", choices=tuple(_METRIC_LABELS), default="abstain_rate",
+        "--metric", choices=tuple(_METRIC_AXIS), default="abstain_rate",
         help="abstention metric to plot (default: abstain_rate)",
     )
     parser.add_argument(
@@ -77,24 +91,36 @@ def _load_results(paths: list[Path]) -> list[SteeringTestResult]:
     return sorted(results, key=lambda r: _model_size_billions(r.model))
 
 
+def _shared_legend(fig, ax) -> None:
+    """One decluttered legend under the panels, deduped across the example axis."""
+    handles, labels = ax.get_legend_handles_labels()
+    seen, h, lab = set(), [], []
+    for hd, lb in zip(handles, labels):
+        if lb not in seen:
+            seen.add(lb)
+            h.append(hd)
+            lab.append(lb)
+    fig.legend(h, lab, loc="lower center", ncol=2, fontsize=9.5,
+               frameon=False, bbox_to_anchor=(0.5, -0.02))
+
+
 def build_figure(results: list[SteeringTestResult], metric: str):
-    """One row of per-model abstention-vs-alpha panels sharing a y-axis."""
+    """One row of per-model abstention-vs-steering panels sharing a y-axis."""
     n = len(results)
-    fig, axes = plt.subplots(1, n, figsize=(5.4 * n, 4.6), sharey=True, squeeze=False)
+    fig, axes = plt.subplots(1, n, figsize=(5.7 * n, 5.0), sharey=True, squeeze=False)
     for ax, result in zip(axes[0], results):
         draw_panel(ax, result, metric)
-    axes[0][0].set_ylabel(_METRIC_LABELS[metric])
+    axes[0][0].set_ylabel(_METRIC_AXIS[metric], fontsize=11)
     fig.suptitle(
-        "SESGO causal steering: held-out abstention vs steering strength",
-        fontsize=14, fontweight="bold", y=1.02,
+        "Steering the model toward the debiasing scaffold makes it abstain more",
+        fontsize=15.5, fontweight="bold", y=1.0,
     )
     fig.text(
-        0.5, 0.965,
-        "+alpha*v added to resid_post on TEST ambiguous no-scaffold items the "
-        "vector never saw; -alpha is the control",
-        ha="center", fontsize=9.5, style="italic", color="#555555",
+        0.5, 0.945, _METRIC_HOWTO[metric],
+        ha="center", fontsize=10, style="italic", color="#555555", wrap=True,
     )
-    fig.tight_layout()
+    _shared_legend(fig, axes[0][0])
+    fig.tight_layout(rect=(0, 0.07, 1, 0.93))
     return fig
 
 

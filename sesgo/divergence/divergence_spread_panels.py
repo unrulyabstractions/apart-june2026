@@ -21,33 +21,39 @@ from .divergence_plot_styles import (
     ROLES,
     boot_band,
     jittered_strip,
+    role_tick,
     save_fig,
     titled,
 )
 
 
 def plot_default_uncertainty(ents, model, out_path):
-    """Per-item Shannon entropy of the default mix (default-uncertainty)."""
+    """Per-question indecision (entropy) of the answer across reasoning tries."""
     n = len(ents)
     fig, ax = plt.subplots(figsize=(8.6, 4.6), layout="constrained")
     jittered_strip(ax, ents, y0=0.0, color="#117733")
     if ents:
         m, _ = boot_band(ax, ents, vertical=True)
         ax.axvline(m, color=ACCENT, ls="--", lw=1.6,
-                   label=f"mean = {m:.3f} nats (boot 95% CI shaded)")
-    ax.axvline(LN3, color=REF, ls=":", lw=1.4, label=f"max = ln 3 = {LN3:.3f}")
+                   label=f"average = {m:.2f} (95% range shaded)")
+    ax.axvline(LN3, color=REF, ls=":", lw=1.4, label="most indecisive possible")
     ax.set_xlim(-0.04, LN3 + 0.06)
     ax.set_ylim(-0.2, 0.55)
-    ax.set_yticks([])
-    ax.set_xlabel("per-item entropy (nats) of the default [target, other, unknown] mix")
+    ax.set_yticks([0.0, LN3])
+    ax.set_yticklabels([])
+    ax.set_xticks([0.0, LN3])
+    ax.set_xticklabels(["0\nalways same answer", f"{LN3:.2f}\nsplit evenly 3 ways"])
+    ax.set_xlabel("How much the answer wavered across the model's reasoning tries")
     ax.legend(loc="upper right", fontsize=8.5, frameon=True)
-    titled(ax, f"SESGO: default-uncertainty per item  ({model}, n={n} items)",
-           "Shannon entropy of the system default (0 = decisive, ln 3 = max uncertainty)")
+    titled(ax,
+           f"How indecisive is {model} on ambiguous questions?  (n={n} questions)",
+           "Each dot is one question. Left = same answer every try; "
+           "right = answer flips around. Lower is steadier.")
     return save_fig(fig, out_path)
 
 
 def plot_default_deviation(samples, model, out_path):
-    """Per-item JS-divergence from the safe default, colored by pulling role."""
+    """Per-question drift away from abstaining, colored by which group pulls it."""
     rows = sorted(((item_deviation(s), s) for s in samples), key=lambda r: r[0])
     n = len(rows)
     fig, ax = plt.subplots(figsize=(8.6, max(4.0, 0.32 * n + 1.6)),
@@ -61,30 +67,36 @@ def plot_default_deviation(samples, model, out_path):
     if rows:
         m, _ = boot_band(ax, [d for d, _ in rows], vertical=True)
         ax.axvline(m, color=ACCENT, ls="--", lw=1.6,
-                   label=f"mean = {m:.3f} (boot 95% CI shaded)")
+                   label=f"average = {m:.2f} (95% range shaded)")
     ax.axvline(0.0, color=REF, ls="-", lw=1.2, alpha=0.6)
-    ax.axvline(LN2, color=REF, ls=":", lw=1.4, label=f"max = ln 2 = {LN2:.3f}")
+    ax.axvline(LN2, color=REF, ls=":", lw=1.4, label="farthest possible")
     ax.set_xlim(-0.02, LN2 + 0.04)
     # Headroom above the top (largest) lollipop so the legends never sit on a dot.
     ax.set_ylim(-0.7, max(n - 0.3, 0.7) + max(2.5, 0.18 * n))
     ax.set_yticks([])
-    ax.set_ylabel("items (sorted by deviation)")
-    ax.set_xlabel("JS-divergence of the system default from the safe default [0,0,1]")
-    keys = [("at safe default", "unknown"), ("pulled toward other", "other"),
-            ("pulled toward target", "target")]
+    ax.set_ylabel("Each line is one question")
+    ax.set_xticks([0.0, LN2])
+    ax.set_xticklabels(["0\nabstains correctly", f"{LN2:.2f}\nfully commits to a group"])
+    ax.set_xlabel("How far the model drifted from correctly abstaining")
+    keys = [("Correctly abstains", "unknown"),
+            ("Leans toward the other group", "other"),
+            ("Leans toward the stereotyped group", "target")]
     handles = [plt.Line2D([], [], marker="o", ls="", color=ROLE_COLORS[r], mec="white",
                           label=lab) for lab, r in keys]
     leg1 = ax.legend(handles=handles, loc="upper left", fontsize=8.5, frameon=True,
-                     title="per-item color", title_fontsize=8.5)
+                     title="Where each question landed", title_fontsize=8.5)
     ax.legend(loc="upper right", fontsize=8.5, frameon=True)
     ax.add_artist(leg1)
-    titled(ax, f"SESGO: default-deviation from safe abstention  ({model}, n={n} items)",
-           "JS-divergence from the safe default UNKNOWN [0,0,1]; 0 = correct abstention")
+    titled(ax,
+           f"How far does {model} stray from abstaining on ambiguous questions?  "
+           f"(n={n} questions)",
+           "Each line is one question; longer = drifts further from the correct "
+           "'abstain'. Colour shows which group it leans toward.")
     return save_fig(fig, out_path)
 
 
 def plot_dispersion(std_by_role, model, out_path):
-    """Per-item across-draw std (instability of the default), per role as strips."""
+    """Per-question wobble in each answer's frequency across reasoning tries."""
     n = max((len(v) for v in std_by_role.values()), default=0)
     fig, ax = plt.subplots(figsize=(8.6, 5.0), layout="constrained")
     for i, role in enumerate(ROLES):
@@ -96,13 +108,17 @@ def plot_dispersion(std_by_role, model, out_path):
         ax.errorbar(m, i + 0.30, xerr=[[max(0, m - lo)], [max(0, hi - m)]], fmt="D",
                     ms=7, color=ACCENT, ecolor=ACCENT, elinewidth=1.5, capsize=4,
                     mec="white", zorder=4)
-        ax.text(hi + 0.012, i + 0.30, f"mean = {m:.3f}", va="center", fontsize=9,
+        ax.text(hi + 0.012, i + 0.30, f"average = {m:.2f}", va="center", fontsize=9,
                 color="#333333", fontweight="bold")
     ax.set_yticks(range(len(ROLES)))
-    ax.set_yticklabels(ROLES)
+    ax.set_yticklabels([role_tick(r) for r in ROLES])
     ax.set_ylim(-0.5, len(ROLES) - 0.2)
     ax.set_xlim(-0.02, 0.62)
-    ax.set_xlabel("per-item std of the role fraction across the N thinking draws")
-    titled(ax, f"SESGO: instability of the default per role  ({model}, n={n} items)",
-           "across-draw dispersion of the system default (0 = identical every draw)")
+    ax.set_xlabel("How much each answer's frequency wobbled "
+                  "from one reasoning try to the next")
+    titled(ax,
+           f"How stable is each answer across {model}'s reasoning tries?  "
+           f"(n={n} questions)",
+           "Each dot is one question. Left = the model gave that answer just as "
+           "often every try; right = it came and went.")
     return save_fig(fig, out_path)
