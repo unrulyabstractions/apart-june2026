@@ -208,11 +208,15 @@ def _draw_centroid_shift(ax, stats: dict, ordered: list[str]) -> None:
         ci = ""
         if "shift_ci_low" in sh:
             ci = f"\n[{sh['shift_ci_low']:.1f}, {sh['shift_ci_high']:.1f}]"
+        # Anchor the shift label in the empty bottom-centre gap between the two
+        # scaffold clusters (they separate along PC1), with a thin connector to the
+        # arrow midpoint, so the box never occludes a centroid or its point cloud.
+        mx, my = (bx + tx) / 2, (by + ty) / 2
         ax.annotate(f"how far the scaffold\nmoved the state = {sh['shift_magnitude']:.1f}{ci}",
-                    xy=((bx + tx) / 2, (by + ty) / 2), fontsize=8.5,
-                    fontweight="bold", color="#333333", ha="center", va="bottom",
-                    bbox=dict(boxstyle="round,pad=0.25", fc="white", ec="#999999",
-                              alpha=0.85), zorder=7)
+                    xy=(mx, my), xytext=(0.5, 0.03), textcoords="axes fraction",
+                    fontsize=8.5, fontweight="bold", color="#333333", ha="center", va="bottom",
+                    bbox=dict(boxstyle="round,pad=0.25", fc="white", ec="#999999", alpha=0.92),
+                    arrowprops=dict(arrowstyle="-", lw=0.7, color="#999999", alpha=0.6), zorder=7)
 
 
 def plot_pca_scatter(block: dict, ptype: str, feat: FeatureLayer, model: str, out_path: Path) -> Path:

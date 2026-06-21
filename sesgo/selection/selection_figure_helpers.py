@@ -39,7 +39,7 @@ from selection_plot_helpers import (
 # Random guessing on a three-way (target / other / unknown) ambiguous question.
 _CHANCE_AMBIG = 1 / 3
 _ABSTAIN_AXIS = "Abstention rate\n(answers 'unknown')"
-_HOW_TO_READ_BETTER = "Each bar is the share of ambiguous items the model abstained on — higher is better (it avoids guessing a group). Whiskers are 95% confidence intervals; numbers are the sample size."
+_HOW_TO_READ_BETTER = "Each bar = the share of ambiguous items the model abstained on (higher is better). Whiskers = 95% CIs; numbers = sample size."
 
 
 def _present_categories(dataset, level: str) -> list[str]:

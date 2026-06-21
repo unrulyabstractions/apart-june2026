@@ -97,9 +97,9 @@ def panel(ax, labels, counts, colors, ylabel, chance,
 
 
 def figure_titles(fig, title: str, how_to_read: str) -> None:
-    """Bold plain-sentence title over a wrapped italic 'how to read this' line."""
-    fig.suptitle(title, fontsize=13.5, fontweight="bold")
-    fig.text(0.5, 1.0, fill(how_to_read, width=86), ha="center", va="bottom",
+    """Bold plain-sentence title ABOVE a wrapped italic 'how to read this' line."""
+    fig.suptitle(title, fontsize=13.5, fontweight="bold", y=1.08)
+    fig.text(0.5, 1.012, fill(how_to_read, width=86), ha="center", va="top",
              fontsize=9.5, color="#444444", style="italic",
              transform=fig.transFigure, linespacing=1.25)
 
