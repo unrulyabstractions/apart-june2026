@@ -66,7 +66,7 @@ run_one() {
     INSTANCE="$iid" MODEL="$model" SHARD_INDEX="$sidx" SHARD_COUNT="$scount" \
       STUDIES="$STUDIES" BATCH_SIZE="$BATCH_SIZE" N_THINKING="$N_THINKING" \
       bash "$HERE/at_vast.sh" \
-      "MODEL='$model' SHARD_INDEX=$sidx SHARD_COUNT=$scount STUDIES='$STUDIES' BATCH_SIZE=$BATCH_SIZE N_THINKING=$N_THINKING bash cloud/fleet_model_run.sh"
+      "HF_TOKEN='$HF_TOKEN' MODEL='$model' SHARD_INDEX=$sidx SHARD_COUNT=$scount STUDIES='$STUDIES' BATCH_SIZE=$BATCH_SIZE N_THINKING=$N_THINKING bash cloud/fleet_model_run.sh"
 
     # Step 5: pull THIS box's results into ITS OWN sync/box-<tag>/ quarantine.
     INSTANCE="$iid" SYNC_SUBDIR="box-$tag" bash "$HERE/sync_back.sh"
