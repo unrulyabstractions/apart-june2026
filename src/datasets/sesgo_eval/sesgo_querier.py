@@ -14,6 +14,8 @@ import math
 from src.common.device_utils import ProgressTracker, clear_gpu_memory
 from src.common.logging import log
 from src.datasets.prompt import SesgoPromptDataset, SesgoPromptSample
+from src.inference.backends import ModelBackend
+from src.inference.model_runner import is_cloud_api_name
 from src.ternary_choice import TernaryChoiceRunner
 from .sesgo_dataset import SesgoDataset
 from .sesgo_non_thinking import SesgoNonThinking
@@ -34,10 +36,20 @@ class SesgoQuerier:
         self._runner: TernaryChoiceRunner | None = None
 
     def _load_model(self, name: str) -> TernaryChoiceRunner:
-        """Construct (and cache) the runner; reuse it across samples/datasets."""
+        """Construct (and cache) the runner; reuse it across samples/datasets.
+
+        Forces the HuggingFace backend for these local SESGO studies. The
+        Apple-Silicon default (MLX) cannot reliably load the non-Qwen instruct
+        families this pipeline now targets (Llama/Gemma/Mistral), so HF — which
+        loads any HF causal-LM on CPU/MPS/CUDA — is the robust cross-model path.
+        Cloud-API names (claude/gpt/gemini) auto-detect their backend, so we only
+        pin HF when the name resolves to a local model. Geometry builds its own HF
+        runner and injects it as `_runner`, bypassing this path entirely.
+        """
         if self._runner is not None and self._runner.model_name == name:
             return self._runner
-        self._runner = TernaryChoiceRunner(model_name=name)
+        backend = None if is_cloud_api_name(name) else ModelBackend.HUGGINGFACE
+        self._runner = TernaryChoiceRunner(model_name=name, backend=backend)
         return self._runner
 
     def _non_thinking(
