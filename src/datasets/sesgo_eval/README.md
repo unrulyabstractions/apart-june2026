@@ -81,10 +81,12 @@ Every axis is a flat field for slicing without a re-join: `sample_idx`,
 `context_condition` (ambig vs disambig), `language`, `label_style`, `gold_label`,
 plus the provenance / social-group axes `bbq` (origin: `False` original vs `True`
 BBQ-adapted), `target_identity` (the ans1 group string) and `other_identity` (the
-ans0 group string). `GeometrySample` carries the same set (plus a derived
-`accuracy` correct/incorrect axis in the projection) so the geometry viz can
-colour the PCA projection by any of them — including `context_condition` and
-`accuracy`.
+ans0 group string). `GeometrySample` carries the same set of color-by axes AND
+all four readouts (`non_thinking`, `non_thinking_2opt`, `greedy_thinking`,
+`thinking`) with the matching `correct_*` / `picked_2opt` / `predicted_*`
+properties, plus a derived `accuracy` correct/incorrect axis in the projection, so
+the geometry viz can score by any readout and colour the PCA projection by any
+axis — including `context_condition` and `accuracy`.
 
 ## Per-option non-thinking vectors (`SesgoNonThinking`)
 
@@ -126,7 +128,7 @@ skip-thinking prefix and the `<think>` markers are no-ops for Llama/Gemma/Mistra
 | Symbol | Purpose |
 |--------|---------|
 | `SesgoQueryConfig` | Query knobs (samples, temperature, tokens, which levels incl. `do_two_option`, `do_greedy_thinking`, subsample). |
-| `SesgoQuerier` | `query_sample(prompt_sample, runner)` and `query_dataset(prompt_dataset, model_name)`. |
+| `SesgoQuerier` | `query_sample(prompt_sample, runner)` and `query_dataset(prompt_dataset, model_name, checkpoint_path=None)` (crash-safe: atomically checkpoints to `checkpoint_path` every ~25 samples and resumes by skipping already-collected sample identities). |
 | `SesgoSample` | Per-prompt record: color-by axes (+`context_condition`) + `non_thinking` + `non_thinking_2opt` + `greedy_thinking` + `thinking`; `correct_*`, `picked_2opt`, `predicted_greedy_thinking`. |
 | `SesgoNonThinking` | Per-option vectors (`prob`/`logprob`/`logit`/`normalized_logit`/`inv_ppl`) + `entropy`/`diversity`/`predicted`; `from_ternary(choice, position_labels)`. |
 | `SesgoTwoOption` | 2-option forced-choice readout `prob`/`logprob` [OTHER, TARGET] + `picked`; `from_binary(choice, position_labels_2opt)`. |
@@ -134,6 +136,7 @@ skip-thinking prefix and the `<think>` markers are no-ops for Llama/Gemma/Mistra
 | `SesgoThinking` | Per-role `mean`/`std` + `sample_size` + `predicted`; `summarize_labels(labels)`. |
 | `is_correct` / `two_option_correct` | Per-condition correctness against `gold_label`. |
 | `parse_chosen_label` | Parse one generation into a chosen `SesgoLabel` (or `None`). |
-| `SesgoDataset` | `model` + `config` + `samples`; `save_as_json` / inherited `from_json`. |
+| `SesgoDataset` | `model` + `config` + `samples`; `save_as_json` (final) / `save_checkpoint` (atomic, crash-safe) / inherited `from_json`. |
+| `sample_identity` / `completed_identities` | Resume keying (`checkpoint_resume_helpers`): `sample_idx`, falling back to `(question_id, scaffold_id, label_style, context_condition)`. |
 
 See [EXPLANATION.md](./EXPLANATION.md) for the detailed flow.

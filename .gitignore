@@ -116,3 +116,6 @@ tensorboard/
 
 # Manual git worktrees for do-in-workstream parallel side projects.
 worktree/
+
+# fleet runtime state (instance ids + per-box logs)
+cloud/.fleet/

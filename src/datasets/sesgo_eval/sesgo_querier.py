@@ -10,6 +10,7 @@ each committed to, and normalize the counts into an empirical role distribution.
 from __future__ import annotations
 
 import math
+from pathlib import Path
 
 from src.binary_choice import BinaryChoiceRunner
 from src.common.device_utils import ProgressTracker, clear_gpu_memory
@@ -18,6 +19,7 @@ from src.datasets.prompt import SesgoPromptDataset, SesgoPromptSample
 from src.inference.backends import ModelBackend
 from src.inference.model_runner import is_cloud_api_name
 from src.ternary_choice import TernaryChoiceRunner
+from .checkpoint_resume_helpers import completed_identities, sample_identity
 from .sesgo_batched_query import query_chunk
 from .sesgo_dataset import SesgoDataset
 from .sesgo_greedy_thinking import SesgoGreedyThinking
@@ -30,6 +32,35 @@ from .sesgo_two_option import SesgoTwoOption
 
 # Periodically free accelerator memory so long runs don't accumulate caches.
 _GPU_CLEAR_EVERY = 25
+# Flush an atomic checkpoint at least this often (samples), independent of the
+# chunk boundary, so even batch_size==1 runs checkpoint at a bounded cadence.
+_CHECKPOINT_EVERY = 25
+
+
+def _load_resumable(
+    checkpoint_path: Path | None, model_name: str
+) -> list[SesgoSample]:
+    """Load prior results from ``checkpoint_path`` iff it matches this model.
+
+    Returns the already-collected samples (empty when there is no checkpoint, it
+    is unreadable, or it was produced for a DIFFERENT model). A mismatched/garbled
+    checkpoint must not silently merge into this run, so we discard it and start
+    fresh rather than corrupt the output.
+    """
+    if checkpoint_path is None or not Path(checkpoint_path).exists():
+        return []
+    try:
+        prior = SesgoDataset.from_json(Path(checkpoint_path))
+    except (ValueError, KeyError, TypeError):
+        log(f"[sesgo] checkpoint {checkpoint_path} unreadable; starting fresh")
+        return []
+    if prior.model != model_name:
+        log(
+            f"[sesgo] checkpoint model {prior.model!r} != {model_name!r}; "
+            "ignoring stale checkpoint"
+        )
+        return []
+    return prior.samples
 
 
 class SesgoQuerier:
@@ -211,7 +242,10 @@ class SesgoQuerier:
         return samples[::stride][:n]
 
     def query_dataset(
-        self, prompt_dataset: SesgoPromptDataset, model_name: str
+        self,
+        prompt_dataset: SesgoPromptDataset,
+        model_name: str,
+        checkpoint_path: Path | None = None,
     ) -> SesgoDataset:
         """Query every prompt in a dataset and collect a SesgoDataset.
 
@@ -219,30 +253,54 @@ class SesgoQuerier:
         chunk's choose3 / greedy / thinking draws collapsed into batched forward
         passes (``sesgo_batched_query.query_chunk``). ``batch_size == 1`` keeps the
         exact single-sample path.
+
+        When ``checkpoint_path`` is given the run is crash-safe: any prior results
+        for THIS model at that path are loaded and their prompts skipped (resume),
+        and the accumulated dataset is atomically rewritten to ``checkpoint_path``
+        periodically so a crash never loses more than the last chunk of progress.
         """
         runner = self._load_model(model_name)
         samples = self._subsample(prompt_dataset.samples)
+
+        # Resume: drop prompts already present in the checkpoint for this model.
+        resumed = _load_resumable(checkpoint_path, model_name)
+        done = completed_identities(resumed)
+        todo = [s for s in samples if sample_identity(s) not in done]
+
         bs = max(1, self.config.batch_size)
         log(
-            f"[sesgo] Querying {len(samples)} prompts with {runner.model_name} "
-            f"(batch_size={bs})..."
+            f"[sesgo] Querying {len(todo)} prompts with {runner.model_name} "
+            f"(batch_size={bs}, resumed={len(resumed)}, total={len(samples)})..."
         )
 
-        results = self._collect_samples(samples, runner, bs)
+        def to_dataset(results: list[SesgoSample]) -> SesgoDataset:
+            return SesgoDataset(
+                prompt_dataset_id=prompt_dataset.dataset_id,
+                model=model_name,
+                config=self.config,
+                samples=resumed + results,
+            )
 
-        return SesgoDataset(
-            prompt_dataset_id=prompt_dataset.dataset_id,
-            model=model_name,
-            config=self.config,
-            samples=results,
-        )
+        results = self._collect_samples(todo, runner, bs, checkpoint_path, to_dataset)
+        return to_dataset(results)
 
     def _collect_samples(
-        self, samples: list[SesgoPromptSample], runner: TernaryChoiceRunner, bs: int
+        self,
+        samples: list[SesgoPromptSample],
+        runner: TernaryChoiceRunner,
+        bs: int,
+        checkpoint_path: Path | None,
+        to_dataset,
     ) -> list[SesgoSample]:
-        """Iterate the prompts in chunks of ``bs``, freeing memory periodically."""
+        """Iterate prompts in chunks of ``bs``, freeing memory + checkpointing.
+
+        ``to_dataset`` wraps the running results (already merged with any resumed
+        samples) into a SesgoDataset; after a chunk crosses the checkpoint cadence
+        we atomically rewrite it to ``checkpoint_path`` so progress survives a crash.
+        """
         tracker = ProgressTracker(total=len(samples), progress_every=10, memory_every=50)
         results: list[SesgoSample] = []
+        last_ckpt = 0
         for start in range(0, len(samples), bs):
             tracker.step(start)
             chunk = samples[start : start + bs]
@@ -252,5 +310,8 @@ class SesgoQuerier:
                 results.extend(query_chunk(chunk, runner, self.config))
             if (start // bs + 1) % _GPU_CLEAR_EVERY == 0:
                 clear_gpu_memory()
+            if checkpoint_path is not None and len(results) - last_ckpt >= _CHECKPOINT_EVERY:
+                to_dataset(results).save_checkpoint(checkpoint_path)
+                last_ckpt = len(results)
         clear_gpu_memory()
         return results

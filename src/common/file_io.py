@@ -7,8 +7,10 @@ Provides core JSON/JSONL utilities. Output-specific functions are in scripts/io.
 from __future__ import annotations
 
 import json
+import os
 import re
 import shutil
+import tempfile
 from datetime import datetime
 from pathlib import Path
 
@@ -144,6 +146,30 @@ def save_json(data, path: Path, readable_text: bool = True) -> None:
         data = _make_text_readable(data)
     with open(path, "w") as f:
         json.dump(data, f, indent=4, default=str, ensure_ascii=False)
+
+
+def save_json_atomic(data, path: Path, readable_text: bool = True) -> None:
+    """Save JSON crash-safely: write a sibling temp file, then os.replace it.
+
+    A naive ``save_json`` truncates the target before rewriting it, so a crash
+    mid-write leaves a corrupted (half-written) file. Writing to a temp file in
+    the SAME directory and atomically ``os.replace``-ing it onto the target means
+    a reader/resumer always sees either the old complete file or the new complete
+    one — never a torn write. Used for periodic checkpoints during long runs.
+    """
+    path = Path(path)
+    ensure_dir(path.parent)
+    # Same-dir temp guarantees os.replace is an atomic rename (no cross-device move).
+    fd, tmp_name = tempfile.mkstemp(dir=path.parent, prefix=f".{path.name}.", suffix=".tmp")
+    os.close(fd)
+    tmp = Path(tmp_name)
+    try:
+        save_json(data, tmp, readable_text=readable_text)
+        os.replace(tmp, path)
+    finally:
+        # On a failure before the replace, drop the partial temp; after a
+        # successful replace the temp no longer exists, so missing_ok swallows it.
+        tmp.unlink(missing_ok=True)
 
 
 def _restore_text_fields(obj):

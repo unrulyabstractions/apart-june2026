@@ -49,7 +49,11 @@ sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[2]))
 
 from src.common.file_io import save_json  # noqa: E402
 from src.common.logging import log, log_header, log_section  # noqa: E402
-from src.common.math import l2_distance, l2_norm  # noqa: E402
+from src.common.math import (  # noqa: E402
+    bootstrap_labelled_ci,
+    l2_distance,
+    l2_norm,
+)
 from src.datasets.sesgo import origin_label  # noqa: E402
 from src.datasets.sesgo_eval import GeometryDataset, GeometrySample  # noqa: E402
 
@@ -262,6 +266,30 @@ def _silhouette(Z: np.ndarray, labels: list[str]) -> float | None:
         return None
 
 
+def _shift_magnitude_stat(label: str):
+    """A statistic(Z, labels) -> ||centroid(label) - centroid(baseline)|| in full dim.
+
+    Returns a closure so ``bootstrap_labelled_ci`` can resample (Z, labels) rows
+    and recompute the shift each time. NaN when either group vanishes in a
+    resample (so that draw is dropped from the bootstrap band).
+    """
+
+    def stat(Z: np.ndarray, labels: np.ndarray) -> float:
+        base = Z[labels == _BASELINE]
+        grp = Z[labels == label]
+        if base.shape[0] == 0 or grp.shape[0] == 0:
+            return float("nan")
+        return float(np.linalg.norm(grp.mean(axis=0) - base.mean(axis=0)))
+
+    return stat
+
+
+def _silhouette_stat(Z: np.ndarray, labels: np.ndarray) -> float:
+    """silhouette(Z, labels) as a bootstrap-able statistic; NaN when ill-defined."""
+    val = _silhouette(Z, list(labels))
+    return float("nan") if val is None else val
+
+
 def _axis_separation(Z: np.ndarray, rows: list[dict]) -> dict:
     """Per-axis silhouette + between/within ratio for the non-scaffold axes."""
     block: dict[str, dict] = {}
@@ -302,7 +330,13 @@ def condition_stats(Z: np.ndarray, rows: list[dict], axis: str = "scaffold_id") 
             "n": int(sub.shape[0]),
         }
 
-    # Shift vectors of each non-baseline group from the baseline centroid.
+    # Scaffold-axis labels (parallel to Z rows) reused for shift / silhouette CIs.
+    labels_full = [_scaffold_label(r["scaffold_id"]) if axis == "scaffold_id"
+                   else str(r[axis]) for r in rows]
+
+    # Shift vectors of each non-baseline group from the baseline centroid, each
+    # with a percentile-bootstrap CI on its full-dim magnitude (resampling rows)
+    # so the viz can draw an honest error bar on the small-n shift.
     shifts: dict[str, dict] = {}
     base = centroids_full.get(_BASELINE)
     if base is not None:
@@ -310,10 +344,15 @@ def condition_stats(Z: np.ndarray, rows: list[dict], axis: str = "scaffold_id") 
             if lab == _BASELINE:
                 continue
             delta = centroids_full[lab] - base
+            _pt, lo, hi = bootstrap_labelled_ci(
+                Z, labels_full, _shift_magnitude_stat(lab)
+            )
             shifts[lab] = {
                 "vec2d": _coord2d(delta),
                 "vec3d": _coord3d(delta),
                 "shift_magnitude": l2_norm(delta.tolist()),
+                "shift_ci_low": lo,
+                "shift_ci_high": hi,
             }
 
     # Pairwise full-dim L2 distance matrix between every pair of centroids.
@@ -329,12 +368,17 @@ def condition_stats(Z: np.ndarray, rows: list[dict], axis: str = "scaffold_id") 
         for i in idxs:
             labels[i] = lab
 
+    # Bootstrap CI on the silhouette so the viz subtitle can show its spread.
+    _sil_pt, sil_lo, sil_hi = bootstrap_labelled_ci(Z, labels_full, _silhouette_stat)
+
     return {
         "axis": axis,
         "centroids": centroids,
         "shifts": shifts,
         "pairwise_distances": {"labels": labels_order, "matrix": matrix},
         "silhouette": _silhouette(Z, labels),
+        "silhouette_ci_low": sil_lo,
+        "silhouette_ci_high": sil_hi,
         "between_within_ratio": _between_within_ratio(Z, labels),
     }
 

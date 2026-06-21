@@ -172,17 +172,25 @@ def main() -> None:
         subsample=1.0,
         batch_size=args.batch_size,
     )
-    with P("query_dataset"):
-        dataset = SesgoQuerier(config).query_dataset(prompt_dataset, args.model)
 
-    log_summary(dataset)
-
-    # out/sesgo/baseline/<MODEL>/response_samples.json (per-shard subdir when sharded).
+    # Resolve the FINAL output path up front so the periodic checkpoint writes the
+    # SAME file: a crash leaves a valid partial response_samples.json that the next
+    # run resumes from. shard_out_dir needs the bare model name (no org prefix).
+    bare_model = args.model.split("/")[-1]
     out_dir = shard_out_dir(
-        args.out_dir, "baseline", dataset.model_name, args.shard_index, args.shard_count
+        args.out_dir, "baseline", bare_model, args.shard_index, args.shard_count
     )
     out_dir.mkdir(parents=True, exist_ok=True)
     out_path = out_dir / "response_samples.json"
+
+    with P("query_dataset"):
+        dataset = SesgoQuerier(config).query_dataset(
+            prompt_dataset, args.model, checkpoint_path=out_path
+        )
+
+    log_summary(dataset)
+
+    # Idempotent final save (checkpoint already wrote this path during the run).
     dataset.save_as_json(out_path)
     log(f"[collect] wrote {out_path}")
 

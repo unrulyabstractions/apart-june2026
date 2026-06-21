@@ -13,7 +13,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from src.common import BaseSchema
-from src.common.file_io import ensure_dir, save_json
+from src.common.file_io import ensure_dir, save_json, save_json_atomic
 from .geometry_sample import GeometrySample
 from .sesgo_query_config import SesgoQueryConfig
 
@@ -37,3 +37,7 @@ class GeometryDataset(BaseSchema):
         path = Path(path)
         ensure_dir(path.parent)
         save_json(self.to_dict(), path)
+
+    def save_checkpoint(self, path: Path | str) -> None:
+        """Atomically write progress to ``path`` (crash can't corrupt the file)."""
+        save_json_atomic(self.to_dict(), Path(path))

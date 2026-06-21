@@ -54,6 +54,9 @@ from src.datasets.sesgo_eval import (  # noqa: E402
     SesgoQuerier,
     SesgoQueryConfig,
 )
+from src.datasets.sesgo_eval.checkpoint_resume_helpers import (  # noqa: E402
+    sample_identity,
+)
 from src.ternary_choice import TernaryChoiceRunner  # noqa: E402
 from src.inference.backends import ModelBackend  # noqa: E402
 
@@ -71,6 +74,42 @@ from sesgo.geometry.batched_geometry_capture import (  # noqa: E402
 
 # Free accelerator memory every this many CHUNKS so long runs don't accumulate.
 _GPU_CLEAR_EVERY = 25
+# Atomically rewrite response_samples.json at least this often (samples).
+_CHECKPOINT_EVERY = 25
+
+
+def _activations_present(sample: GeometrySample, out_root: Path) -> bool:
+    """True iff every activation tensor this sample references still exists.
+
+    A GeometrySample is only safely "done" when its on-disk .pt tensors are all
+    present (a crash mid-save_positions could leave the json sample without its
+    files). Paths are stored relative to ``out_root`` (the geometry rel_root).
+    """
+    return all((out_root / a.path).exists() for a in sample.activations)
+
+
+def _resume_geometry(
+    out_path: Path, model: str, out_root: Path
+) -> tuple[list[GeometrySample], set]:
+    """Load prior GeometrySamples for THIS model whose activation files survive.
+
+    Returns (resumed_samples, done_identities). A missing/unreadable/foreign-model
+    checkpoint yields ([], set()) so the run starts fresh rather than merge stale
+    or torn data. Samples whose .pt files are gone are dropped and recomputed.
+    """
+    if not out_path.exists():
+        return [], set()
+    try:
+        prior = GeometryDataset.from_json(out_path)
+    except (ValueError, KeyError, TypeError):
+        log(f"[geom] checkpoint {out_path} unreadable; starting fresh")
+        return [], set()
+    if prior.model != model:
+        log(f"[geom] checkpoint model {prior.model!r} != {model!r}; ignoring")
+        return [], set()
+    kept = [s for s in prior.samples if _activations_present(s, out_root)]
+    done = {sample_identity(s) for s in kept}
+    return kept, done
 
 
 def load_prompt_dataset(path: Path, subsample: float) -> SesgoPromptDataset:
@@ -96,17 +135,31 @@ def load_prompt_dataset(path: Path, subsample: float) -> SesgoPromptDataset:
 
 
 def _make_sample(prompt: SesgoPromptSample, sesgo, activations) -> GeometrySample:
-    """Assemble one GeometrySample from its readout + captured activations."""
+    """Assemble one GeometrySample from its readout + captured activations.
+
+    Carries every per-sample colour-by axis (context_condition, provenance, the
+    literal social-group strings) AND all four readouts (3-option non-thinking,
+    2-option forced choice, greedy-thinking, sampled thinking) so the geometry
+    viz can slice / score by any of them. The single source of truth for the
+    GeometrySample shape — both the batched and single-sample paths call it.
+    """
     return GeometrySample(
         sample_idx=prompt.sample_idx,
         question_id=prompt.question_id,
         scaffold_id=prompt.scaffold_id,
         bias_category=prompt.bias_category,
         question_polarity=prompt.question_polarity,
+        context_condition=prompt.context_condition,
         language=prompt.language,
         gold_label=prompt.gold_label,
         prompt_text=prompt.text,
+        label_style=prompt.label_style,
+        bbq=prompt.bbq,
+        target_identity=prompt.target_identity,
+        other_identity=prompt.other_identity,
         non_thinking=sesgo.non_thinking,
+        non_thinking_2opt=sesgo.non_thinking_2opt,
+        greedy_thinking=sesgo.greedy_thinking,
         thinking=sesgo.thinking,
         activations=activations,
     )
@@ -120,16 +173,24 @@ def collect_geometry(
     act_dir: Path,
     out_root: Path,
     bs: int,
+    to_dataset,
+    checkpoint_path: Path,
 ) -> tuple[list[GeometrySample], Counter, int]:
     """Run readout + residual capture over the prompts in chunks of ``bs``.
 
     ``bs == 1`` keeps the exact single-sample path; ``bs > 1`` batches both the
     SESGO readout (``query_chunk``) and the residual capture
     (``capture_activations_batch``) into shared forward passes per chunk.
+
+    ``to_dataset`` wraps the running samples (already merged with any resumed
+    ones) into a GeometryDataset; once enough new samples accumulate it is
+    atomically rewritten to ``checkpoint_path`` so a crash never loses more than
+    the last chunk (and the .pt tensors of completed samples already persist).
     """
     samples: list[GeometrySample] = []
     found: Counter = Counter()
     n_act_files = 0
+    last_ckpt = 0
     total = len(prompts)
     for start in range(0, total, bs):
         chunk = prompts[start : start + bs]
@@ -152,6 +213,9 @@ def collect_geometry(
         log(f"[geom] {min(start + bs, total)}/{total} done")
         if (start // bs + 1) % _GPU_CLEAR_EVERY == 0:
             clear_gpu_memory()
+        if len(samples) - last_ckpt >= _CHECKPOINT_EVERY:
+            to_dataset(samples).save_checkpoint(checkpoint_path)
+            last_ckpt = len(samples)
     clear_gpu_memory()
     return samples, found, n_act_files
 
@@ -211,14 +275,18 @@ def main() -> None:
     prompt_dataset = apply_shard(prompt_dataset, args.shard_index, args.shard_count)
     log(f"[geom] loaded {len(prompt_dataset.samples)} prompts")
 
-    # n_thinking=0 disables the thinking level (skips its sampling cost). The
-    # 2-option forced-choice readout is a behavioural probe, not a geometry one,
-    # so it is left off here (the geometry half captures the 3-option answer path).
+    # n_thinking=0 disables the sampled thinking level (skips its draw cost). The
+    # NEW data model wants all four readouts on every geometry sample: the 3-option
+    # non-thinking softmax + greedy decode, the 2-option forced choice (target vs
+    # other, no UNKNOWN), the greedy-thinking baseline, and the sampled thinking
+    # distribution — so the behavioural panels can compare 2-opt vs 3-opt and
+    # non-thinking vs greedy-thinking vs thinking on the SAME geometry-captured items.
     config = SesgoQueryConfig(
         n_thinking_samples=args.n_thinking,
         max_new_tokens=args.max_new_tokens,
         do_thinking=args.n_thinking > 0,
-        do_two_option=False,
+        do_two_option=True,
+        do_greedy_thinking=True,
         subsample=1.0,
         batch_size=max(1, args.batch_size),
     )
@@ -246,54 +314,35 @@ def main() -> None:
     )
     act_dir = out_root / "activations"
     act_dir.mkdir(parents=True, exist_ok=True)
-
-    samples: list[GeometrySample] = []
-    found_counter: Counter[str] = Counter()
-    n_act_files = 0
-    for i, prompt in enumerate(prompt_dataset.samples):
-        sesgo = querier.query_sample(prompt, runner)
-        activations, missing = capture_activations(
-            runner, prompt, layers, act_dir, out_root
-        )
-        for a in activations:
-            found_counter[a.position_type] += 1
-        n_act_files += len(activations)
-        if missing:
-            log(f"[geom] sample {prompt.sample_idx}: missing {missing}")
-        samples.append(
-            GeometrySample(
-                sample_idx=prompt.sample_idx,
-                question_id=prompt.question_id,
-                scaffold_id=prompt.scaffold_id,
-                bias_category=prompt.bias_category,
-                question_polarity=prompt.question_polarity,
-                context_condition=prompt.context_condition,
-                language=prompt.language,
-                gold_label=prompt.gold_label,
-                prompt_text=prompt.text,
-                label_style=prompt.label_style,
-                bbq=prompt.bbq,
-                target_identity=prompt.target_identity,
-                other_identity=prompt.other_identity,
-                non_thinking=sesgo.non_thinking,
-                thinking=sesgo.thinking,
-                activations=activations,
-            )
-        )
-        log(f"[geom] {i + 1}/{len(prompt_dataset.samples)} done")
-
-    dataset = GeometryDataset(
-        prompt_dataset_id=prompt_dataset.dataset_id,
-        model=args.model,
-        config=config,
-        samples=samples,
-    )
     out_path = out_root / "response_samples.json"
+
+    # Resume: keep prior samples whose .pt tensors survive, skip their prompts.
+    resumed, done = _resume_geometry(out_path, args.model, out_root)
+    todo = [p for p in prompt_dataset.samples if sample_identity(p) not in done]
+    log(
+        f"[geom] {len(todo)} prompts to capture "
+        f"(resumed={len(resumed)}, total={len(prompt_dataset.samples)})"
+    )
+
+    def to_dataset(new_samples: list[GeometrySample]) -> GeometryDataset:
+        return GeometryDataset(
+            prompt_dataset_id=prompt_dataset.dataset_id,
+            model=args.model,
+            config=config,
+            samples=resumed + new_samples,
+        )
+
+    new_samples, found_counter, n_act_files = collect_geometry(
+        todo, querier, runner, layers, act_dir, out_root,
+        max(1, args.batch_size), to_dataset, out_path,
+    )
+    dataset = to_dataset(new_samples)
+    # Idempotent final save (checkpoints already wrote this path during the run).
     dataset.save_as_json(out_path)
 
     log_section("geometry collection summary")
-    log(f"  samples written : {len(samples)} -> {out_path}")
-    log(f"  activation files: {n_act_files} -> {act_dir}")
+    log(f"  samples written : {len(dataset.samples)} -> {out_path}")
+    log(f"  activation files: {n_act_files} new -> {act_dir}")
     log("  positions located (count over samples):")
     for ptype in _POSITION_TYPES:
         log(f"    {ptype:<12} {found_counter.get(ptype, 0)}")

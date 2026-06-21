@@ -208,9 +208,15 @@ def main() -> None:
     log(f"[collect] loaded {len(prompt_dataset.samples)} prompts")
 
     # Already subsampled at load, so the querier runs over all loaded prompts.
-    # DIVERGENCE: thinking + non-thinking on, no extra greedy decode, MANY draws.
+    # DIVERGENCE reads out FOUR levels per prompt: the 3-option teacher-forced
+    # non-thinking softmax, the 2-option forced choice (target vs other, no
+    # UNKNOWN), the single greedy-thinking baseline (deterministic reasoning), and
+    # the MANY sampled thinking draws (the selection/divergence distribution). The
+    # greedy NON-thinking decode is the only extra generation we skip (do_greedy).
     config = SesgoQueryConfig(
         do_non_thinking=True,
+        do_two_option=True,
+        do_greedy_thinking=True,
         do_thinking=True,
         n_thinking_samples=args.n_thinking,
         max_new_tokens=args.max_new_tokens,
@@ -219,17 +225,24 @@ def main() -> None:
         subsample=1.0,
         batch_size=args.batch_size,
     )
-    with P("query_dataset"):
-        dataset = SesgoQuerier(config).query_dataset(prompt_dataset, args.model)
 
-    log_summary(dataset)
-
-    # out/sesgo/divergence/<MODEL>/response_samples.json (per-shard subdir when sharded).
+    # Resolve the FINAL output path up front so the periodic checkpoint writes the
+    # SAME file: a crash leaves a valid partial response_samples.json to resume from.
+    bare_model = args.model.split("/")[-1]
     out_dir = shard_out_dir(
-        args.out_dir, "divergence", dataset.model_name, args.shard_index, args.shard_count
+        args.out_dir, "divergence", bare_model, args.shard_index, args.shard_count
     )
     out_dir.mkdir(parents=True, exist_ok=True)
     out_path = out_dir / "response_samples.json"
+
+    with P("query_dataset"):
+        dataset = SesgoQuerier(config).query_dataset(
+            prompt_dataset, args.model, checkpoint_path=out_path
+        )
+
+    log_summary(dataset)
+
+    # Idempotent final save (checkpoint already wrote this path during the run).
     dataset.save_as_json(out_path)
     log(f"[collect] wrote {out_path}")
 

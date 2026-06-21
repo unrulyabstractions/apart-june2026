@@ -98,13 +98,37 @@ returns `None`.
 
 ## Output
 
-`SesgoQuerier.query_dataset` applies `config.subsample` as a deterministic
-leading slice, iterates behind a `ProgressTracker`, clears accelerator memory
-periodically, and returns a `SesgoDataset` (`prompt_dataset_id`, `model`,
-`config`, `samples`). `SesgoSample` exposes `predicted_non_thinking`,
-`predicted_thinking`, `predicted_greedy_thinking`, and `correct_non_thinking` /
-`correct_thinking` / `correct_greedy_thinking` (= the prediction is UNKNOWN, the
-ambiguous gold). Raw generations live in the private
-`_thinking_completions` field, excluded from the id hash and `to_dict`, so
-persisted datasets stay compact. Save with `SesgoDataset.save_as_json`; load with
-the inherited `BaseSchema.from_json`.
+`SesgoQuerier.query_dataset(prompt_dataset, model_name, checkpoint_path=None)`
+applies `config.subsample` as a deterministic leading slice, iterates behind a
+`ProgressTracker`, clears accelerator memory periodically, and returns a
+`SesgoDataset` (`prompt_dataset_id`, `model`, `config`, `samples`).
+`SesgoSample` exposes `predicted_non_thinking`, `predicted_thinking`,
+`predicted_greedy_thinking`, and `correct_non_thinking` / `correct_thinking` /
+`correct_greedy_thinking` (= the prediction is UNKNOWN, the ambiguous gold). Raw
+generations live in the private `_thinking_completions` field, excluded from the
+id hash and `to_dict`, so persisted datasets stay compact. Save with
+`SesgoDataset.save_as_json`; load with the inherited `BaseSchema.from_json`.
+
+### Checkpointing and resume (crash-safe collection)
+
+When `checkpoint_path` is given the run is crash-safe and resumable. The collect
+drivers resolve the FINAL `response_samples.json` path up front and pass it as
+`checkpoint_path`, so the periodic checkpoint IS the output file:
+
+- **Incremental save** — every `_CHECKPOINT_EVERY` (25) newly-collected samples
+  the accumulated `SesgoDataset` is written via `save_checkpoint`, which routes
+  through `file_io.save_json_atomic`: it writes a sibling temp file in the same
+  directory and `os.replace`s it onto the target, so a crash mid-write can never
+  corrupt the file (a reader always sees the old or new complete file).
+- **Resume** — at the start of `query_dataset` any prior results at
+  `checkpoint_path` for the SAME model are loaded (`checkpoint_resume_helpers`),
+  their `sample_identity` (the `sample_idx`, falling back to the
+  `(question_id, scaffold_id, label_style, context_condition)` tuple) collected
+  into a done-set, and matching prompts skipped; the loaded results are merged
+  with the newly-collected ones before the final save. A checkpoint produced for
+  a different model is ignored (the run starts fresh) so stale data never bleeds
+  in. The log reports `resumed=N` versus the count newly run.
+
+`GeometryDataset` mirrors this (`save_checkpoint` + atomic write); the geometry
+driver additionally treats a sample as "done" only when its referenced `.pt`
+activation tensors all still exist on disk, recomputing any whose files are gone.
