@@ -59,6 +59,8 @@ rsync -ah $DRY $RSYNC_TIMEOUT -e "$RSYNC_E" \
   --exclude='/out/'             \
   --exclude='/datasets/'        \
   --exclude='/sync/'            \
+  --exclude='/cloud/.fleet*/'   \
+  --exclude='/cloud/.plan*'     \
   --exclude='.git/'             \
   --exclude='.venv/'            \
   --exclude='__pycache__/'      \

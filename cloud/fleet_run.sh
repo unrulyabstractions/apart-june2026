@@ -43,6 +43,17 @@ ITEMS="${ITEMS:-}"
 # (all langs x all origins x {none+3 scaffolds}). Defaults EMPTY so an unset value
 # runs only the es-original studies — backward-compatible no-op.
 GENERATE_ALL_DATA="${GENERATE_ALL_DATA:-}"
+# HF_FORWARD_MICRO_BATCH passes straight through to the on-box collect: it caps how
+# many sequences go through each teacher-forced forward pass so a wide batch of long
+# (scaffolded) prompts never OOMs a 24 GB 4090. Defaults EMPTY so an unset value is
+# a backward-compatible no-op (one forward pass over the whole batch).
+HF_FORWARD_MICRO_BATCH="${HF_FORWARD_MICRO_BATCH:-}"
+# PARTIAL_SYNC_EVERY (seconds): how often the background partial-puller mirrors each
+# box's IN-PROGRESS response_samples.json down to its sync/partial-box-<tag>/ tree
+# (req. C — box-REPLACEMENT resume). Set to 0 to disable the periodic pull entirely
+# (the push-before-run resume still happens). Default 180s — frequent enough that a
+# replaced box loses at most a few minutes of work, cheap enough to be invisible.
+PARTIAL_SYNC_EVERY="${PARTIAL_SYNC_EVERY:-180}"
 
 [ -d "$FLEET_DIR" ] || { echo "No fleet. Run cloud/fleet_launch.sh first." >&2; exit 1; }
 
@@ -160,13 +171,42 @@ run_one() {
       return 1
     fi
 
+    # Step 3b (req. C — RESUME on box REPLACEMENT): if a prior partial for THIS tag
+    # was mirrored down on an earlier (now-destroyed) box, push its in-progress
+    # response_samples.json back UP to this fresh box's out slice. collect resumes
+    # from an existing response_samples.json (loads it, skips completed identities),
+    # so the replacement continues instead of restarting from 0. No-op when no
+    # partial exists (a first launch), so this is backward-compatible.
+    INSTANCE="$iid" TAG="$tag" MODEL="$model" STUDIES="$STUDIES" \
+      SHARD_INDEX="$sidx" SHARD_COUNT="$scount" \
+      bash "$HERE/sync_partial.sh" push || true
+
+    # Step 3c (req. C): start a BACKGROUND puller that mirrors this box's GROWING
+    # response_samples.json down to sync/partial-box-<tag>/ every PARTIAL_SYNC_EVERY
+    # seconds, so if the box dies mid-run the replacement (step 3b above) resumes
+    # from the latest checkpoint, not from 0. It writes ONLY the throwaway partial-
+    # tree (never out/, never box-<tag>, never code) and is killed when the run ends.
+    local puller_pid=""
+    if [ "${PARTIAL_SYNC_EVERY:-0}" -gt 0 ] 2>/dev/null; then
+      ( while sleep "$PARTIAL_SYNC_EVERY"; do
+          INSTANCE="$iid" TAG="$tag" MODEL="$model" STUDIES="$STUDIES" \
+            SHARD_INDEX="$sidx" SHARD_COUNT="$scount" \
+            bash "$HERE/sync_partial.sh" pull || true
+        done ) &
+      puller_pid="$!"
+    fi
+
     # Step 4: run THIS box's model+shard pipeline (batched) on the box. On a
     # multi-GPU box HF_DEVICE_MAP=auto makes the HF backend shard the model across
     # every GPU (empty == single-device path, unchanged for 1-GPU boxes).
     INSTANCE="$iid" MODEL="$model" SHARD_INDEX="$sidx" SHARD_COUNT="$scount" \
       STUDIES="$STUDIES" BATCH_SIZE="$BATCH_SIZE" N_THINKING="$N_THINKING" \
       bash "$HERE/at_vast.sh" \
-      "HF_TOKEN='$HF_TOKEN' HF_DEVICE_MAP='$hf_device_map' MODEL='$model' SHARD_INDEX=$sidx SHARD_COUNT=$scount STUDIES='$STUDIES' BATCH_SIZE=$BATCH_SIZE N_THINKING=$N_THINKING SUBSAMPLE='$SUBSAMPLE' MAX_NEW_TOKENS='$MAX_NEW_TOKENS' ITEMS='$ITEMS' GENERATE_ALL_DATA='$GENERATE_ALL_DATA' bash cloud/fleet_model_run.sh"
+      "HF_TOKEN='$HF_TOKEN' HF_DEVICE_MAP='$hf_device_map' MODEL='$model' SHARD_INDEX=$sidx SHARD_COUNT=$scount STUDIES='$STUDIES' BATCH_SIZE=$BATCH_SIZE N_THINKING=$N_THINKING SUBSAMPLE='$SUBSAMPLE' MAX_NEW_TOKENS='$MAX_NEW_TOKENS' ITEMS='$ITEMS' GENERATE_ALL_DATA='$GENERATE_ALL_DATA' HF_FORWARD_MICRO_BATCH='$HF_FORWARD_MICRO_BATCH' bash cloud/fleet_model_run.sh"
+
+    # Stop the background partial-puller now the run is over (it only mattered
+    # while the box could still die mid-collect).
+    [ -n "$puller_pid" ] && kill "$puller_pid" 2>/dev/null || true
 
     # Step 5: pull THIS box's results into ITS OWN sync/box-<tag>/ quarantine.
     INSTANCE="$iid" SYNC_SUBDIR="box-$tag" bash "$HERE/sync_back.sh"
@@ -179,7 +219,7 @@ run_one() {
 }
 
 export -f run_one wait_running instance_status wait_ssh sync_and_setup
-export FLEET_DIR STUDIES BATCH_SIZE N_THINKING SUBSAMPLE MAX_NEW_TOKENS ITEMS GENERATE_ALL_DATA HERE HF_TOKEN
+export FLEET_DIR STUDIES BATCH_SIZE N_THINKING SUBSAMPLE MAX_NEW_TOKENS ITEMS GENERATE_ALL_DATA HF_FORWARD_MICRO_BATCH HERE HF_TOKEN PARTIAL_SYNC_EVERY
 
 echo ">> Driving all boxes concurrently (studies: $STUDIES, batch_size: $BATCH_SIZE)..."
 for idf in "$FLEET_DIR"/*.id; do
