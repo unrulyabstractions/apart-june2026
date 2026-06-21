@@ -27,9 +27,9 @@ item may have only a few variations present; per-item metrics simply use whateve
 variations survived.
 
 Usage:
-  uv run python sesgo/baseline/visualize_stability_samples.py \
+  uv run python sesgo/stability/visualize_stability_samples.py \
       out/sesgo/stability/Qwen3-0.6B/samples.json
-  uv run python sesgo/baseline/visualize_stability_samples.py SAMPLES.json --out-dir out
+  uv run python sesgo/stability/visualize_stability_samples.py SAMPLES.json --out-dir out
 """
 
 from __future__ import annotations
@@ -48,7 +48,7 @@ import numpy as np  # noqa: E402
 import seaborn as sns  # noqa: E402
 
 # Bootstrap the repo root onto sys.path so `from src... import ...` resolves
-# regardless of cwd. From <repo>/sesgo/baseline/x.py, parents[2] is the root.
+# regardless of cwd. From <repo>/sesgo/stability/x.py, parents[2] is the root.
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[2]))
 
 from src.common.logging import log, log_header, log_section  # noqa: E402

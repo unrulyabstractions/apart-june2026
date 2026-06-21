@@ -27,9 +27,9 @@ Plots land at out/sesgo/divergence/<MODEL>/plots/. Robust to subsampled data and
 to items whose draws never parsed (sample_size == 0 — excluded everywhere).
 
 Usage:
-  uv run python sesgo/baseline/visualize_divergence_samples.py \
+  uv run python sesgo/divergence/visualize_divergence_samples.py \
       out/sesgo/divergence/Qwen3-0.6B/samples.json
-  uv run python sesgo/baseline/visualize_divergence_samples.py SAMPLES.json --out-dir out
+  uv run python sesgo/divergence/visualize_divergence_samples.py SAMPLES.json --out-dir out
 """
 
 from __future__ import annotations
@@ -48,7 +48,7 @@ import numpy as np  # noqa: E402
 import seaborn as sns  # noqa: E402
 
 # Bootstrap the repo root onto sys.path so `from src... import ...` resolves
-# regardless of cwd. From <repo>/sesgo/baseline/x.py, parents[2] is the root.
+# regardless of cwd. From <repo>/sesgo/divergence/x.py, parents[2] is the root.
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[2]))
 
 from src.common.logging import log, log_header, log_section  # noqa: E402

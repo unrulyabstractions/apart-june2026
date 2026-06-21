@@ -26,8 +26,8 @@ accuracy summary as a sanity check.
 Output lands at out/sesgo/stability/<MODEL>/samples.json (MODEL == bare name).
 
 Usage:
-  uv run python sesgo/baseline/collect_stability_samples.py
-  uv run python sesgo/baseline/collect_stability_samples.py \
+  uv run python sesgo/stability/collect_stability_samples.py
+  uv run python sesgo/stability/collect_stability_samples.py \
       out/sesgo/stability/prompt_dataset.json --model Qwen/Qwen3-0.6B \
       --method greedy --subsample 0.25
 """
@@ -41,7 +41,7 @@ import sys
 from pathlib import Path
 
 # Bootstrap the repo root onto sys.path so `from src... import ...` resolves
-# regardless of cwd. From <repo>/sesgo/baseline/x.py, parents[2] is the root.
+# regardless of cwd. From <repo>/sesgo/stability/x.py, parents[2] is the root.
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[2]))
 
 from src.common.file_io import load_json  # noqa: E402

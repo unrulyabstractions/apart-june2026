@@ -36,8 +36,8 @@ By default it generates EVERYTHING (all categories, both languages); --limit /
   out/sesgo/geometry/prompt_dataset.json
 
 Usage:
-  uv run python sesgo/baseline/generate_prompt_dataset.py
-  uv run python sesgo/baseline/generate_prompt_dataset.py \
+  uv run python sesgo/generate/generate_prompt_dataset.py
+  uv run python sesgo/generate/generate_prompt_dataset.py \
       --categories racism,gender --languages es --limit 5
 """
 
@@ -51,7 +51,7 @@ from pathlib import Path
 
 # Bootstrap the repo root onto sys.path so `from src... import ...` and
 # `from sesgo.scaffolds import ...` resolve regardless of cwd. From
-# <repo>/sesgo/baseline/x.py, parents[2] is the repo root.
+# <repo>/sesgo/generate/x.py, parents[2] is the repo root.
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[2]))
 
 from sesgo.scaffolds import get_scaffolds  # noqa: E402

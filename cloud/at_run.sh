@@ -36,18 +36,18 @@ DIV_SUB="${DIV_SUB:-0.5}"
 # Reads datasets/SESGO/prompts/*.xlsx (synced up by sync_up.sh's narrow step) and
 # writes out/sesgo/<study>/prompt_dataset.json. Full grid (no --limit).
 echo "[at_run] generate prompt datasets"
-uv run python sesgo/baseline/generate_prompt_dataset.py
+uv run python sesgo/generate/generate_prompt_dataset.py
 
 # ── 2. FULL stability collection (cheap; runs FIRST so results land fast) ──
 if [ "$WHICH" = "both" ] || [ "$WHICH" = "stability" ]; then
   echo "[at_run] collect_stability_samples (FULL, model=$MODEL)"
-  uv run python sesgo/baseline/collect_stability_samples.py --model "$MODEL" --out-dir out
+  uv run python sesgo/stability/collect_stability_samples.py --model "$MODEL" --out-dir out
 fi
 
 # ── 3. Divergence collection (thinking-heavy; stratified stride subsample) ──
 if [ "$WHICH" = "both" ] || [ "$WHICH" = "divergence" ]; then
   echo "[at_run] collect_divergence_samples (subsample=$DIV_SUB, model=$MODEL)"
-  uv run python sesgo/baseline/collect_divergence_samples.py --model "$MODEL" --out-dir out --subsample "$DIV_SUB"
+  uv run python sesgo/divergence/collect_divergence_samples.py --model "$MODEL" --out-dir out --subsample "$DIV_SUB"
 fi
 
 echo "[at_run] done. Remote results under out/sesgo/{divergence,stability}/."

@@ -17,8 +17,8 @@ abstention table here as a sanity check.
 Output lands at out/sesgo/selection/<MODEL>/samples.json (MODEL == bare name).
 
 Usage:
-  uv run python sesgo/baseline/collect_selection_samples.py
-  uv run python sesgo/baseline/collect_selection_samples.py \
+  uv run python sesgo/selection/collect_selection_samples.py
+  uv run python sesgo/selection/collect_selection_samples.py \
       out/sesgo/selection/prompt_dataset.json --model Qwen/Qwen3-0.6B \
       --n-thinking 4 --subsample 0.5
 """
@@ -33,7 +33,7 @@ from collections import defaultdict
 from pathlib import Path
 
 # Bootstrap the repo root onto sys.path so `from src... import ...` resolves
-# regardless of cwd. From <repo>/sesgo/baseline/x.py, parents[2] is the root.
+# regardless of cwd. From <repo>/sesgo/selection/x.py, parents[2] is the root.
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[2]))
 
 from src.common.file_io import load_json  # noqa: E402

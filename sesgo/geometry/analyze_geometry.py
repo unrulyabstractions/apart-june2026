@@ -25,7 +25,7 @@ than MIN_SAMPLES valid rows are skipped (logged), degenerate (baseline-only)
 groups simply emit empty shifts / a null silhouette, and the JSON always loads.
 
 Usage:
-  uv run python sesgo/baseline/analyze_geometry.py \
+  uv run python sesgo/geometry/analyze_geometry.py \
       out/sesgo/geometry/Qwen3-0.6B/samples.json
 """
 

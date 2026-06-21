@@ -22,7 +22,7 @@ Endpoints:
   GET /api/config         {model_name, layers, positions, axes, n_samples}.
 
 Usage (run as a script, NOT a module path):
-  uv run python sesgo/baseline/geometry_viz_server.py \
+  uv run python sesgo/geometry/geometry_viz_server.py \
       --samples out/sesgo/geometry/Qwen3-0.6B/samples.json --port 8002
 """
 
@@ -40,7 +40,7 @@ from fastapi.responses import HTMLResponse, JSONResponse
 
 # Bootstrap the repo root onto sys.path so `from src... import ...` resolves the
 # same way the other sesgo run-by-path scripts do (this file lives two levels
-# deep under the repo root: sesgo/baseline/<here>).
+# deep under the repo root: sesgo/geometry/<here>).
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[2]))
 
 from src.datasets.sesgo_eval import GeometryDataset, GeometrySample  # noqa: E402
@@ -118,7 +118,7 @@ def build_app(samples_path: Path) -> FastAPI:
     if not proj_path.exists():
         raise FileNotFoundError(
             f"projections not found at {proj_path} — run "
-            f"`uv run python sesgo/baseline/analyze_geometry.py {samples_path}` first."
+            f"`uv run python sesgo/geometry/analyze_geometry.py {samples_path}` first."
         )
     with open(proj_path) as f:
         projections = json.load(f)

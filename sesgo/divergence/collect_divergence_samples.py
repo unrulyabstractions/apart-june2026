@@ -22,8 +22,8 @@ ENTROPY as a sanity check that the draws actually disperse.
 Output lands at out/sesgo/divergence/<MODEL>/samples.json (MODEL == bare name).
 
 Usage:
-  uv run python sesgo/baseline/collect_divergence_samples.py
-  uv run python sesgo/baseline/collect_divergence_samples.py \
+  uv run python sesgo/divergence/collect_divergence_samples.py
+  uv run python sesgo/divergence/collect_divergence_samples.py \
       out/sesgo/divergence/prompt_dataset.json --model Qwen/Qwen3-0.6B \
       --n-thinking 16 --subsample 0.5
 """
@@ -37,7 +37,7 @@ import sys
 from pathlib import Path
 
 # Bootstrap the repo root onto sys.path so `from src... import ...` resolves
-# regardless of cwd. From <repo>/sesgo/baseline/x.py, parents[2] is the root.
+# regardless of cwd. From <repo>/sesgo/divergence/x.py, parents[2] is the root.
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[2]))
 
 from src.common.file_io import load_json  # noqa: E402

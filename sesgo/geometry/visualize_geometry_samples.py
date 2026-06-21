@@ -16,7 +16,7 @@ Robust to missing positions / subsampled data: questions without a baseline (or
 without a given position) are simply skipped in the geometry aggregation.
 
 Usage:
-  uv run python sesgo/baseline/visualize_geometry_samples.py \
+  uv run python sesgo/geometry/visualize_geometry_samples.py \
       out/sesgo/geometry/Qwen3-0.6B/samples.json
 """
 

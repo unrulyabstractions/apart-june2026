@@ -17,8 +17,8 @@ stays small. The headline downstream question is geometric: how far does each
 scaffold move these representations versus the no-scaffold baseline.
 
 Usage:
-  uv run python sesgo/baseline/collect_geometry_samples.py
-  uv run python sesgo/baseline/collect_geometry_samples.py PROMPTS.json \
+  uv run python sesgo/geometry/collect_geometry_samples.py
+  uv run python sesgo/geometry/collect_geometry_samples.py PROMPTS.json \
       --model Qwen/Qwen3-0.6B --n-thinking 4 --subsample 0.5 --layers 0,6,12
 """
 
@@ -34,7 +34,7 @@ from pathlib import Path
 import torch
 
 # Bootstrap the repo root onto sys.path so `from src... import ...` resolves
-# regardless of cwd. From <repo>/sesgo/baseline/x.py, parents[2] is the root.
+# regardless of cwd. From <repo>/sesgo/geometry/x.py, parents[2] is the root.
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[2]))
 
 from src.common.file_io import load_json  # noqa: E402
@@ -52,6 +52,7 @@ from src.datasets.sesgo_eval import (  # noqa: E402
     SesgoQueryConfig,
 )
 from src.ternary_choice import TernaryChoiceRunner  # noqa: E402
+from src.inference.backends import ModelBackend  # noqa: E402
 
 # Structural positions we look for, in capture order. think_* exist only for
 # reasoning models (skip-thinking prefix); missing ones are logged and skipped.
@@ -282,7 +283,13 @@ def main() -> None:
         subsample=1.0,
     )
     querier = SesgoQuerier(config)
-    runner = querier._load_model(args.model)
+    # Geometry capture needs run_with_cache (residual-stream snapshots). The MLX
+    # backend (the Apple-Silicon default) does NOT support it, so force the
+    # HuggingFace backend, which provides run_with_cache on CPU/MPS/CUDA and loads
+    # any HF model. query_sample/capture_activations below take this runner
+    # explicitly, bypassing the querier's MLX auto-load.
+    runner = TernaryChoiceRunner(model_name=args.model, backend=ModelBackend.HUGGINGFACE)
+    querier._runner = runner
 
     # All resid_post layers by default; --layers subsets them.
     all_layers = list(range(runner.n_layers))
