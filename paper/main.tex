@@ -44,6 +44,8 @@
   {../out/sesgo/selection/Qwen3-0.6B/plots/}%
   {../out/sesgo/divergence/Qwen3-0.6B/plots/}%
   {../out/sesgo/geometry/Qwen3-0.6B/plots/}%
+  {../out/sesgo/forking/Qwen3-0.6B/plots/}%
+  {../out/sesgo/stability/}%
   {../out/sesgo/steer/figures/}%
   {../out/sesgo/Qwen3-0.6B/plots/}%
 }
@@ -533,6 +535,10 @@ applied.
 
 \plotfig{../out/sesgo/baseline/cross_model/plots/baseline_size_sweep.png}{baseline_size_sweep.png}{0.80\linewidth}{\textbf{Cross-model size sweep} (5 models, $n{=}770$ per cell): accuracy vs.\ log model size, stacked over the three readouts (3-opt / 2-opt / greedy-thinking) with the abstention (ambiguous), disambiguated-target, and disambiguated-other metrics each plotted per family.}{fig:size-sweep}
 
+\plotfig{../out/sesgo/baseline/cross_model/plots/baseline_scaleup_outcome_mosaic.png}{baseline_scaleup_outcome_mosaic.png}{0.98\linewidth}{\textbf{Outcome mass vs.\ scale} (all 13 baseline models, ambiguous items): mean three-way answer mass [stereotyped / other / abstain] stacked (abstain on top) per family $\times$ bias category $\times$ model size, with neutral vs.\ negative wording side by side. Bigger models abstain more (taller green cap); Qwen and Gemma abstain heavily across sizes while Llama and Mistral guess a group at small sizes and shift toward abstention with scale; negative wording elicits slightly more guessing.}{fig:scaleup-mosaic}
+
+\plotfig{../out/sesgo/baseline/cross_model/plots/disambig_scaling_wording_gap.png}{disambig_scaling_wording_gap.png}{0.98\linewidth}{\textbf{Disambiguated accuracy and wording gap vs.\ scale} (13 models): on clear questions accuracy generally rises with model size across families (top, per bias category), yet every model is systematically \emph{more} accurate on negatively-worded than neutrally-worded items (bottom; gap mostly $>0$). \texttt{gemma-2-27b-it} is a degenerate run (accuracy $\approx0$) and is shown honestly rather than dropped.}{fig:disambig-gap}
+
 \section{Stability}
 \label{app:stability}
 
@@ -562,6 +568,8 @@ that change the prediction).
 \end{itemize}
 
 \plotfig{../out/sesgo/stability/Qwen3-0.6B/plots/consistency.png}{consistency.png}{0.62\linewidth}{\textbf{Stability} on \texttt{Qwen3-0.6B} ($n{=}24$ groups $\times\,18$ variants $=432$ samples): per-item consistency $C_q$ (\Cref{eq:stability}) by condition and readout (ambiguous three-option $51\%$, disambiguated $86\%$).}{fig:stability}
+
+\plotfig{../out/sesgo/stability/smallest_vs_biggest_format_invariance.png}{smallest_vs_biggest_format_invariance.png}{0.74\linewidth}{\textbf{Format-invariance, smallest vs.\ biggest} (\texttt{Qwen3-0.6B} vs.\ \texttt{Llama-3.1-70B}): share of items whose answer never changes across the $18$ cosmetic format variants, by context condition, with Wilson $95\%$ CIs. The biggest model is $100\%$ format-invariant in both conditions while the smallest flips constantly ($0\%$ ambiguous, $19\%$ clear)---model scale, not formatting, governs answer stability.}{fig:format-invariance}
 
 \section{Selection: the debiasing scaffold}
 \label{app:selection}
@@ -602,6 +610,8 @@ in descending order:
 
 \plotfig{../out/sesgo/full_data/Qwen3-0.6B/plots/abstention_by_axis.png}{abstention_by_axis.png}{0.82\linewidth}{\textbf{Selection / full-data} on \texttt{Qwen3-0.6B} ($n{=}5388$ ambiguous items): three-option teacher-forced abstention (top row) by language, origin, and scaffold; $s^\star{=}$\texttt{interpretive\_direction} reaches $99.9\%$ while \texttt{intent\_and\_register\_respect} ($79.9\%$) falls below the no-scaffold baseline ($85.6\%$). Dashed line $=1/3$ chance.}{fig:selection}
 
+\plotfig{../out/sesgo/full_data/Qwen3-0.6B/plots/scaffold_abstention_delta.png}{scaffold_abstention_delta.png}{0.96\linewidth}{\textbf{How each scaffold changes the no-scaffold baseline} (\texttt{Qwen3-0.6B}, full-data ambiguous items): signed change in correct-abstention rate vs.\ running with no scaffold, faceted by readout (without/with thinking) $\times$ bias category, with Newcombe $95\%$ CIs. Bars to the right (green) mean the scaffold improves abstention; the gains are largest on the hardest categories (Racism, Xenophobia), and one scaffold (\texttt{intent\_and\_register\_respect}) can hurt---scaffold choice matters.}{fig:scaffold-delta}
+
 \section{Full-data cross-axis baseline}
 \label{app:fulldata}
 
@@ -635,6 +645,8 @@ rates carry Wilson $95\%$ CIs. The per-scaffold slice drives scaffold selection
     side over the 3-opt, 2-opt, and greedy-thinking readouts; the 2-opt panel cannot
     abstain by construction.
 \end{itemize}
+
+\plotfig{../out/sesgo/full_data/Qwen3-0.6B/plots/abstention_breakdown.png}{abstention_breakdown.png}{0.98\linewidth}{\textbf{Ambiguous abstention breakdown} (\texttt{Qwen3-0.6B}, full-data, $n{=}5388$): how often the model correctly answers `unknown', by without/with thinking (rows) $\times$ bias category (columns), with scaffold on the $x$-axis and neutral vs.\ negative wording split. Higher is better; a scaffold should push bars up vs.\ ``No scaffold''. \texttt{interpretive\_direction} reaches near-total abstention without thinking, and every scaffold lifts the hardest categories; dashed line $=$ random guessing.}{fig:abstention-breakdown}
 
 \section{Divergence}
 \label{app:divergence}
@@ -696,6 +708,42 @@ concentrates on $u$).
   \label{fig:role-geo}
 \end{figure}
 
+\plotfig{../out/sesgo/divergence/Qwen3-0.6B/plots/thinking_belief_agreement_scatter.png}{thinking_belief_agreement_scatter.png}{0.92\linewidth}{\textbf{Does thinking change the answer?} Per ambiguous item, the chance the model abstains (`unknown') \emph{before} reasoning (a direct read) vs.\ \emph{after} reasoning step by step (averaged over its free-form tries); a point on the diagonal means thinking left the belief unchanged. Pre- and post-thinking abstain beliefs only loosely agree ($r{=}0.50$; just $44\%$ of items sit within $0.15$ of the diagonal), and on balance thinking pulls the model \emph{away} from the safe abstention (mean post$-$pre $={-}0.11$).}{fig:thinking-agreement}
+
+\paragraph{Dynamics: forking-paths.}
+Following the forking-paths method, we fork the greedy reasoning path of one
+representative ambiguous item at every token position ($60$ positions, $40$ forks
+each, a $60$-sample prior), parse each continuation to an outcome, and track the
+outcome distribution $O_t$ along the path; a Bayesian change-point posterior
+$p(\tau{=}t\mid y)$ tests for a single commitment token, and a branching tree
+summarizes the root $\to$ trunk $\to$ identity-branch outcome mix.
+\begin{itemize}[leftmargin=*,topsep=2pt,itemsep=1pt]
+  \item $O_t$ drifts along the path (a stereotyped-group excursion near
+    $t{\approx}40$, then a swing toward abstention) but the change-point test finds
+    \emph{no} significant single commitment token (Bayes factor $0.023$,
+    $p(m{=}0){=}0.98$): on this small model the answer accretes gradually rather
+    than snapping at one token---an honest negative.
+  \item The strongest fork is at $t{=}42$ (re-sampling there most diverts the
+    outcome): pull $0.284$, drift $0.341$, potential $0.285$.
+\end{itemize}
+
+\begin{figure}[htbp]\centering
+  \begin{subfigure}{0.62\linewidth}\centering
+    \plotsub{../out/sesgo/forking/Qwen3-0.6B/plots/forking_commit_dynamics.png}{forking_commit_dynamics.png}{\linewidth}
+    \caption{Outcome distribution $O_t$ over reasoning tokens (top) and the
+      change-point posterior (bottom; no single deciding token).}
+    \label{fig:forking-dynamics}
+  \end{subfigure}\hfill
+  \begin{subfigure}{0.36\linewidth}\centering
+    \plotsub{../out/sesgo/divergence/Qwen3-0.6B/plots/branching_tree.png}{branching_tree.png}{\linewidth}
+    \caption{Branching tree: root $\to$ trunk $\to$ named / abstain branches.}
+    \label{fig:branching-tree}
+  \end{subfigure}
+  \caption{\textbf{Dynamics (forking-paths)} on \texttt{Qwen3-0.6B}: how the answer
+    forms across the reasoning path (left) and the branching outcome tree (right).}
+  \label{fig:dynamics}
+\end{figure}
+
 \section{Geometry}
 \label{app:geometry}
 
@@ -705,7 +753,7 @@ $h^{(l)}_p(x) \in \mathbb{R}^{d}$ at every layer $l$ from mid to last ($14$--$27
 and at \emph{eight} structural token positions $p \in \{\,\text{im\_end},\
 \text{newline},\ \text{im\_start},\ \text{assistant},\ \text{think\_open},\
 \text{think\_close},\ \text{answer\_prefix},\ \text{label}\,\}$, under scaffold and
-no-scaffold conditions ($n{=}462$: $231$ scaffold $+$ $231$ no-scaffold items). At
+no-scaffold conditions ($n{=}4620$: $2310$ scaffold $+$ $2310$ no-scaffold items). At
 each layer and position we stack the per-sample vectors, fit a (mean-centering)
 PCA, and colour points by each per-sample signal (context condition, accuracy, gold
 label, question polarity, bias category, target/other identity). For every such
@@ -723,10 +771,10 @@ means same-label points are no closer than random.
   \item Near-zero axes: accuracy ($+0.04$), context\_condition ($+0.05$),
     gold\_role ($+0.05$), question\_polarity ($+0.01$).
   \item Anti-separable: target\_identity ($-0.47$), other\_identity ($-0.48$).
-  \item Named conditions project onto a single arc (PC1 $68\%$ EV, PC2 $9\%$ EV);
-    identity axes carry $152/154$ distinct identity strings ($n{=}462$), so
-    anti-separability reflects near-unique identity labels, not clustering by
-    social group.
+  \item Named conditions project onto a single dominant arc (PC1 $\approx 68\%$
+    EV, PC2 $\approx 9\%$ EV); the identity axes carry many near-unique identity
+    strings, so their anti-separability reflects sparse, near-unique labels rather
+    than clustering by social group.
 \end{itemize}
 
 \begin{figure}[htbp]\centering
@@ -739,17 +787,19 @@ means same-label points are no closer than random.
   \end{subfigure}\hfill
   \begin{subfigure}{0.49\linewidth}\centering
     \plotsub{../out/sesgo/geometry/Qwen3-0.6B/plots/pca_by_scaffold.png}{pca_by_scaffold.png}{\linewidth}
-    \caption{Answer-position PCA split by scaffold vs.\ none ($n{=}231/231$,
+    \caption{Answer-position PCA split by scaffold vs.\ none ($n{=}2310/2310$,
       silhouette $+0.48$).}
     \label{fig:geometry-ctx}
   \end{subfigure}
-  \caption{\textbf{Geometry} on \texttt{Qwen3-0.6B} ($n{=}462$, scaffold vs.\ none):
+  \caption{\textbf{Geometry} on \texttt{Qwen3-0.6B} ($n{=}4620$, scaffold vs.\ none):
     silhouette separability by label (left) and answer-position PCA split by
     scaffold presence (right).}
   \label{fig:geometry}
 \end{figure}
 
 \plotfig{../out/sesgo/geometry/Qwen3-0.6B/plots/silhouette_by_layer_axis.png}{silhouette_by_layer_axis.png}{0.82\linewidth}{Silhouette separability of the answer-label representation by every SESGO label \emph{across layers} (mid $14$ to last $27$); red $=$ separable, blue $=$ anti-separable. \emph{scaffold} is separable at every depth (across-layer range $\approx+0.43$ to $+0.64$ at the label position) and \emph{selected\_role} grows with depth, while \emph{target}/\emph{other identity} stay anti-separable and the data-content axes (origin, language, bias category, polarity) never separate.}{fig:geometry-axes}
+
+\plotfig{../out/sesgo/geometry/Qwen3-0.6B/plots/scaffold_boundary_pca.png}{scaffold_boundary_pca.png}{0.78\linewidth}{\textbf{Where the scaffold splits the internal state} (\texttt{Qwen3-0.6B}, full geometry run, $n{=}2310$ scaffold $+$ $2310$ no-scaffold): the single layer $\times$ position with the cleanest scaffold separation---the answer-``label'' position at layer $14$ of $27$ (halfway through the network). A one-sentence debiasing instruction splits the residual stream into two clearly separated regions (separation score $0.71$, $95\%$ CI $[0.70,0.71]$; $1{=}$ fully apart, $0{=}$ overlap), so the scaffold direction is a near-linear axis at mid-depth.}{fig:scaffold-boundary}
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 \section{Steering: making the scaffold axis causal}
