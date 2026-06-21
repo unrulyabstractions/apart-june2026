@@ -16,20 +16,22 @@ This is the SESGO counterpart of `src/datasets/risk/`; the loader package
 |-------|-----|--------|
 | **Non-thinking (3-option)** | Teacher-force the three option markers past an empty `<think></think>` block (`TernaryChoiceRunner.choose3`) — no reasoning. | A `SesgoNonThinking`: five per-option vectors (`prob`, `logprob`, `logit`, `normalized_logit`, `inv_ppl`), each length-3 in role order [TARGET, OTHER, UNKNOWN], **remapped from POSITIONS** via `position_labels`, plus `entropy`/`diversity`/`predicted`. |
 | **Non-thinking (2-option)** | Teacher-force only the two GROUP markers (target+other, NO unknown) over `text_2opt` (`BinaryChoiceRunner.choose2`) — a forced choice. | A `SesgoTwoOption`: `prob`/`logprob` length-2 in role order [OTHER, TARGET] remapped via `position_labels_2opt`, plus `picked`. With no UNKNOWN, ambiguous accuracy is N/A (records bias DIRECTION); disambiguated accuracy = picked the ground-truth group. |
+| **Greedy-thinking** | ONE deterministic decode (`temperature 0`) WITH reasoning enabled — NO skip-thinking prefix, so the model thinks — then parse the post-`</think>` answer (`parse_chosen_label`). | A `SesgoGreedyThinking`: the parsed `label` (`None` if unparseable) + short `text`; `predicted` = that label. The role the model commits to when it reasons greedily — distinct from the greedy NON-thinking decode (skip-thinking prefill) and the sampled thinking draws. |
 | **Thinking** | Sample `n_thinking_samples` free-form generations (`temperature > 0`), parse which role each chose. | A `SesgoThinking`: per-role `mean` (pick fraction) and `std` (population std of the one-hot indicator), `sample_size` (#parsed, may be 0), `predicted`. |
 
 Levels run per prompt according to `SesgoQueryConfig` (`do_non_thinking`,
-`do_two_option`, `do_thinking`). The 2-option readout reuses the SAME loaded
-weights via `BinaryChoiceRunner.from_runner(runner)` (no second model load).
+`do_two_option`, `do_greedy_thinking`, `do_thinking`). The 2-option readout reuses
+the SAME loaded weights via `BinaryChoiceRunner.from_runner(runner)` (no second
+model load).
 
 ## Accuracy / correctness (per context condition)
 
 `sesgo_correctness.py` is the single source of truth: `is_correct(pred, gold)`
 compares a prediction against the per-condition `gold_label` (ambiguous → UNKNOWN;
 disambiguated → ground-truth role). `SesgoSample.correct_non_thinking` /
-`correct_thinking` use it; `correct_2opt` uses `two_option_correct(...)` which
-returns `None` for ambiguous items (no UNKNOWN to score) and the forced-choice
-match for disambiguated items.
+`correct_thinking` / `correct_greedy_thinking` all use it; `correct_2opt` uses
+`two_option_correct(...)` which returns `None` for ambiguous items (no UNKNOWN to
+score) and the forced-choice match for disambiguated items.
 
 ## Batched querying (`SesgoQueryConfig.batch_size`)
 
@@ -41,6 +43,8 @@ collapses each chunk's model calls into batched forward passes:
   continuations (three labels × M prompts) in one pass,
 - **greedy decode** → one batched `generate_batch` (per-prompt skip-thinking +
   choice prefix),
+- **greedy-thinking decode** → one batched `generate_batch` over the M prompts at
+  temperature 0 with NO prefilling (the model reasons), parsed per prompt,
 - **thinking draws** → all `M·N` draws flattened into one `generate_batch`, then
   regrouped per prompt.
 
@@ -121,11 +125,12 @@ skip-thinking prefix and the `<think>` markers are no-ops for Llama/Gemma/Mistra
 
 | Symbol | Purpose |
 |--------|---------|
-| `SesgoQueryConfig` | Query knobs (samples, temperature, tokens, which levels incl. `do_two_option`, subsample). |
+| `SesgoQueryConfig` | Query knobs (samples, temperature, tokens, which levels incl. `do_two_option`, `do_greedy_thinking`, subsample). |
 | `SesgoQuerier` | `query_sample(prompt_sample, runner)` and `query_dataset(prompt_dataset, model_name)`. |
-| `SesgoSample` | Per-prompt record: color-by axes (+`context_condition`) + `non_thinking` + `non_thinking_2opt` + `thinking`; `correct_*`, `picked_2opt`. |
+| `SesgoSample` | Per-prompt record: color-by axes (+`context_condition`) + `non_thinking` + `non_thinking_2opt` + `greedy_thinking` + `thinking`; `correct_*`, `picked_2opt`, `predicted_greedy_thinking`. |
 | `SesgoNonThinking` | Per-option vectors (`prob`/`logprob`/`logit`/`normalized_logit`/`inv_ppl`) + `entropy`/`diversity`/`predicted`; `from_ternary(choice, position_labels)`. |
 | `SesgoTwoOption` | 2-option forced-choice readout `prob`/`logprob` [OTHER, TARGET] + `picked`; `from_binary(choice, position_labels_2opt)`. |
+| `SesgoGreedyThinking` | One deterministic reasoning decode's parsed `label` + `text`; `predicted`. |
 | `SesgoThinking` | Per-role `mean`/`std` + `sample_size` + `predicted`; `summarize_labels(labels)`. |
 | `is_correct` / `two_option_correct` | Per-condition correctness against `gold_label`. |
 | `parse_chosen_label` | Parse one generation into a chosen `SesgoLabel` (or `None`). |

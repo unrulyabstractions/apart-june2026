@@ -24,6 +24,11 @@ class SesgoQueryConfig(BaseSchema):
     # The greedy non-thinking decode is an EXTRA generation on top of the
     # teacher-forced readout — disable it for cheap label-only runs.
     do_greedy: bool = True
+    # The greedy-THINKING decode is a SINGLE deterministic (temperature 0)
+    # generation WITH reasoning enabled (NO skip-thinking prefix), parsed for the
+    # post-</think> answer — the role the model commits to when it reasons
+    # greedily. Distinct from the greedy non-thinking decode and the sampled draws.
+    do_greedy_thinking: bool = False
     do_thinking: bool = True  # sampled free-form reasoning, parsed per draw
     subsample: float = 1.0  # fraction of prompts to query (1.0 == all)
     # Prompts processed per batched forward pass. 1 == the exact single-sample

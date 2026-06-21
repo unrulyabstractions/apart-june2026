@@ -2,15 +2,16 @@
 
 Run-by-path driver for the NON_THINKING_BASELINE study. Loads the baseline prompt
 dataset (one rendering per item: NO format variation, NO scaffolding) and queries
-every prompt at the NON-THINKING level ONLY — the teacher-forced 3-way softmax over
-the displayed positions remapped to roles, plus the greedy non-thinking decode. The
-sampled thinking level is deliberately switched OFF, so this is the cheapest, most
-direct readout of where the model puts its mass before any reasoning.
+every prompt at the NON-THINKING readouts — the teacher-forced 3-way softmax over
+the displayed positions remapped to roles, plus the greedy non-thinking decode —
+AND the single greedy-THINKING decode (one deterministic temperature-0 generation
+WITH reasoning enabled, parsed for the post-</think> answer). The SAMPLED thinking
+level is deliberately switched OFF, so this stays a cheap, direct readout.
 
 On ambiguous SESGO items the gold answer is always UNKNOWN, so "accuracy" is the
-fraction of non-thinking predictions that abstain (predict UNKNOWN) rather than pick
-a group. Here we log a one-line overall non-thinking abstention summary as a sanity
-check; the full slice-by-axis breakdown lives in
+fraction of predictions that abstain (predict UNKNOWN) rather than pick a group.
+Here we log one-line overall non-thinking AND greedy-thinking abstention summaries
+as a sanity check; the full slice-by-axis breakdown lives in
 visualize_baseline_samples.py.
 
 Output lands at out/sesgo/baseline/<MODEL>/response_samples.json (MODEL == bare
@@ -128,17 +129,26 @@ def _fmt(value: float | None) -> str:
 
 
 def log_summary(dataset: SesgoDataset) -> None:
-    """Report overall non-thinking abstention accuracy.
+    """Report overall non-thinking and greedy-thinking abstention accuracy.
 
-    Accuracy = fraction of non-thinking predictions that are UNKNOWN (the
-    ambiguous gold). Samples with no non-thinking readout are excluded.
+    Accuracy = fraction of predictions that are UNKNOWN (the ambiguous gold).
+    Samples with no parsed prediction for a given readout are excluded, so the
+    greedy-thinking line also reports how many draws parsed (n) as a sanity check
+    against the non-thinking readout (every prompt yields a non-thinking pred).
     """
     nt = [s.correct_non_thinking for s in dataset.samples if s.predicted_non_thinking is not None]
     nt_acc = sum(nt) / len(nt) if nt else None
+    gt = [
+        s.correct_greedy_thinking
+        for s in dataset.samples
+        if s.predicted_greedy_thinking is not None
+    ]
+    gt_acc = sum(gt) / len(gt) if gt else None
 
     log_section("summary (accuracy = fraction predicted UNKNOWN)")
     log(f"  samples: {len(dataset.samples)}")
-    log(f"  non-thinking abstention: {_fmt(nt_acc):>6} (n={len(nt)})")
+    log(f"  non-thinking abstention:    {_fmt(nt_acc):>6} (n={len(nt)})")
+    log(f"  greedy-thinking abstention: {_fmt(gt_acc):>6} (n={len(gt)})")
 
 
 def main() -> None:
@@ -151,12 +161,14 @@ def main() -> None:
     prompt_dataset = apply_shard(prompt_dataset, args.shard_index, args.shard_count)
     log(f"[collect] loaded {len(prompt_dataset.samples)} prompts")
 
-    # NON-THINKING ONLY: greedy decode on, sampled thinking off. Already
-    # subsampled at load, so the querier runs over all loaded prompts.
+    # NON-THINKING readouts plus the single greedy-THINKING decode; sampled
+    # thinking off. Already subsampled at load, so the querier runs over all
+    # loaded prompts.
     config = SesgoQueryConfig(
         do_non_thinking=True,
         do_thinking=False,
         do_greedy=True,
+        do_greedy_thinking=True,
         subsample=1.0,
         batch_size=args.batch_size,
     )

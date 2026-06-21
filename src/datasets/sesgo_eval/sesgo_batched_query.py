@@ -19,6 +19,7 @@ from __future__ import annotations
 from src.binary_choice import BinaryChoiceRunner
 from src.datasets.prompt import SesgoPromptSample
 from src.ternary_choice import TernaryChoiceRunner
+from .sesgo_greedy_thinking import SesgoGreedyThinking
 from .sesgo_non_thinking import SesgoNonThinking
 from .sesgo_query_config import SesgoQueryConfig
 from .sesgo_response_parsing import parse_chosen_label
@@ -69,6 +70,30 @@ def _batch_non_thinking(
             nt.greedy_label is not None and nt.greedy_label != nt.predicted
         )
     return nts
+
+
+def _batch_greedy_thinking(
+    samples: list[SesgoPromptSample],
+    runner: TernaryChoiceRunner,
+    config: SesgoQueryConfig,
+) -> list[SesgoGreedyThinking | None]:
+    """One DETERMINISTIC reasoning decode per prompt, batched; None when disabled.
+
+    Mirrors the single-sample _greedy_thinking: temperature 0 with NO prefilling
+    (so a reasoning model thinks before answering), then parse the post-</think>
+    answer per sample. One generate_batch over the chunk == the per-sample calls.
+    """
+    if not config.do_greedy_thinking:
+        return [None] * len(samples)
+    generated = runner.generate_batch(
+        [s.text for s in samples],
+        max_new_tokens=config.max_new_tokens,
+        temperature=0.0,
+    )
+    return [
+        SesgoGreedyThinking(label=parse_chosen_label(g, s), text=g.strip()[:200])
+        for g, s in zip(generated, samples)
+    ]
 
 
 def _batch_thinking(
@@ -135,6 +160,7 @@ def query_chunk(
     else:
         thinkings = [None] * len(samples)
         completions = [None] * len(samples)
+    greedy_thinkings = _batch_greedy_thinking(samples, runner, config)
     two_opts = _batch_two_option(samples, runner, config)
 
     return [
@@ -154,8 +180,11 @@ def query_chunk(
             other_identity=s.other_identity,
             non_thinking=nt,
             non_thinking_2opt=two,
+            greedy_thinking=gt,
             thinking=th,
             _thinking_completions=comp,
         )
-        for s, nt, th, comp, two in zip(samples, nts, thinkings, completions, two_opts)
+        for s, nt, th, comp, two, gt in zip(
+            samples, nts, thinkings, completions, two_opts, greedy_thinkings
+        )
     ]

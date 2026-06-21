@@ -20,6 +20,7 @@ from src.inference.model_runner import is_cloud_api_name
 from src.ternary_choice import TernaryChoiceRunner
 from .sesgo_batched_query import query_chunk
 from .sesgo_dataset import SesgoDataset
+from .sesgo_greedy_thinking import SesgoGreedyThinking
 from .sesgo_non_thinking import SesgoNonThinking
 from .sesgo_query_config import SesgoQueryConfig
 from .sesgo_response_parsing import parse_chosen_label
@@ -110,6 +111,26 @@ class SesgoQuerier:
         choice = binary.choose2(sample.text_2opt, prefix, sample.option_labels_2opt)
         return SesgoTwoOption.from_binary(choice, sample.position_labels_2opt)
 
+    def _greedy_thinking(
+        self, sample: SesgoPromptSample, runner: TernaryChoiceRunner
+    ) -> SesgoGreedyThinking:
+        """One DETERMINISTIC decode WITH reasoning, parsed for the committed role.
+
+        Unlike the greedy non-thinking decode (skip-thinking prefill), this passes
+        NO prefilling, so a reasoning model thinks before answering; we then parse
+        the post-</think> answer via the shared parse_chosen_label. Temperature 0
+        makes it the single answer the model commits to when it reasons greedily.
+        """
+        generated = runner.generate(
+            sample.text,
+            max_new_tokens=self.config.max_new_tokens,
+            temperature=0.0,
+        )
+        return SesgoGreedyThinking(
+            label=parse_chosen_label(generated, sample),
+            text=generated.strip()[:200],
+        )
+
     def _thinking(
         self, sample: SesgoPromptSample, runner: TernaryChoiceRunner
     ) -> tuple[SesgoThinking, list[str]]:
@@ -143,6 +164,11 @@ class SesgoQuerier:
             if self.config.do_two_option
             else None
         )
+        greedy_thinking = (
+            self._greedy_thinking(prompt_sample, runner)
+            if self.config.do_greedy_thinking
+            else None
+        )
         thinking = completions = None
         if self.config.do_thinking:
             thinking, completions = self._thinking(prompt_sample, runner)
@@ -163,6 +189,7 @@ class SesgoQuerier:
             other_identity=prompt_sample.other_identity,
             non_thinking=non_thinking,
             non_thinking_2opt=non_thinking_2opt,
+            greedy_thinking=greedy_thinking,
             thinking=thinking,
             _thinking_completions=completions,
         )

@@ -51,6 +51,20 @@ role slot [TARGET, OTHER, UNKNOWN] and derives five length-3 vectors:
 
 Plus `entropy`/`diversity` over `prob` and `predicted` (argmax, ties → UNKNOWN).
 
+## Level 1.5 — Greedy-thinking (one deterministic reasoning decode)
+
+`SesgoGreedyThinking` records a SINGLE `runner.generate(text, max_new_tokens,
+temperature=0.0)` with NO prefilling — unlike the greedy NON-thinking decode it
+does NOT prepend the skip-thinking block, so a reasoning model actually thinks
+before answering. The post-`</think>` answer is parsed via the same
+`parse_chosen_label` as the thinking draws into a `label` (`None` if unparseable),
+plus a short `text`. It is the answer the model commits to when it reasons
+greedily — distinct from the teacher-forced choose3, the greedy non-thinking
+decode, and the sampled thinking distribution. Gated on `config.do_greedy_thinking`
+(off by default; the baseline study turns it on). `predicted` is just the parsed
+`label`, and `correct_greedy_thinking` runs it through the same per-condition
+`is_correct`.
+
 ## Level 2 — Thinking (sampled reasoning)
 
 Draw `n_thinking_samples` generations with `temperature > 0`. Parse each via
@@ -88,8 +102,9 @@ returns `None`.
 leading slice, iterates behind a `ProgressTracker`, clears accelerator memory
 periodically, and returns a `SesgoDataset` (`prompt_dataset_id`, `model`,
 `config`, `samples`). `SesgoSample` exposes `predicted_non_thinking`,
-`predicted_thinking`, and `correct_non_thinking` / `correct_thinking` (= the
-prediction is UNKNOWN, the ambiguous gold). Raw generations live in the private
+`predicted_thinking`, `predicted_greedy_thinking`, and `correct_non_thinking` /
+`correct_thinking` / `correct_greedy_thinking` (= the prediction is UNKNOWN, the
+ambiguous gold). Raw generations live in the private
 `_thinking_completions` field, excluded from the id hash and `to_dict`, so
 persisted datasets stay compact. Save with `SesgoDataset.save_as_json`; load with
 the inherited `BaseSchema.from_json`.
