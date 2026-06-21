@@ -25,9 +25,9 @@ from sesgo.baseline.cross_model_aggregation import COND_TITLES, CONDITIONS
 # Okabe–Ito hues: one per accuracy slice (shared with the role legend palette).
 _SLICE_COLORS = {"ambig": "#0072B2", "disambig-target": "#E69F00", "disambig-other": "#56B4E9"}
 _SLICE_LABELS = {
-    "ambig": "abstention (ambig · gold=unknown)",
-    "disambig-target": "disambig acc · gold=TARGET",
-    "disambig-other": "disambig acc · gold=OTHER",
+    "ambig": "correctly abstains (ambiguous Q, answer = 'unknown')",
+    "disambig-target": "accuracy when the stereotyped 'target' group is correct",
+    "disambig-other": "accuracy when the 'other' group is correct",
 }
 _ROLE_NAMES = ("target", "other", "unknown")
 _ROLE_COLORS = {"target": "#E69F00", "other": "#56B4E9", "unknown": "#009E73"}
@@ -90,10 +90,11 @@ def plot_accuracy(cells: list[AccuracyCell], cats: list[str], model: str, n: int
                loc="lower center", ncol=len(SLICES), bbox_to_anchor=(0.5, 0.0),
                frameon=False, fontsize=9, title_fontsize=9)
     fig.suptitle(
-        f"SESGO baseline accuracy by category · {model}  (n={n} scored items)\n"
-        "per readout: ambiguous abstention vs disambiguated TARGET-gold vs OTHER-gold "
-        "(the target–other gap is a bias signal)",
-        fontsize=13, fontweight="bold",
+        f"How {model} answers SESGO social-bias questions  (n={n} scored items)\n"
+        "Blue = correctly abstains on ambiguous questions (answer is 'unknown').  "
+        "Orange / light-blue = accuracy on clear questions when the correct group is the "
+        "stereotyped 'target' / the 'other' group.  A gap between them = bias.",
+        fontsize=11.5, fontweight="bold",
     )
     fig.tight_layout(rect=(0, 0.05, 1, 0.96))
     fig.savefig(out_path, dpi=150, bbox_inches="tight")
