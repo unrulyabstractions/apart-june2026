@@ -171,8 +171,8 @@ disambiguated items. The selected scaffold $s^\star$ (baseline) abstains on
 80\% of ambiguous items ($n{=}35$) under three-option forcing and 86\% under
 thinking ($n{=}22$). A five-model Qwen/Llama/Mistral sweep ($n{=}770$/cell) shows
 abstention and disambiguated accuracy rise with scale. Probing answer-position
-activations ($n{=}462$), the representation separates by context condition
-($+0.11$ silhouette) but collapses on social identity ($-0.42$/$-0.43$). We
+activations ($n{=}462$, scaffold vs.\ none), the debiasing scaffold is the most
+separable axis ($+0.48$ silhouette) while social identity collapses ($-0.48$). We
 release the harness.
 \end{abstract}
 
@@ -377,7 +377,7 @@ which scaffolds are applied, and which readout is run.
       abstention accuracy per scaffold $\to$ select $s^\star$ \\
     \texttt{divergence} & none & 1 model, none & 3-opt $+$ 2-opt $+$ greedy- $+$ sampled-thinking &
       per-readout accuracy $+$ reasoning JS-div from unknown \\
-    \texttt{geometry} & none & 1 model, baseline-only & greedy-thinking $+$ activations &
+    \texttt{geometry} & scaffold + none & 1 model, scaffold vs.\ none & greedy-thinking $+$ activations &
       silhouette separability of answer geometry by every label \\
     \bottomrule
   \end{tabular}
@@ -550,14 +550,17 @@ at $\mathrm{JS}=\ln 2 = 0.693$, two toward target at $0.216$ and $0.380$).
 \subsection{Geometry}
 \label{sec:geometry}
 
-We read answer-position activations ($n{=}462$ baseline-only items, layer-averaged)
-under the scaffold-vs-none comparison (\Cref{fig:geometry-sil},
-\Cref{fig:geometry-axes}). Silhouette separability over the full PCA space:
-\emph{context\_condition} (ambiguous vs.\ disambiguated) $+0.11$, model accuracy
-$+0.02$, gold\_label $+0.01$, question\_polarity $\approx 0.00$, bias\_category
-$-0.07$, target\_identity $-0.42$, other\_identity $-0.43$. Every per-label PCA
-axis funnels into the same arc (PC1 $31\%$ EV, PC2 $28\%$ EV); the identity axes
-have $222/223$ distinct values. Behavioral readouts on the same $462$ items
+We read answer-position activations ($n{=}462$: $231$ scaffold $+$ $231$ no-scaffold
+items) at every layer from mid to last ($14$--$27$) and at eight token positions
+(\Cref{fig:geometry-sil}, \Cref{fig:geometry-axes}). At the answer-label token of the
+last layer, silhouette separability is dominated by \emph{scaffold} presence ($+0.48$;
+$+0.35$ to $+0.60$ across positions, separable at every layer), then
+\emph{selected\_role} ($+0.20$, rising to $+0.36$ at mid-layer $21$); model accuracy
+($+0.04$), \emph{context\_condition} ($+0.05$), gold\_role ($+0.05$) and
+question\_polarity ($+0.01$) are near zero, while \emph{target\_identity} ($-0.47$) and
+\emph{other\_identity} ($-0.48$) are anti-separable. The named conditions project onto
+a single arc (PC1 $68\%$ EV, PC2 $9\%$ EV); the identity axes have $222/223$ distinct
+values. Behavioral readouts on the same $462$ items
 ($154$ ambiguous, $308$ disambiguated): three-option forcing abstains $72.1\%$
 ambiguous ($111/154$) and is right $18.8\%$ disambiguated ($58/308$); the
 two-option readout reaches $60.7\%$ disambiguated ($187/308$) and $0\%$ ambiguous
@@ -569,23 +572,23 @@ incorrect).
   \begin{subfigure}{0.49\linewidth}\centering
     \plotsub{../out/sesgo/geometry/Qwen3-0.6B/plots/silhouette_separability.png}{silhouette_separability.png}{\linewidth}
     \caption{Silhouette separability of the answer representation by every label:
-      context\_condition $+0.11$; accuracy / gold\_label / polarity $\approx 0$;
-      identity $-0.42/-0.43$.}
+      \emph{scaffold} $+0.48$ (dominant); selected\_role $+0.20$;
+      accuracy / context\_condition $\approx 0$; identity $-0.47/-0.48$.}
     \label{fig:geometry-sil}
   \end{subfigure}\hfill
   \begin{subfigure}{0.49\linewidth}\centering
-    \plotsub{../out/sesgo/geometry/Qwen3-0.6B/plots/pca_by_context_condition.png}{pca_by_context_condition.png}{\linewidth}
-    \caption{Answer-position PCA colored by context\_condition (ambiguous vs.\
-      disambiguated, $n{=}154/308$).}
+    \plotsub{../out/sesgo/geometry/Qwen3-0.6B/plots/pca_by_scaffold.png}{pca_by_scaffold.png}{\linewidth}
+    \caption{Answer-position PCA split by scaffold vs.\ none ($n{=}231/231$,
+      silhouette $+0.48$).}
     \label{fig:geometry-ctx}
   \end{subfigure}
-  \caption{\textbf{Geometry} on \texttt{Qwen3-0.6B} ($n{=}462$, baseline-only):
-    silhouette separability (left) and answer-position PCA by context condition
-    (right).}
+  \caption{\textbf{Geometry} on \texttt{Qwen3-0.6B} ($n{=}462$, scaffold vs.\ none):
+    silhouette separability by label (left) and answer-position PCA split by
+    scaffold presence (right).}
   \label{fig:geometry}
 \end{figure}
 
-\plotfig{../out/sesgo/geometry/Qwen3-0.6B/plots/pca_axes_grid.png}{pca_axes_grid.png}{0.78\linewidth}{Answer-position residual geometry (PCA, layer-averaged, $n{=}462$) funnelled through every SESGO label. Every panel projects onto the same single arc (PC1 $31\%$ EV, PC2 $28\%$ EV); the identity panels have $222/223$ distinct values (top-8 groups $+$ \emph{(other)}).}{fig:geometry-axes}
+\plotfig{../out/sesgo/geometry/Qwen3-0.6B/plots/silhouette_by_layer_axis.png}{silhouette_by_layer_axis.png}{0.82\linewidth}{Silhouette separability of the answer-label representation by every SESGO label \emph{across layers} (mid $14$ to last $27$); red $=$ separable, blue $=$ anti-separable. \emph{scaffold} is separable at every depth ($+0.35$ to $+0.60$) and \emph{selected\_role} grows with depth, while \emph{target}/\emph{other identity} stay anti-separable and the data-content axes (origin, language, bias category, polarity) never separate.}{fig:geometry-axes}
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 \section{Limitations and Dual-Use Considerations}
