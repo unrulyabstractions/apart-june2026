@@ -93,7 +93,15 @@ def discover_models(geometry_root: Path) -> dict[str, GeometryModel]:
 
 
 def default_model_name(models: dict[str, GeometryModel], preferred: str | None) -> str:
-    """Pick the initially selected model: ``preferred`` if present, else first."""
+    """Pick the initially selected model: ``preferred`` if present, else the
+    primary Qwen3-0.6B, else the first Qwen, else the first model.
+
+    Discovery is alphabetical, which booted the UI into Llama-3.1-70B (the
+    sparsest model, fewest axes) instead of the rich primary model. Prefer Qwen.
+    """
     if preferred and preferred in models:
         return preferred
-    return next(iter(models))
+    if "Qwen3-0.6B" in models:
+        return "Qwen3-0.6B"
+    qwen = next((m for m in models if m.startswith("Qwen")), None)
+    return qwen or next(iter(models))

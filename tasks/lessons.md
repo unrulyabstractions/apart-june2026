@@ -53,3 +53,28 @@
   a subsample that still spans all scaffold conditions.
 - Account balance can read transiently NEGATIVE mid-run (settlement lag) then
   recover; re-check `vastai show user` before concluding "out of credit".
+
+## 2026-06-21 — Data loss: cloud budget drain stopped all boxes mid-run
+
+ROOT CAUSE: an over-parallel push ran ~11 reliability-first Vast fleets at once
+(~$22-44/hr aggregate). The burn drained the shared account $106 -> $0; when credit
+crossed Vast's ~$5 threshold, Vast STOPPED EVERY INSTANCE ACCOUNT-WIDE, mid-run. At
+that moment the study collectors synced results back only at the END of a box's run,
+so every box stopped mid-grid lost ALL in-progress data (it lived on the box's local
+disk, never reached sync/ quarantine). Lost: Qwen3-8B baseline; selection
+Llama-70B/Llama-1B/Qwen-32B; full-grid 0.6B + 32B divergence; geometry Llama-1B/3B.
+
+WHY NOT CAUGHT: no burn-vs-credit guard, no incremental sync-back, and "money is no
+constraint" was misread as "unlimited concurrency" instead of "spend with rails".
+
+PREVENTION (enforce):
+1. INCREMENTAL sync-back: cloud/sync_partial.sh (commit e5f53da) mirrors each box's
+   growing response_samples.json to quarantine every 180s and pushes the partial UP
+   before any relaunch -> a stopped box resumes, never loses >3min. Collection also
+   checkpoints every 25 samples.
+2. CONCURRENCY CAP + BURN GUARD: cap concurrent boxes (~<=6); check `vastai show user`
+   credit before launching; abort/pause as credit nears the threshold. Hourly loop is
+   credit-gated (no launches under $50).
+3. "money no constraint" != "infinite concurrency" -- a few checkpointed boxes beat a
+   swarm that drains and dies.
+4. VERIFY locally after each run (data present + plots render) before moving on.
