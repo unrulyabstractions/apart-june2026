@@ -92,6 +92,11 @@ data/
 results/
 outputs/
 out/
+# cloud/ sync-back quarantine: results copied DOWN from a Vast.ai GPU box land
+# here first (via cloud/sync_back.sh --ignore-existing) and are never committed.
+sync/
+# Vast.ai instance id recorded by cloud/vast_launch.sh
+cloud/.vast_instance_id
 generation_compare/
 tmp/
 temp/

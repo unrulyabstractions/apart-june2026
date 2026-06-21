@@ -1,0 +1,64 @@
+#!/usr/bin/env bash
+#
+# at_vast.sh — run a single command on the Vast.ai box over SSH.
+#
+# This is the thin "send a command to the remote and stream its output back"
+# wrapper. It does NOT sync anything by itself — pushing code is sync_up.sh and
+# pulling results is sync_back.sh, kept as SEPARATE scripts so the dangerous
+# direction (cloud -> local) is always explicit and isolated.
+#
+# It resolves the SSH host/port FRESH from `vastai ssh-url` on every call,
+# because Vast IPs/ports change after a stop/start.
+#
+# Usage:
+#   bash cloud/at_vast.sh "nvidia-smi"
+#   bash cloud/at_vast.sh "cd apart && uv run python -c 'import torch; print(torch.cuda.is_available())'"
+#   INSTANCE=12345678 bash cloud/at_vast.sh "<cmd>"      # override instance id
+#
+# Requirements:
+#   - cloud/.vast_instance_id (written by vast_launch.sh) OR INSTANCE env / arg.
+#   - ~/.ssh/id_ed25519 — your SSH key, registered on the Vast account.
+#   - vastai CLI installed and authenticated.
+#
+# The remote repo root is /root/apart (set once in REMOTE_ROOT below). Commands
+# are run from there.
+
+set -euo pipefail
+
+HERE="$(cd "$(dirname "$0")" && pwd)"
+INSTANCE_FILE="$HERE/.vast_instance_id"
+REMOTE_ROOT="${REMOTE_ROOT:-/root/apart}"
+SSH_KEY="${SSH_KEY:-$HOME/.ssh/id_ed25519}"
+
+# ── 1. Resolve the active instance ID (env > arg-file > recorded file) ──
+INSTANCE="${INSTANCE:-}"
+if [ -z "$INSTANCE" ]; then
+  [ -f "$INSTANCE_FILE" ] || {
+    echo "No instance id. Set INSTANCE=<id> or run: bash cloud/vast_launch.sh" >&2
+    exit 1
+  }
+  INSTANCE="$(cat "$INSTANCE_FILE")"
+fi
+
+[ $# -gt 0 ] || { echo "usage: bash cloud/at_vast.sh <command>" >&2; exit 1; }
+CMD="$*"
+
+# ── 2. Resolve SSH host / port FRESH each call ─────────────────────────
+# Vast returns ssh://user@host:port — parse it. -F /dev/null ignores the user's
+# ~/.ssh/config so behaviour is reproducible.
+SSH_URL="$(vastai ssh-url "$INSTANCE" 2>/dev/null | tr -d '\n')"
+if [[ "$SSH_URL" =~ ^ssh://([^@]+)@([^:]+):([0-9]+)$ ]]; then
+  SSH_USER="${BASH_REMATCH[1]}"
+  SSH_HOST="${BASH_REMATCH[2]}"
+  SSH_PORT="${BASH_REMATCH[3]}"
+else
+  echo "Could not parse ssh-url: '$SSH_URL'" >&2
+  echo "Is instance $INSTANCE still running?  vastai show instances" >&2
+  exit 1
+fi
+
+SSH="ssh -F /dev/null -o StrictHostKeyChecking=accept-new -i $SSH_KEY -p $SSH_PORT $SSH_USER@$SSH_HOST"
+
+# ── 3. Run the command on the remote box ───────────────────────────────
+echo "[at_vast] run on $SSH_HOST:$SSH_PORT  ::  $CMD"
+exec $SSH "cd $REMOTE_ROOT && $CMD"

@@ -1,0 +1,83 @@
+#!/usr/bin/env bash
+#
+# sync_up.sh — push the apart repo UP to the Vast.ai box (local -> cloud).
+#
+# This is the ONLY direction that writes to the remote. It is always safe for
+# local files: rsync here reads from local and writes to the remote. (The
+# dangerous direction — cloud writing onto local — lives in sync_back.sh and is
+# deliberately defanged there.)
+#
+# What it pushes:
+#   - the whole repo EXCEPT large/ephemeral/environment-specific dirs, so the box
+#     gets the code + sesgo/ + src/ it needs to run the collections.
+#   - PLUS a small, EXPLICIT, separate sync of datasets/SESGO/prompts/ (the
+#     ~400 KB of .xlsx prompt sources). These are required input for
+#     generate_prompt_dataset.py but live under the gitignored, normally-excluded
+#     datasets/ tree, so they are synced as their own narrow step.
+#
+# Excludes (per task spec): out/ datasets/ sync/ .git .venv __pycache__ *.pyc
+#                           paper/build  (+ a few obvious caches)
+#
+# Usage:
+#   bash cloud/sync_up.sh
+#   INSTANCE=12345678 bash cloud/sync_up.sh
+#   DRY_RUN=1 bash cloud/sync_up.sh        # show what WOULD transfer, send nothing
+
+set -euo pipefail
+
+HERE="$(cd "$(dirname "$0")" && pwd)"
+REPO_ROOT="$(cd "$HERE/.." && pwd)"
+INSTANCE_FILE="$HERE/.vast_instance_id"
+REMOTE_ROOT="${REMOTE_ROOT:-/root/apart}"
+SSH_KEY="${SSH_KEY:-$HOME/.ssh/id_ed25519}"
+
+# ── 1. Resolve instance + SSH endpoint (fresh) ─────────────────────────
+INSTANCE="${INSTANCE:-}"
+if [ -z "$INSTANCE" ]; then
+  [ -f "$INSTANCE_FILE" ] || { echo "No instance id. Run cloud/vast_launch.sh first." >&2; exit 1; }
+  INSTANCE="$(cat "$INSTANCE_FILE")"
+fi
+
+SSH_URL="$(vastai ssh-url "$INSTANCE" 2>/dev/null | tr -d '\n')"
+if [[ "$SSH_URL" =~ ^ssh://([^@]+)@([^:]+):([0-9]+)$ ]]; then
+  SSH_USER="${BASH_REMATCH[1]}"; SSH_HOST="${BASH_REMATCH[2]}"; SSH_PORT="${BASH_REMATCH[3]}"
+else
+  echo "Could not parse ssh-url: '$SSH_URL'. Is instance $INSTANCE running?" >&2
+  exit 1
+fi
+
+RSYNC_E="ssh -F /dev/null -o StrictHostKeyChecking=accept-new -i $SSH_KEY -p $SSH_PORT"
+DRY=""; [ "${DRY_RUN:-0}" = "1" ] && DRY="--dry-run"
+
+# ── 2. Push the code tree (local -> remote) ────────────────────────────
+# NO --delete here either: we never want to surprise-delete on the remote based
+# on local state during an active run. Excludes match the task spec.
+echo "[sync_up] code  $REPO_ROOT/  ->  $SSH_HOST:$REMOTE_ROOT/"
+rsync -ah $DRY -e "$RSYNC_E" \
+  --exclude='out/'              \
+  --exclude='datasets/'         \
+  --exclude='sync/'             \
+  --exclude='.git/'             \
+  --exclude='.venv/'            \
+  --exclude='__pycache__/'      \
+  --exclude='*.pyc'             \
+  --exclude='paper/build/'      \
+  --exclude='.DS_Store'         \
+  --exclude='.pytest_cache/'    \
+  --exclude='.ruff_cache/'      \
+  --exclude='.mypy_cache/'      \
+  --exclude='*.egg-info/'       \
+  "$REPO_ROOT/" "$SSH_USER@$SSH_HOST:$REMOTE_ROOT/"
+
+# ── 3. Push ONLY the SESGO prompt sources (required generation input) ──
+# datasets/ is excluded above (large vendored corpora), but generate_prompt_dataset.py
+# reads datasets/SESGO/prompts/*.xlsx (load_items, ~400 KB). Sync just that subtree,
+# explicitly and separately, so the remote can regenerate the five datasets.
+echo "[sync_up] SESGO prompts  datasets/SESGO/prompts/  ->  $SSH_HOST:$REMOTE_ROOT/datasets/SESGO/prompts/"
+rsync -ah $DRY -e "$RSYNC_E" \
+  --exclude='__pycache__/' --exclude='.DS_Store' \
+  "$REPO_ROOT/datasets/SESGO/prompts/" \
+  "$SSH_USER@$SSH_HOST:$REMOTE_ROOT/datasets/SESGO/prompts/"
+
+echo "[sync_up] done."
+echo "[sync_up] next: bash cloud/at_vast.sh \"bash cloud/at_setup.sh\""
