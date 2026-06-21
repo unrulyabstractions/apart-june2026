@@ -162,7 +162,14 @@ each scaffold shifts the model's residual-stream geometry. The studies measure
 baseline abstention, stability under surface variation, per-scaffold abstention
 accuracy (selecting a best scaffold $s^\star$), reasoning-distribution
 divergence from abstention, and each scaffold's activation-space shift. We
-release the design, notation, and harness; full results follow as runs complete.
+release the design, notation, and harness, and report a minimal-sample pilot run
+of all five studies on \texttt{Qwen3-0.6B} that exercises the full pipeline:
+baseline abstention is already high ($0.95$) but only moderately stable across
+surface variants ($\bar{C}{=}0.54$), the selected
+$s^\star = \texttt{intent\_and\_register\_respect}$ is the only condition to
+abstain perfectly under both readouts, and a candidate scaffold leaves its
+largest residual-stream footprint at the answer position. Full-grid runs across
+a broader model suite are future work.
 \end{abstract}
 
 \bigskip
@@ -458,7 +465,7 @@ combination to keep the study as cheap as its question allows.
       abstention accuracy per scaffold $\to$ select $s^\star$ \\
     \texttt{divergence} & none & none only & thinking ($N$ draws) &
       distribution statistics: entropy $+$ JS-div from unknown \\
-    \texttt{geometry} & none & none $+$ $s^\star$ (\texttt{interpretive\_direction}) &
+    \texttt{geometry} & none & none $+$ a candidate (\texttt{interpretive\_direction}) &
       greedy non-thinking $+$ activations & PCA of activations; centroid shift per condition \\
     \bottomrule
   \end{tabular}
@@ -477,7 +484,8 @@ no-scaffold condition it draws $N$ thinking generations, forms $p^{\mathrm{th}}$
 (\Cref{eq:pth}), and reports $H(p^{\mathrm{th}})$ and
 $\mathrm{JS}(p^{\mathrm{th}}\|\delta_u)$ (\Cref{eq:entropy-js}), which separates a
 confidently-wrong model from a merely uncertain one. \textbf{geometry} captures
-activations along the greedy path for the baseline and $s^\star$, fits a PCA to
+activations along the greedy path for the baseline and one candidate scaffold,
+fits a PCA to
 each (layer, position) cell, and reports the centroid shift $\Delta_s$, its
 magnitude, and the silhouette and between-within separation---testing whether a
 behavioral change is accompanied by a representational one.
@@ -485,114 +493,190 @@ behavioral change is accompanied by a representational one.
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 \section{Results}
 
-\emph{Numbers marked ``prelim.'' below are computed from the small verification
-subsample that exists at submission time (the full five-study runs on
-\texttt{Qwen3-0.6B} are still in progress); they fix the reporting format and
-will be overwritten by the full-run values. Cells with no data yet show a visible
-placeholder. Each figure auto-renders once its plot lands (see
-\Cref{sec:limitations} for the subsampling caveat).}
+\emph{All numbers below are real results from a \textbf{minimal-sample pilot
+run} of the full five-study framework on \texttt{Qwen3-0.6B}, reported to
+demonstrate the pipeline end-to-end and to surface directional findings. The
+sample sizes are small and study-specific---baseline $n{=}41$ items, stability
+$12$ items $\times\,36$ surface variants $=432$ samples, selection $n{=}26$ items
+split across the five scaffold conditions, divergence $n{=}16$ scored items
+(hot-sampled, $T{=}1.0$), geometry $n{=}25$ items across two conditions---so we
+read these as a directional pilot, not as definitive large-$n$ effect estimates.
+Full-grid runs across the model suite (Llama, Gemma, Mistral) and the
+\textsc{MentalRiskES} probe are future work (see \Cref{sec:limitations}).}
+
+\begin{figure}[t]\centering
+  \begin{subfigure}{0.49\linewidth}\centering
+    \includegraphics[width=\linewidth]{abstention_accuracy.png}
+    \caption{Baseline abstention accuracy, overall and sliced by bias category,
+      polarity, and language.}
+    \label{fig:baseline-acc}
+  \end{subfigure}\hfill
+  \begin{subfigure}{0.49\linewidth}\centering
+    \includegraphics[width=\linewidth]{role_prob.png}
+    \caption{Mean non-thinking role probabilities; mass concentrates on
+      \emph{unknown} ($p^{\mathrm{nt}}_u{=}0.87$).}
+    \label{fig:baseline-role}
+  \end{subfigure}
+  \caption{No-scaffold \textbf{baseline} ($n{=}41$) on \texttt{Qwen3-0.6B}:
+    abstention is already high but uneven across slices.}
+  \label{fig:baseline}
+\end{figure}
 
 \paragraph{Per-scaffold abstention (selection).}
 \Cref{tab:results-selection} reports abstention accuracy (\Cref{eq:acc}) under
 both readouts for each scaffold, and identifies $s^\star$;
-\Cref{fig:scaffold-effects}(a) plots the same per-scaffold accuracies. The headline question
-is simple. Does any scaffold beat the baseline by a margin that survives across
-both readouts and both languages? On the verification subsample every condition
-already abstains (non-thinking acc $=1.00$, one item each), so the discriminating
-margins await the full run.
+\Cref{fig:scaffold-effects}(a) plots the same per-scaffold accuracies. The headline
+question is simple. Does any scaffold beat the baseline by a margin that survives
+across \emph{both} readouts? In this pilot, two scaffolds reach perfect abstention
+under both readouts, but they differ in robustness. The selected
+$s^\star = \texttt{intent\_and\_register\_respect}$ is the only condition that
+abstains on every item at both readouts \emph{with no dropped thinking draws}
+($1.00$ non-thinking and $1.00$ thinking, both at $n{=}5$). The no-scaffold
+baseline already abstains at $0.83$ non-thinking; the two cautionary conditions
+are \texttt{prior\_dominance\_warning} ($0.80$ at both readouts) and
+\texttt{insufficient\_information\_unknown}, which scores a perfect $1.00$
+non-thinking but collapses to $0.00$ on its two parsed thinking draws---exactly
+the helps-one-readout-but-not-the-other pattern the dual-readout design is built
+to catch. With $\le 6$ items per cell these gaps are directional, not
+significant; we report them to show the selection mechanism works end-to-end.
 
 \begin{table}[t]
   \centering
-  \caption{Abstention accuracy per scaffold (\Cref{eq:acc}), non-thinking and
-    thinking readouts. Higher is better; $s^\star$ is the row maximizing
-    accuracy. ``prelim.'' values are from the verification subsample
-    ($n{=}1$ item / scaffold); full-run values pending.}
+  \caption{Pilot abstention accuracy per scaffold (\Cref{eq:acc}), non-thinking
+    and thinking readouts on \texttt{Qwen3-0.6B}. Higher is better; $s^\star$
+    (\textbf{bold}) is the selected scaffold. Per-cell $n$ is small (the $26$
+    items are split across conditions; thinking $n$ is smaller because
+    unparseable draws are dropped), so margins are directional. $s^\star$ is the
+    only condition reaching $1.00$ at \emph{both} readouts with no dropped
+    thinking draws.}
   \label{tab:results-selection}
   \small
   \begin{tabular}{@{}l c c@{}}
     \toprule
     \textbf{Scaffold} & \textbf{acc (non-thinking)} & \textbf{acc (thinking)} \\
     \midrule
-    \texttt{(none)} & 1.00\textsuperscript{p} & \TODO{no draws yet} \\
-    \texttt{interpretive\_direction} & 1.00\textsuperscript{p} & 1.00\textsuperscript{p} \\
-    \texttt{prior\_dominance\_warning} & 1.00\textsuperscript{p} & \TODO{no draws yet} \\
-    \texttt{insufficient\_information\_unknown} & 1.00\textsuperscript{p} & \TODO{no draws yet} \\
-    \texttt{intent\_and\_register\_respect} & 1.00\textsuperscript{p} & 1.00\textsuperscript{p} \\
+    \texttt{(none)} & 0.83 ($n{=}6$) & 1.00 ($n{=}2$) \\
+    \texttt{interpretive\_direction} & 1.00 ($n{=}5$) & 1.00 ($n{=}3$) \\
+    \texttt{prior\_dominance\_warning} & 0.80 ($n{=}5$) & 0.80 ($n{=}5$) \\
+    \texttt{insufficient\_information\_unknown} & 1.00 ($n{=}5$) & 0.00 ($n{=}2$) \\
+    \textbf{\texttt{intent\_and\_register\_respect}} & \textbf{1.00} ($n{=}5$) & \textbf{1.00} ($n{=}5$) \\
     \bottomrule
   \end{tabular}\\[2pt]
-  {\footnotesize \textsuperscript{p}\,prelim.\ (verification subsample,
-   $n{=}1$ / scaffold).}
+  {\footnotesize $s^\star$ selected by abstention at the sampled (thinking)
+   readout, then combined and non-thinking as tie-breakers, preferring full
+   draw-coverage on ties.}
 \end{table}
 
 \begin{figure}[t]\centering
   \begin{subfigure}{0.49\linewidth}\centering
-    \plotsub{../out/sesgo/selection/Qwen3-0.6B/plots/abstention_by_scaffold.png}%
-      {abstention_by_scaffold.png}{\linewidth}
-    \caption{Abstention by scaffold (selection); highest bar is $s^\star$.}
+    \includegraphics[width=\linewidth]{abstention_by_scaffold.png}
+    \caption{Abstention by scaffold (selection); $s^\star$ is
+      \texttt{intent\_and\_register\_respect}.}
     \label{fig:selection}
   \end{subfigure}\hfill
   \begin{subfigure}{0.49\linewidth}\centering
-    \plotsub{../out/sesgo/geometry/Qwen3-0.6B/plots/geometry_pca.png}%
-      {geometry_pca.png}{\linewidth}
-    \caption{PCA of answer-position activations; $\Delta_s$ is the scaffold's
-      representational shift (geometry).}
+    \includegraphics[width=\linewidth]{pca_scatter_answer.png}
+    \caption{PCA of answer-position activations; $\Delta_s$ separates the
+      scaffold from the no-scaffold baseline (geometry).}
     \label{fig:geometry}
   \end{subfigure}
-  \caption{Scaffold effects, behavioral (left) and representational (right).
-    Panels auto-render as the selection and geometry runs land.}
+  \caption{Scaffold effects on \texttt{Qwen3-0.6B}, behavioral (left, selection
+    $n{=}26$) and representational (right, geometry $n{=}25$). The geometry
+    condition is \texttt{interpretive\_direction}.}
   \label{fig:scaffold-effects}
 \end{figure}
 
-\paragraph{Stability, divergence, and geometry.}
-\Cref{tab:results-aux} collects the remaining summaries: mean stability
-consistency $\bar{C}$ (\Cref{eq:stability}), the no-scaffold reasoning entropy
-and JS-divergence from abstention (\Cref{eq:entropy-js}), and the
-geometry shift magnitude $\lVert\Delta_{s^\star}\rVert$ with its scaffold
-silhouette; the geometry panel is \Cref{fig:scaffold-effects}(b), and
-\Cref{fig:stab-div} gives the stability and divergence distributions.
+\paragraph{Baseline, stability, divergence, and geometry.}
+\Cref{tab:results-aux} collects the remaining summaries. The \textbf{baseline}
+($n{=}41$) already abstains $0.95$ of the time non-thinking, with a mean role
+mix of $p^{\mathrm{nt}}_u{=}0.87$ versus $p^{\mathrm{nt}}_t{=}0.08$ and
+$p^{\mathrm{nt}}_o{=}0.06$ (\Cref{fig:baseline}); abstention is weakest on
+negative-polarity ($0.90$) and classism ($0.88$) items. \textbf{Stability}
+exposes how shallow that abstention is: mean per-item consistency is only
+$\bar{C}{=}0.54$, and the prediction flips on $45.8\%$ of option-permutation
+swaps versus $25.9\%$ of label-style swaps---surface form, not content, moves the
+answer (\Cref{fig:stability}). The hot-sampled \textbf{divergence} study
+($n{=}16$, $T{=}1.0$) shows the free-form reasoner lands on \emph{unknown}
+$0.81$ of the time, with low mean entropy ($0.13$ nats) and small mean
+JS-from-abstention ($0.11$ nats), the residual deviation concentrated in
+xenophobia and English-language items. \textbf{Geometry} ($n{=}25$) compares
+\texttt{interpretive\_direction} against the no-scaffold baseline: the centroid
+shift $\lVert\Delta_s\rVert$ is largest at the \emph{answer} position
+($162.97$ in the last layer; $19.28$ layer-averaged) and far smaller at
+\texttt{think\_close} ($20.87$ / $4.46$), with a modest scaffold silhouette of
+$0.13$ and a leading principal component explaining $63\%$ of the variance at the
+answer position (\Cref{fig:stab-div}(b), \Cref{fig:scaffold-effects}(b)). The
+geometry condition is \texttt{interpretive\_direction} rather than the
+behaviorally selected $s^\star$, so its shift indexes scaffold-induced movement
+in general, not yet $s^\star$ specifically.
 
 \begin{table}[t]
   \centering
-  \caption{Auxiliary summaries: stability consistency, reasoning-distribution
-    divergence, and representational shift. ``prelim.'' values are from the
-    verification subsample; full-run values pending.}
+  \caption{Auxiliary pilot summaries on \texttt{Qwen3-0.6B}: baseline abstention
+    and role mix, stability consistency and flip-sensitivity, reasoning-distribution
+    divergence, and representational shift. All are real run values; $n$ is the
+    per-study pilot sample size.}
   \label{tab:results-aux}
   \small
-  \begin{tabular}{@{}l c@{}}
+  \begin{tabular}{@{}l c c@{}}
     \toprule
-    \textbf{Measure} & \textbf{Value} \\
+    \textbf{Measure} & \textbf{Value} & \textbf{$n$} \\
     \midrule
-    Mean stability consistency $\bar{C}$ & 0.33\textsuperscript{p} \\
-    Reasoning entropy $H(p^{\mathrm{th}})$ (no scaffold) & 0.00\textsuperscript{p} \\
-    JS-div from abstention $\mathrm{JS}(p^{\mathrm{th}}\|\delta_u)$ & 0.00\textsuperscript{p} \\
-    Geometry shift $\lVert\Delta_{s^\star}\rVert$ (answer position) & \TODO{geometry run pending} \\
-    Scaffold silhouette & \TODO{geometry run pending} \\
+    Baseline abstention acc (non-thinking) & 0.95 & 41 \\
+    Baseline mean role mix $(p^{\mathrm{nt}}_t,p^{\mathrm{nt}}_o,p^{\mathrm{nt}}_u)$ & (0.08,\,0.06,\,0.87) & 41 \\
+    Mean stability consistency $\bar{C}$ & 0.54 & 12 \\
+    \quad permutation flip rate & 45.8\% & 432 \\
+    \quad label-style flip rate & 25.9\% & 432 \\
+    \quad $p(\text{unknown})$ spread (mean per item) & 0.34 & 12 \\
+    Reasoning entropy $H(p^{\mathrm{th}})$, no scaffold ($T{=}1.0$) & 0.13 & 16 \\
+    JS-div from abstention $\mathrm{JS}(p^{\mathrm{th}}\|\delta_u)$ & 0.11 & 16 \\
+    Reasoning role mix $(p^{\mathrm{th}}_t,p^{\mathrm{th}}_o,p^{\mathrm{th}}_u)$ & (0.08,\,0.11,\,0.81) & 16 \\
+    Geometry shift $\lVert\Delta_s\rVert$, answer (last / mean layer) & 162.97 / 19.28 & 25 \\
+    Scaffold silhouette (answer, mean layer) & 0.13 & 25 \\
+    EV\% of PC1 (answer, mean layer) & 63\% & 25 \\
     \bottomrule
   \end{tabular}\\[2pt]
-  {\footnotesize \textsuperscript{p}\,prelim.: $\bar{C}$ over $1$ question
-   ($9$ variants); $H,\mathrm{JS}$ over $2$ no-scaffold items whose draws all
-   abstained.}
+  {\footnotesize Geometry condition $=$ \texttt{interpretive\_direction} vs.\
+   no-scaffold baseline; the behaviorally selected $s^\star$ was not run through
+   the geometry pipeline in this pilot.}
 \end{table}
 
 \begin{figure}[t]\centering
   \begin{subfigure}{0.49\linewidth}\centering
-    \plotsub{../out/sesgo/stability/Qwen3-0.6B/plots/consistency_hist.png}%
-      {consistency_hist.png}{\linewidth}
-    \caption{Per-item consistency $C_q$ (\Cref{eq:stability}); mass near $1$ =
-      abstention robust to surface variation.}
+    \includegraphics[width=\linewidth]{consistency_hist.png}
+    \caption{Per-item consistency $C_q$ (\Cref{eq:stability}); $\bar{C}{=}0.54$,
+      so abstention is only moderately robust to surface variation.}
     \label{fig:stability}
   \end{subfigure}\hfill
   \begin{subfigure}{0.49\linewidth}\centering
-    \plotsub{../out/sesgo/divergence/Qwen3-0.6B/plots/js_from_unknown_hist.png}%
-      {js_from_unknown_hist.png}{\linewidth}
+    \includegraphics[width=\linewidth]{default_deviation.png}
     \caption{No-scaffold reasoning JS from abstention
       (\Cref{eq:entropy-js}); mass near $0$ = reasoning concentrates on
-      ``unknown''.}
+      ``unknown'' (mean $0.11$).}
     \label{fig:divergence}
   \end{subfigure}
-  \caption{Robustness (left, stability) and reasoning-distribution divergence
-    (right, divergence). Panels auto-render as the runs land.}
+  \caption{Robustness (left, stability $n{=}12$ items) and reasoning-distribution
+    divergence (right, divergence $n{=}16$, $T{=}1.0$) on \texttt{Qwen3-0.6B}.}
   \label{fig:stab-div}
+\end{figure}
+
+\begin{figure}[t]\centering
+  \begin{subfigure}{0.49\linewidth}\centering
+    \includegraphics[width=\linewidth]{role_mix.png}
+    \caption{System-default sampled role mix; reasoning lands on \emph{unknown}
+      $0.81$ of the time (other $0.11$, target $0.08$).}
+    \label{fig:role-mix}
+  \end{subfigure}\hfill
+  \begin{subfigure}{0.49\linewidth}\centering
+    \includegraphics[width=\linewidth]{centroid_shift_by_position.png}
+    \caption{Centroid shift $\lVert\Delta_s\rVert$ by structural position; the
+      \emph{answer} position moves most.}
+    \label{fig:centroid-shift}
+  \end{subfigure}
+  \caption{Reasoning role mix (left, divergence $n{=}16$) and the
+    representational shift by token position (right, geometry $n{=}25$,
+    \texttt{interpretive\_direction} vs.\ baseline) on \texttt{Qwen3-0.6B}.}
+  \label{fig:role-geo}
 \end{figure}
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
@@ -610,7 +694,12 @@ corresponds to a real representational change rather than a brittle surface
 artifact. A scaffold that helps under both readouts and leaves a consistent
 activation-space footprint is the strongest evidence the framework can produce;
 one that helps the teacher-forced score but not the sampled one is a cautionary
-result, and we report it as such.
+result, and we report it as such. Our pilot already surfaces exactly this
+contrast: \texttt{insufficient\_information\_unknown} scores a perfect $1.00$
+non-thinking yet $0.00$ on its parsed thinking draws, while
+$s^\star = \texttt{intent\_and\_register\_respect}$ holds at $1.00$ under both.
+These are tiny-$n$ signals, but they show the design discriminates the cases it
+was built to separate.
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 \section{Limitations and Dual-Use Considerations}
@@ -678,10 +767,13 @@ measurable shift in the model's residual-stream geometry. Formalizing $\LLM(x)$
 versus $\LLM(x\oplus s)$ on \textsc{SESGO}, with \textsc{MentalRiskES} as a
 sensitive secondary probe, lets the design target one specific failure: confident
 stereotyped resolution under ambiguity. That failure is most consequential in
-exactly the Global-South, Spanish-language settings where it is least studied. The
-quantitative results follow once the runs complete. What we contribute here is the
-reproducible design, notation, and harness that will make those results
-interpretable.
+exactly the Global-South, Spanish-language settings where it is least studied. A
+minimal-sample pilot of all five studies runs the pipeline end-to-end and gives
+directional findings---high but unstable baseline abstention, a clearly selected
+$s^\star$, and an answer-position representational shift---while large-$n$,
+multi-model results remain future work. What we contribute here is the
+reproducible design, notation, and harness, together with a working pilot that
+makes those results interpretable.
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 \section*{Code and Data}
@@ -712,7 +804,7 @@ one-line mechanism for each.
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 \section*{LLM Usage Statement}
 We used an LLM assistant to help draft and format this report and to formalize
-notation from the codebase. All design decisions, claims, and (forthcoming)
+notation from the codebase. All design decisions, claims, and reported pilot
 results are verified by the authors against the harness implementation.
 
 \end{document}
