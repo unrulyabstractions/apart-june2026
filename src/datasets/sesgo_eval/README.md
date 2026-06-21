@@ -1,0 +1,66 @@
+# SESGO Ambiguous-Bias Querying
+
+Runs `SesgoPromptSample`s (from `src/datasets/prompt/`) through a local LLM and
+records a `SesgoSample` per prompt with up to two analysis levels. Each level is
+a 3-way distribution over the answer *roles* — TARGET / OTHER / UNKNOWN — not the
+displayed positions. The ambiguous-context gold is always UNKNOWN, so a "correct"
+sample is one where the model abstains rather than picking a group.
+
+This is the SESGO counterpart of `src/datasets/risk/`; the loader package
+`src/datasets/sesgo/` stays torch-free, and the model querier lives here.
+
+## The two analysis levels
+
+| Level | How | Output |
+|-------|-----|--------|
+| **Non-thinking** | Teacher-force the three option markers past an empty `<think></think>` block (`TernaryChoiceRunner.choose3`) — no reasoning. | A 3-way softmax over the displayed POSITIONS, **remapped to ROLES** via `position_labels` → `(p_target, p_other, p_unknown)`, `n=1`. |
+| **Thinking** | Sample `n_thinking_samples` free-form generations (`temperature > 0`), parse which role each chose, count them. | An empirical role distribution `counts / n_parsed` (`n` = #parsed draws, may be 0). |
+
+Levels run per prompt according to `SesgoQueryConfig` (`do_non_thinking`,
+`do_thinking`).
+
+## The position → meaning remap
+
+The prompt generator emits all 6 role↔position orderings, so the slot a model
+picks is meaningless on its own. For each displayed position `i`,
+`sample.position_labels[i]` says which role sits there. Non-thinking adds
+`c.probs[i]` to that role's bucket; thinking maps the chosen position through
+the same tuple. The result is a role distribution that is invariant to ordering,
+which is exactly what defeats position bias. `predicted_label` = argmax role,
+**ties → UNKNOWN**.
+
+## Thinking parse (`parse_chosen_label`)
+
+1. Take the answer after the closed `</think>`; drop the draw (`None`) if
+   `<think>` opened but never closed (truncated mid-thought).
+2. Find which option the answer commits to — earliest of: the full marker
+   (`"b)"`), the bare letter/number (`"b"`) as a standalone token, or the
+   authored option text (parsed from the rendered `##options` block) when no
+   marker appears. Case-insensitive.
+3. Decode the chosen position through `position_labels` → a `SesgoLabel`; `None`
+   if undetectable.
+
+## Color-by axes on `SesgoSample`
+
+Every axis is a flat field for slicing without a re-join: `sample_idx`,
+`question_id`, `scaffold_id`, `question_polarity`, `bias_category`, `language`,
+`label_style`, `gold_label`.
+
+## Math reused (`src.common.math` — not reimplemented)
+
+`probs → probs_to_logprobs → shannon_entropy` for the entropy of a role
+distribution; `from_counts` normalizes thinking counts. Non-thinking probs are
+already normalized by the softmax.
+
+## Public API
+
+| Symbol | Purpose |
+|--------|---------|
+| `SesgoQueryConfig` | Query knobs (samples, temperature, tokens, which levels, subsample). |
+| `SesgoQuerier` | `query_sample(prompt_sample, runner)` and `query_dataset(prompt_dataset, model_name)`. |
+| `SesgoSample` | Per-prompt record: color-by axes + `non_thinking` + `thinking`. |
+| `SesgoLabelDistribution` | 3-way role distribution with `predicted_label`, `entropy`, `as_tuple`. |
+| `parse_chosen_label` | Parse one generation into a chosen `SesgoLabel` (or `None`). |
+| `SesgoDataset` | `model` + `config` + `samples`; `save_as_json` / inherited `from_json`. |
+
+See [EXPLANATION.md](./EXPLANATION.md) for the detailed flow.
