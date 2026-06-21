@@ -480,13 +480,13 @@ per-family chat-template and reasoning-marker handling); full-grid
 
 \begin{figure}[t]\centering
   \begin{subfigure}{0.49\linewidth}\centering
-    \includegraphics[width=\linewidth]{abstention_accuracy.png}
+    \plotsub{../out/sesgo/baseline/Qwen3-0.6B/plots/accuracy.png}{../out/sesgo/baseline/Qwen3-0.6B/plots/accuracy.png}{\linewidth}
     \caption{Baseline abstention accuracy, overall and sliced by bias category,
       polarity, and language.}
     \label{fig:baseline-acc}
   \end{subfigure}\hfill
   \begin{subfigure}{0.49\linewidth}\centering
-    \includegraphics[width=\linewidth]{role_prob.png}
+    \plotsub{../out/sesgo/baseline/Qwen3-0.6B/plots/role_prob.png}{../out/sesgo/baseline/Qwen3-0.6B/plots/role_prob.png}{\linewidth}
     \caption{Mean non-thinking role probabilities; mass concentrates on
       \emph{unknown} ($p^{\mathrm{nt}}_u{=}0.87$).}
     \label{fig:baseline-role}
@@ -543,13 +543,13 @@ significant; we report them to show the selection mechanism works end-to-end.
 
 \begin{figure}[t]\centering
   \begin{subfigure}{0.49\linewidth}\centering
-    \includegraphics[width=\linewidth]{abstention_by_scaffold.png}
+    \plotsub{../out/sesgo/selection/Qwen3-0.6B/plots/abstention_by_scaffold.png}{../out/sesgo/selection/Qwen3-0.6B/plots/abstention_by_scaffold.png}{\linewidth}
     \caption{Abstention by scaffold (selection); $s^\star$ is
       \texttt{intent\_and\_register\_respect}.}
     \label{fig:selection}
   \end{subfigure}\hfill
   \begin{subfigure}{0.49\linewidth}\centering
-    \includegraphics[width=\linewidth]{pca_scatter_answer.png}
+    \plotsub{../out/sesgo/geometry/Qwen3-0.6B/plots/pca_scatter_answer.png}{../out/sesgo/geometry/Qwen3-0.6B/plots/pca_scatter_answer.png}{\linewidth}
     \caption{PCA of answer-position activations; $\Delta_s$ separates the
       scaffold from the no-scaffold baseline (geometry).}
     \label{fig:geometry}
@@ -624,13 +624,13 @@ encodes the \emph{intervention}, not the social content of the item.
 
 \begin{figure}[t]\centering
   \begin{subfigure}{0.49\linewidth}\centering
-    \includegraphics[width=\linewidth]{consistency_hist.png}
+    \plotsub{../out/sesgo/stability/Qwen3-0.6B/plots/consistency.png}{../out/sesgo/stability/Qwen3-0.6B/plots/consistency.png}{\linewidth}
     \caption{Per-item consistency $C_q$ (\Cref{eq:stability}); $\bar{C}{=}0.54$,
       so abstention is only moderately robust to surface variation.}
     \label{fig:stability}
   \end{subfigure}\hfill
   \begin{subfigure}{0.49\linewidth}\centering
-    \includegraphics[width=\linewidth]{default_deviation.png}
+    \plotsub{../out/sesgo/divergence/Qwen3-0.6B/plots/default_deviation.png}{../out/sesgo/divergence/Qwen3-0.6B/plots/default_deviation.png}{\linewidth}
     \caption{No-scaffold reasoning JS from abstention
       (\Cref{eq:entropy-js}); mass near $0$ = reasoning concentrates on
       ``unknown'' (mean $0.11$).}
@@ -643,13 +643,13 @@ encodes the \emph{intervention}, not the social content of the item.
 
 \begin{figure}[t]\centering
   \begin{subfigure}{0.49\linewidth}\centering
-    \includegraphics[width=\linewidth]{role_mix.png}
+    \plotsub{../out/sesgo/divergence/Qwen3-0.6B/plots/role_mix.png}{../out/sesgo/divergence/Qwen3-0.6B/plots/role_mix.png}{\linewidth}
     \caption{System-default sampled role mix; reasoning lands on \emph{unknown}
       $0.81$ of the time (other $0.11$, target $0.08$).}
     \label{fig:role-mix}
   \end{subfigure}\hfill
   \begin{subfigure}{0.49\linewidth}\centering
-    \includegraphics[width=\linewidth]{centroid_shift_by_position.png}
+    \plotsub{../out/sesgo/geometry/Qwen3-0.6B/plots/centroid_shift_by_position.png}{../out/sesgo/geometry/Qwen3-0.6B/plots/centroid_shift_by_position.png}{\linewidth}
     \caption{Centroid shift $\lVert\Delta_s\rVert$ by structural position; the
       \emph{answer} position moves most.}
     \label{fig:centroid-shift}
