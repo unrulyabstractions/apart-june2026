@@ -67,8 +67,13 @@ decode, and the sampled thinking distribution. Gated on `config.do_greedy_thinki
 
 ## Level 2 — Thinking (sampled reasoning)
 
-Draw `n_thinking_samples` generations with `temperature > 0`. Parse each via
-`parse_chosen_label`:
+Draw `n_thinking_samples` generations with `temperature > 0`. The single-sample
+path draws each via `ModelRunner.generate_with_entropy` →
+`HuggingFaceBackend.generate_with_vocab_entropy`, which asks `model.generate` for
+the per-step full-vocab logits (`output_scores`) and returns, alongside the text,
+that generation's MEAN next-token vocab entropy (nats) — the mean of
+`vocab_entropy_from_logits` over the generated steps, captured with NO extra
+forward pass. Parse each completion via `parse_chosen_label`:
 
 1. Take the answer after the last `</think>`. If `<think>` opened but never
    closed, return `None` (truncated mid-thought — no answer to mine).
@@ -80,12 +85,18 @@ Draw `n_thinking_samples` generations with `temperature > 0`. Parse each via
 3. Map the chosen position through `position_labels` → a `SesgoLabel`; `None` if
    undetectable.
 
-Drop the `None`s and pass the surviving picks to `summarize_labels(labels)`,
-which builds a `SesgoThinking`: per role, the one-hot indicator across draws; its
-mean is the pick fraction (`mean`) and its honest POPULATION std is `std`
-(== sqrt(p·(1-p)) for a Bernoulli, but computed directly). `sample_size` = #parsed.
+Drop the `None`s and pass the surviving picks (plus the per-draw vocab entropies)
+to `summarize_labels(labels, vocab_entropies)`, which builds a `SesgoThinking`:
+per role, the one-hot indicator across draws; its mean is the pick fraction
+(`mean`) and its honest POPULATION std is `std` (== sqrt(p·(1-p)) for a Bernoulli,
+but computed directly). `sample_size` = #parsed. The per-draw `vocab_entropies`
+list carries ONE mean next-token entropy per draw over ALL draws (length = total
+draws, NOT `sample_size`), with `mean_vocab_entropy` / `std_vocab_entropy`
+properties; the divergence study reads its distribution across the ~100 CoT draws.
 When `sample_size == 0`, `mean`/`std` are zero vectors and `predicted_thinking`
-returns `None`.
+returns `None`. NOTE: the batched path (`batch_size > 1`, `generate_batch`) does
+not capture per-token entropy, so `vocab_entropies` is empty there; the divergence
+collector runs single-sample (`batch_size == 1`) so entropy is always captured.
 
 ## Summary math (`src.common.math`)
 

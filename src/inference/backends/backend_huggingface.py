@@ -9,6 +9,7 @@ import torch
 
 from .model_backend import Backend
 from ..interventions import Intervention
+from ...common.math import vocab_entropy_from_logits
 
 # A single padded ``model.generate`` over an arbitrarily long prompt list would
 # allocate KV cache for EVERY sequence at once and OOM on large models (a 32B at
@@ -251,6 +252,50 @@ class HuggingFaceBackend(Backend):
             generated = output_ids
 
         return self.decode(generated[0, prompt_len:])
+
+    def generate_with_vocab_entropy(
+        self,
+        prompt: str,
+        max_new_tokens: int,
+        temperature: float,
+    ) -> tuple[str, float]:
+        """Sample a completion AND its mean per-token vocab entropy in one pass.
+
+        ``model.generate`` is asked for the per-step full-vocab logits
+        (``output_scores``); each step's score row is the next-token distribution
+        the model sampled from, so the mean of ``vocab_entropy_from_logits`` over
+        the generated steps is that generation's mean next-token Shannon entropy
+        (nats) — the per-generation "vocab entropy" the divergence study tracks.
+        The scores come free from the SAME generate call, so this adds NO extra
+        forward pass over a plain sampled decode. Returns (decoded_text, mean_ent);
+        a zero-length generation yields entropy 0.0.
+        """
+        input_ids = self.encode(prompt)
+        prompt_len = input_ids.shape[1]
+        gen_kwargs = {
+            "max_new_tokens": max_new_tokens,
+            "do_sample": temperature > 0,
+            "pad_token_id": self._tokenizer.eos_token_id,
+            "return_dict_in_generate": True,
+            "output_scores": True,
+            "repetition_penalty": 1.0,
+            "num_beams": 1,
+        }
+        if temperature > 0:
+            gen_kwargs["temperature"] = temperature
+
+        with torch.no_grad():
+            outputs = self.runner._model.generate(input_ids, **gen_kwargs)
+            # Each scores row is the next-token logit distribution at one generated
+            # step; its Shannon entropy is that step's uncertainty. Average over
+            # steps for the generation's mean vocab entropy (reuses src.common.math).
+            step_ents = [
+                float(vocab_entropy_from_logits(score[0])) for score in outputs.scores
+            ]
+
+        mean_ent = sum(step_ents) / len(step_ents) if step_ents else 0.0
+        text = self.decode(outputs.sequences[0, prompt_len:])
+        return text, mean_ent
 
     def generate_batch(
         self,

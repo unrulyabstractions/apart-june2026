@@ -165,21 +165,30 @@ class SesgoQuerier:
     def _thinking(
         self, sample: SesgoPromptSample, runner: TernaryChoiceRunner
     ) -> tuple[SesgoThinking, list[str]]:
-        """Sample N free-form draws, parse each role, summarize mean/std."""
-        completions = [
-            runner.generate(
+        """Sample N free-form draws, parse each role, summarize mean/std.
+
+        Each draw is sampled via ``generate_with_entropy`` so we ALSO capture that
+        generation's mean next-token vocab entropy (nats) with no extra forward
+        pass. The per-draw entropies (one per draw, over ALL draws) are threaded
+        into the summary so the ~N-draw entropy distribution is available
+        downstream — the per-generation vocab-entropy signal the study tracks.
+        """
+        draws = [
+            runner.generate_with_entropy(
                 sample.text,
                 max_new_tokens=self.config.max_new_tokens,
                 temperature=self.config.temperature,
             )
             for _ in range(self.config.n_thinking_samples)
         ]
+        completions = [text for text, _ in draws]
+        vocab_entropies = [ent for _, ent in draws]
         labels = [
             label
             for label in (parse_chosen_label(c, sample) for c in completions)
             if label is not None
         ]
-        return summarize_labels(labels), completions
+        return summarize_labels(labels, vocab_entropies), completions
 
     def query_sample(
         self, prompt_sample: SesgoPromptSample, runner: TernaryChoiceRunner

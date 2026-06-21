@@ -404,6 +404,28 @@ class ModelRunner:
         )
 
     @profile
+    def generate_with_entropy(
+        self,
+        prompt: str,
+        max_new_tokens: int = 256,
+        temperature: float = 0.0,
+        prefilling: str = "",
+    ) -> tuple[str, float]:
+        """Sample a completion AND its mean per-token vocab entropy (nats).
+
+        Thin wrapper over the backend's ``generate_with_vocab_entropy``: applies
+        the chat template + prefilling exactly like ``generate`` and returns
+        (text, mean_next_token_entropy). The entropy is the mean Shannon entropy of
+        the model's next-token distribution over the GENERATED tokens — used by the
+        divergence study to track each CoT draw's uncertainty with no extra forward
+        pass (the per-step logits come free from the same generate call).
+        """
+        formatted = self.apply_chat_template(prompt) + prefilling
+        return self._backend.generate_with_vocab_entropy(
+            formatted, max_new_tokens, temperature
+        )
+
+    @profile
     def generate_trajectory(
         self,
         token_ids: list[int],

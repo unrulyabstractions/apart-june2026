@@ -1,31 +1,35 @@
-"""Run the DIVERGENCE prompt dataset through a model into a SesgoDataset.
+"""Run ONE divergence prompt through a model into a SesgoDataset.
 
-Run-by-path driver for the DIVERGENCE study. Loads the divergence prompt dataset
-(the base ambiguous SESGO items, ONE rendering each, NO scaffolding) and queries
-every prompt at both the non-thinking (teacher-forced 3-way softmax remapped to
-roles) and thinking (sampled, parsed) levels, then persists the SesgoDataset.
+Run-by-path driver for the DIVERGENCE study. Picks ONE representative ambiguous
+SESGO prompt and reads it at every level: the non-thinking teacher-forced 3-way
+softmax (remapped to roles), the 2-option forced choice, the greedy-thinking
+baseline, and — the headline — the THINKING level sampled MANY times.
 
-Where STABILITY holds the item fixed and varies surface FORMAT to measure
-consistency, DIVERGENCE holds BOTH the item and the format fixed and instead
-draws the THINKING level MANY times (n_thinking_samples large by default) to
-characterize the DISPERSION of the model's free-form reasoning distribution on a
-single ambiguous prompt. Each item's thinking readout is therefore a Monte-Carlo
-estimate of a [TARGET, OTHER, UNKNOWN] role distribution, and the question is how
-spread out / how far from the correct abstention that distribution is — computed
-downstream by visualize_divergence_samples.py.
+DIVERGENCE is "forking at a single position, but sampled deeply": it holds BOTH
+the item AND the surface format fixed and draws the free-form THINKING generation
+``--n-thinking`` times (100 by default) to estimate, by Monte-Carlo, the model's
+outcome distribution over [TARGET, OTHER, UNKNOWN] on that one ambiguous prompt.
+The question is how spread out / how far from correct abstention that
+distribution is — computed downstream by visualize_divergence_samples.py.
+
+Each of the ~100 CoT draws ALSO records its mean next-token VOCAB ENTROPY (the
+mean Shannon entropy of the model's next-token distribution over the generated
+tokens), captured for free during sampling. The per-draw entropies are stored on
+the thinking summary so the ~100-draw entropy distribution is available
+downstream — relating a draw's per-token uncertainty to the outcome it commits to.
 
 On ambiguous SESGO items the gold answer is always UNKNOWN, so "accuracy" is the
-fraction of predictions that abstain (predict UNKNOWN) rather than pick a group.
-Here we just log a one-line abstention summary plus the MEAN per-item thinking
-ENTROPY as a sanity check that the draws actually disperse.
+fraction of predictions that abstain (predict UNKNOWN). The summary logs that plus
+the role-mix entropy AND the mean/spread of per-draw vocab entropy as sanity checks.
 
 Output lands at out/sesgo/divergence/<MODEL>/response_samples.json (MODEL == bare name).
 
 Usage:
-  uv run python sesgo/divergence/collect_divergence_samples.py
+  uv run python sesgo/divergence/collect_divergence_samples.py \
+      --model Qwen/Qwen3-0.6B --n-thinking 100 --temperature 1.0
   uv run python sesgo/divergence/collect_divergence_samples.py \
       out/sesgo/divergence/prompt_dataset.json --model Qwen/Qwen3-0.6B \
-      --n-thinking 16 --subsample 0.5
+      --n-thinking 4 --n-items 1
 """
 
 from __future__ import annotations
@@ -82,6 +86,29 @@ def load_prompt_dataset(path: Path, subsample: float) -> SesgoPromptDataset:
     )
 
 
+def select_representative_ambiguous(
+    dataset: SesgoPromptDataset, n_items: int
+) -> SesgoPromptDataset:
+    """Keep the first ``n_items`` representative AMBIGUOUS prompts (deterministic).
+
+    DIVERGENCE samples ONE prompt deeply, so we narrow the full grid to a single
+    representative ambiguous item: ambiguous context (gold == abstain) with BOTH
+    named identities present, so the [target, other, unknown] split and the
+    branching-tree view are well defined. Sorted by ``sample_idx`` for a stable,
+    seedless choice; falls back to any ambiguous prompt if none carry both names.
+    """
+    ambiguous = [s for s in dataset.samples if s.context_condition == "ambig"]
+    complete = [s for s in ambiguous if s.target_identity and s.other_identity]
+    pool = sorted(complete or ambiguous, key=lambda s: s.sample_idx)
+    kept = pool[: max(1, n_items)]
+    return SesgoPromptDataset(
+        dataset_id=dataset.dataset_id,
+        config=dataset.config,
+        scaffold_ids=dataset.scaffold_ids,
+        samples=kept,
+    )
+
+
 def parse_args() -> argparse.Namespace:
     """Parse command-line arguments for divergence-sample collection."""
     parser = argparse.ArgumentParser(
@@ -103,10 +130,18 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--n-thinking",
         type=int,
-        default=8,
-        # DIVERGENCE characterizes the reasoning DISTRIBUTION, so we want MANY
-        # draws per prompt — the default is intentionally larger than stability's.
-        help="Sampled thinking generations per prompt (default: 8 — more draws to characterize the distribution)",
+        default=100,
+        # DIVERGENCE estimates the reasoning DISTRIBUTION on ONE prompt, so it
+        # samples DEEP — 100 draws by default to pin down the outcome distribution.
+        help="Sampled thinking generations per prompt (default: 100 — deep sampling of one prompt)",
+    )
+    parser.add_argument(
+        "--n-items",
+        type=int,
+        default=1,
+        # DIVERGENCE is "fork at one position, sampled deeply": ONE prompt, many
+        # draws. Keep the smallest representative-ambiguous slice (default 1).
+        help="How many representative ambiguous prompts to query (default: 1 — a single prompt)",
     )
     parser.add_argument(
         "--temperature",
@@ -174,27 +209,50 @@ def _mean_thinking_entropy(dataset: SesgoDataset) -> tuple[float | None, int]:
     return (sum(ents) / len(ents) if ents else None), len(ents)
 
 
+def _vocab_entropy_summary(dataset: SesgoDataset) -> tuple[float | None, float | None, int]:
+    """Pool every draw's per-generation vocab entropy and report mean/std/count.
+
+    Each item's ``thinking.vocab_entropies`` holds ONE mean next-token entropy per
+    CoT draw; pooled across items they describe the per-generation uncertainty
+    distribution the study tracks. Returns (mean, population std, n_draws).
+    """
+    ents: list[float] = []
+    for s in dataset.samples:
+        if s.thinking is not None:
+            ents.extend(s.thinking.vocab_entropies)
+    if not ents:
+        return None, None, 0
+    mean = sum(ents) / len(ents)
+    std = (sum((e - mean) ** 2 for e in ents) / len(ents)) ** 0.5
+    return mean, std, len(ents)
+
+
 def log_summary(dataset: SesgoDataset) -> None:
-    """Report thinking abstention accuracy + mean per-item thinking entropy.
+    """Report thinking abstention + role-mix entropy + per-draw vocab entropy.
 
     Accuracy = fraction of predictions that are UNKNOWN (the ambiguous gold).
-    Predictions with no parsed thinking draw are excluded from the thinking rate
-    (they have no decodable answer). The mean thinking entropy is the headline
-    DIVERGENCE signal: higher entropy == the reasoning distribution is more
-    spread across the three roles instead of collapsing onto one.
+    Predictions with no parsed thinking draw are excluded from the thinking rate.
+    The mean role-mix entropy is the DIVERGENCE signal (how spread the outcome
+    distribution is); the per-draw VOCAB entropy mean/spread is the headline
+    per-generation uncertainty the study now also tracks.
     """
     nt = [s.correct_non_thinking for s in dataset.samples if s.predicted_non_thinking is not None]
     th = [s.correct_thinking for s in dataset.samples if s.predicted_thinking is not None]
     nt_acc = sum(nt) / len(nt) if nt else None
     th_acc = sum(th) / len(th) if th else None
     mean_ent, n_ent = _mean_thinking_entropy(dataset)
+    ve_mean, ve_std, ve_n = _vocab_entropy_summary(dataset)
 
     log_section("summary (accuracy = fraction predicted UNKNOWN)")
     log(f"  samples: {len(dataset.samples)}")
     log(f"  non-thinking abstention: {_fmt(nt_acc):>6} (n={len(nt)})")
     log(f"  thinking abstention:     {_fmt(th_acc):>6} (n={len(th)})")
     ent_str = f"{mean_ent:.3f}" if mean_ent is not None else "n/a"
-    log(f"  mean thinking entropy:   {ent_str:>6} nats (n={n_ent})")
+    log(f"  mean role-mix entropy:   {ent_str:>6} nats (n={n_ent})")
+    if ve_mean is not None:
+        log(f"  per-draw vocab entropy:  {ve_mean:.3f} +/- {ve_std:.3f} nats (n_draws={ve_n})")
+    else:
+        log("  per-draw vocab entropy:  n/a (no draws captured)")
 
 
 def main() -> None:
@@ -204,8 +262,12 @@ def main() -> None:
 
     # Stride the raw json before deserializing when subsampling (fast path).
     prompt_dataset = load_prompt_dataset(args.prompt_dataset, args.subsample)
+    # DIVERGENCE samples ONE prompt deeply: narrow to the representative ambiguous
+    # slice BEFORE sharding so every box agrees on the same item set.
+    prompt_dataset = select_representative_ambiguous(prompt_dataset, args.n_items)
     prompt_dataset = apply_shard(prompt_dataset, args.shard_index, args.shard_count)
-    log(f"[collect] loaded {len(prompt_dataset.samples)} prompts")
+    chosen = ", ".join(f"idx={s.sample_idx} qid={s.question_id}" for s in prompt_dataset.samples)
+    log(f"[collect] selected {len(prompt_dataset.samples)} ambiguous prompt(s): {chosen}")
 
     # Already subsampled at load, so the querier runs over all loaded prompts.
     # DIVERGENCE reads out FOUR levels per prompt: the 3-option teacher-forced
