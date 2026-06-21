@@ -45,7 +45,9 @@ def _gpu_for(params_b: float) -> tuple[str, float]:
         return "RTX_4090", 0.60
     if params_b <= 16:
         return "A100_PCIE", 1.60
-    return "H100_PCIE", 3.20
+    # H100_PCIE is frequently sold out on Vast; H100_SXM is always 80 GB (fits a
+    # 32B in bf16) and usually has cheap offers, so target it for the big tier.
+    return "H100_SXM", 3.00
 
 
 # The SESGO baseline size-sweep fleet: size ladders per family so we can read the
