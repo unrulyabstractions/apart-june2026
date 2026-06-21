@@ -53,19 +53,25 @@ class SesgoQuerier:
         choice = runner.choose3(sample.text, prefix, sample.option_labels)
         # from_ternary scatters each position's scores into its canonical role
         # slot via position_labels — invariant to which slot the role occupied.
+        # These choose3 per-option metrics (and the argmax `predicted`) are the
+        # cheap teacher-forced readout, so they are ALWAYS computed.
         nt = SesgoNonThinking.from_ternary(choice, sample.position_labels)
 
-        greedy = runner.generate(
-            sample.text,
-            max_new_tokens=24,
-            temperature=0.0,
-            prefilling=runner.skip_thinking_prefix + prefix,
-        )
-        nt.greedy_text = greedy.strip()[:200]
-        nt.greedy_label = parse_chosen_label(greedy, sample)
-        nt.decoding_mismatch = (
-            nt.greedy_label is not None and nt.greedy_label != nt.predicted
-        )
+        # The greedy decode is a SECOND generation (skip-thinking prefill, temp 0).
+        # Skip it for cheap label-only runs; nt then keeps its greedy defaults
+        # (greedy_text="", greedy_label=None, decoding_mismatch=False).
+        if self.config.do_greedy:
+            greedy = runner.generate(
+                sample.text,
+                max_new_tokens=24,
+                temperature=0.0,
+                prefilling=runner.skip_thinking_prefix + prefix,
+            )
+            nt.greedy_text = greedy.strip()[:200]
+            nt.greedy_label = parse_chosen_label(greedy, sample)
+            nt.decoding_mismatch = (
+                nt.greedy_label is not None and nt.greedy_label != nt.predicted
+            )
         return nt
 
     def _thinking(

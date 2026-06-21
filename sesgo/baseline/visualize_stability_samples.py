@@ -1,12 +1,12 @@
 """Compute and plot ALL STABILITY statistics for a collected SesgoDataset.
 
 Run-by-path driver for the STABILITY half. Loads a samples.json produced by
-collect_stability_samples.py (a SesgoDataset) and answers one question: how
-CONSISTENT is the model's answer across the superficial FORMAT variations of the
-SAME item (question_id)? Every variation of a question_id is the identical
-ambiguous item re-rendered under a different label style and/or role->position
-permutation, with NO scaffolding, so any change in the prediction is pure format
-sensitivity.
+collect_stability_samples.py (a SesgoDataset of the cheapest, max-logprob /
+non-thinking answers) and answers one question: how CONSISTENT is the model's
+answer across the superficial FORMAT variations of the SAME item (question_id)?
+Every variation of a question_id is the identical ambiguous item re-rendered
+under a different label style and/or role->position permutation (and polarity),
+with NO scaffolding, so any change in the prediction is pure format sensitivity.
 
 It computes, per question_id, the prediction distribution across its variations
 and derives:
@@ -18,6 +18,9 @@ and derives:
     calibration-stability signal.
 And overall abstention accuracy (fraction predicting UNKNOWN; the ambiguous gold
 is always UNKNOWN).
+
+All metrics use the single cheap non-thinking prediction per prompt; there is no
+sampled thinking level in the cheap collection.
 
 Plots land at out/sesgo/stability/<MODEL>/plots/. Robust to subsampled data — an
 item may have only a few variations present; per-item metrics simply use whatever
@@ -82,12 +85,9 @@ def _axis_key(sample: SesgoSample, axis: str) -> str:
     """The value of one format axis for a sample (label_style or permutation).
 
     `label_style` is the joined markers (e.g. "a)b)c)"). The permutation axis has
-    no stored field, so we read it back off the rendered prompt's option ordering;
-    samples sharing a permutation render the three roles in the same slots. We
-    derive a stable permutation key from prompt_text by hashing the option block
-    is brittle, so instead we use label_style-independent ordering recovered from
-    the sample: identical (question_id, predicted role layout) is not available,
-    so we fall back to the prompt_text option-line order signature.
+    no stored field on the collected SesgoSample (position_labels live only on the
+    prompt sample), so we recover it from the rendered prompt's option ordering:
+    samples sharing a permutation render the three roles in the same slots.
     """
     if axis == "label_style":
         return sample.label_style
@@ -106,9 +106,9 @@ def _permutation_signature(sample: SesgoSample) -> str:
     different label styles yield the same signature.
     """
     lines = [ln.strip() for ln in sample.prompt_text.splitlines() if ln.strip()]
-    # Option lines are the three that start with a known marker token. We can't
-    # know the markers a priori, so take the contiguous run of three lines whose
-    # first whitespace-split token is a short marker (<=2 non-space chars + ")").
+    # Option lines start with a known marker token. We can't know the markers a
+    # priori, so take the lines whose first whitespace-split token is a short
+    # marker (<=2 non-space chars + ")"), then keep the last contiguous run of 3.
     opts: list[str] = []
     for ln in lines:
         head, _, rest = ln.partition(" ")
@@ -118,15 +118,12 @@ def _permutation_signature(sample: SesgoSample) -> str:
     return " | ".join(opts[-3:]) if len(opts) >= 3 else sample.prompt_text[-120:]
 
 
-def _predictions_by_item(
-    dataset: SesgoDataset, level: str
-) -> dict[str, list[SesgoLabel]]:
-    """Map question_id -> list of predicted labels (one per surviving variation)."""
+def _predictions_by_item(dataset: SesgoDataset) -> dict[str, list[SesgoLabel]]:
+    """Map question_id -> list of non-thinking predicted labels (one per variation)."""
     out: dict[str, list[SesgoLabel]] = defaultdict(list)
     for s in dataset.samples:
-        pred = s.predicted_non_thinking if level == "non_thinking" else s.predicted_thinking
-        if pred is not None:
-            out[s.question_id].append(pred)
+        if s.predicted_non_thinking is not None:
+            out[s.question_id].append(s.predicted_non_thinking)
     return out
 
 
@@ -147,9 +144,9 @@ def _entropy(preds: list[SesgoLabel]) -> float:
     return float(-(probs * np.log(probs)).sum())
 
 
-def _per_item_consistency(dataset: SesgoDataset, level: str) -> tuple[list[float], list[float]]:
+def _per_item_consistency(dataset: SesgoDataset) -> tuple[list[float], list[float]]:
     """Per-item (consistency, entropy) lists over items with >=2 variations."""
-    by_item = _predictions_by_item(dataset, level)
+    by_item = _predictions_by_item(dataset)
     cons, ents = [], []
     for preds in by_item.values():
         if len(preds) < 2:  # consistency is trivially 1.0 with one variation
@@ -159,7 +156,7 @@ def _per_item_consistency(dataset: SesgoDataset, level: str) -> tuple[list[float
     return cons, ents
 
 
-def _axis_sensitivity(dataset: SesgoDataset, axis: str, level: str) -> float | None:
+def _axis_sensitivity(dataset: SesgoDataset, axis: str) -> float | None:
     """Mean per-item flip rate ALONG `axis` with the OTHER axis held fixed.
 
     For each question_id we group its variations by the OTHER axis (so within a
@@ -170,13 +167,12 @@ def _axis_sensitivity(dataset: SesgoDataset, axis: str, level: str) -> float | N
     """
     other = _AXES[1 - _AXES.index(axis)]
     flip_rates: list[float] = []
-    # group[question_id][other_axis_value] = list of predicted labels.
+    # group[(question_id, other_axis_value)] = list of predicted labels.
     groups: dict[tuple[str, str], list[SesgoLabel]] = defaultdict(list)
     for s in dataset.samples:
-        pred = s.predicted_non_thinking if level == "non_thinking" else s.predicted_thinking
-        if pred is None:
+        if s.predicted_non_thinking is None:
             continue
-        groups[(s.question_id, _axis_key(s, other))].append(pred)
+        groups[(s.question_id, _axis_key(s, other))].append(s.predicted_non_thinking)
     for preds in groups.values():
         if len(preds) < 2:
             continue
@@ -193,13 +189,12 @@ def _p_unknown_spread(dataset: SesgoDataset) -> list[float]:
     return [float(np.std(v)) for v in by_item.values() if len(v) >= 2]
 
 
-def _abstention_accuracy(dataset: SesgoDataset, level: str) -> tuple[float | None, int]:
-    """Overall (fraction predicted UNKNOWN, n) at the given level."""
+def _abstention_accuracy(dataset: SesgoDataset) -> tuple[float | None, int]:
+    """Overall (fraction predicted UNKNOWN, n) at the non-thinking level."""
     flags = [
-        s.correct_non_thinking if level == "non_thinking" else s.correct_thinking
+        s.correct_non_thinking
         for s in dataset.samples
-        if (s.predicted_non_thinking if level == "non_thinking" else s.predicted_thinking)
-        is not None
+        if s.predicted_non_thinking is not None
     ]
     return (sum(flags) / len(flags) if flags else None), len(flags)
 
@@ -207,23 +202,17 @@ def _abstention_accuracy(dataset: SesgoDataset, level: str) -> tuple[float | Non
 # --------------------------------------------------------------------------- #
 # Plots
 # --------------------------------------------------------------------------- #
-def plot_consistency_hist(
-    cons_nt: list[float], cons_th: list[float], model: str, out_path: Path
-) -> Path:
-    """Histogram of per-item prediction consistency, non-thinking vs thinking."""
+def plot_consistency_hist(cons: list[float], model: str, out_path: Path) -> Path:
+    """Histogram of per-item non-thinking prediction consistency."""
     fig, ax = plt.subplots(figsize=(8, 5))
     bins = np.linspace(0, 1, 11)
-    if cons_nt:
-        ax.hist(cons_nt, bins=bins, alpha=0.6, label=f"non-thinking (n={len(cons_nt)})",
+    if cons:
+        ax.hist(cons, bins=bins, alpha=0.8, label=f"non-thinking (n={len(cons)})",
                 color="#30638e", edgecolor="white")
-    if cons_th:
-        ax.hist(cons_th, bins=bins, alpha=0.6, label=f"thinking (n={len(cons_th)})",
-                color="#d1495b", edgecolor="white")
+        ax.legend()
     ax.set_xlabel("per-item consistency (fraction of variations at modal prediction)")
     ax.set_ylabel("number of items")
     ax.set_title(f"SESGO stability: per-item prediction consistency ({model})")
-    if cons_nt or cons_th:
-        ax.legend()
     fig.tight_layout()
     fig.savefig(out_path, dpi=130)
     plt.close(fig)
@@ -293,33 +282,26 @@ def main() -> None:
     n_items = len({s.question_id for s in dataset.samples})
     log(f"[viz] {n_items} distinct question_id(s)")
 
-    has_thinking = any(s.predicted_thinking is not None for s in dataset.samples)
+    # Per-item consistency + entropy (non-thinking, the only level collected).
+    cons, ent = _per_item_consistency(dataset)
 
-    # Per-item consistency + entropy.
-    cons_nt, ent_nt = _per_item_consistency(dataset, "non_thinking")
-    cons_th, ent_th = _per_item_consistency(dataset, "thinking") if has_thinking else ([], [])
-
-    # Per-axis format sensitivity (non-thinking).
-    sensitivity = {a: _axis_sensitivity(dataset, a, "non_thinking") for a in _AXES}
+    # Per-axis format sensitivity.
+    sensitivity = {a: _axis_sensitivity(dataset, a) for a in _AXES}
 
     # Calibration spread + overall abstention accuracy.
     spreads = _p_unknown_spread(dataset)
-    acc_nt, n_nt = _abstention_accuracy(dataset, "non_thinking")
-    acc_th, n_th = _abstention_accuracy(dataset, "thinking")
+    acc, n_acc = _abstention_accuracy(dataset)
 
     # ----- stats table to the log ----------------------------------------- #
     log_section("STABILITY STATS")
-    log(f"  items with >=2 variations (non-thinking): {len(cons_nt)}")
-    log(f"  mean per-item consistency  non-thinking:  {_fmt(_mean(cons_nt), pct=True)}")
-    if has_thinking:
-        log(f"  mean per-item consistency  thinking:      {_fmt(_mean(cons_th), pct=True)}")
-    log(f"  mean per-item entropy (nats) non-thinking: {_fmt(_mean(ent_nt))}")
-    log("  format sensitivity (mean flip rate, non-thinking):")
+    log(f"  items with >=2 variations:                 {len(cons)}")
+    log(f"  mean per-item consistency:                 {_fmt(_mean(cons), pct=True)}")
+    log(f"  mean per-item entropy (nats):              {_fmt(_mean(ent))}")
+    log("  format sensitivity (mean flip rate):")
     for a in _AXES:
         log(f"    {a:<12}: {_fmt(sensitivity[a], pct=True)}")
     log(f"  mean per-item p(unknown) spread:           {_fmt(_mean(spreads))}")
-    log(f"  overall abstention accuracy non-thinking:  {_fmt(acc_nt, pct=True)} (n={n_nt})")
-    log(f"  overall abstention accuracy thinking:      {_fmt(acc_th, pct=True)} (n={n_th})")
+    log(f"  overall abstention accuracy:               {_fmt(acc, pct=True)} (n={n_acc})")
     log("  NOTE: ambiguous gold is always UNKNOWN, so abstention == accuracy.")
 
     # ----- plots ---------------------------------------------------------- #
@@ -329,7 +311,7 @@ def main() -> None:
 
     written: list[Path] = []
     written.append(plot_consistency_hist(
-        cons_nt, cons_th, dataset.model_name, plots_dir / "consistency_hist.png"))
+        cons, dataset.model_name, plots_dir / "consistency_hist.png"))
     written.append(plot_axis_sensitivity(
         sensitivity, dataset.model_name, plots_dir / "format_sensitivity.png"))
     written.append(plot_p_unknown_spread(

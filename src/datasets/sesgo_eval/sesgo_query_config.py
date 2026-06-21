@@ -17,5 +17,8 @@ class SesgoQueryConfig(BaseSchema):
     # too small a budget truncates before the answer and the draw is dropped.
     max_new_tokens: int = 512
     do_non_thinking: bool = True  # teacher-forced 3-way softmax over positions
+    # The greedy non-thinking decode is an EXTRA generation on top of the
+    # teacher-forced readout — disable it for cheap label-only runs.
+    do_greedy: bool = True
     do_thinking: bool = True  # sampled free-form reasoning, parsed per draw
     subsample: float = 1.0  # fraction of prompts to query (1.0 == all)

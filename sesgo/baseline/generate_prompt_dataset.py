@@ -1,22 +1,38 @@
-"""Build BOTH SESGO prompt datasets (STABILITY + GEOMETRY) in one run.
+"""Build ALL FIVE SESGO prompt datasets (one per baseline study) in one run.
 
-Run-by-path driver for baseline task 1. Loads the SESGO ambiguous-context items
-once and renders two complementary prompt grids, each isolating a single axis so
-the two downstream studies stay orthogonal:
+Run-by-path driver. Loads the SESGO ambiguous-context items once and renders five
+complementary prompt grids, each isolating a single axis so the downstream studies
+stay orthogonal:
 
+  NON_THINKING_BASELINE - the bare reference grid. Per item: the canonical
+               permutation (1) x one label style (1) x the lone no-scaffold
+               condition = 1 prompt, scaffold_id None. The label-only run the
+               cheap (do_greedy off) non-thinking pass is built for.
   STABILITY  - all superficial FORMAT variation, NO scaffolding. Per item: every
                role->position permutation (6) x every label style (3) x the lone
                no-scaffold condition = 18 prompts, scaffold_id always None. Probes
                how consistent the model's answer is across format-only rewrites of
                the SAME item.
-  GEOMETRY   - NO format variation, VARYING scaffold. Per item: the canonical
+  SELECTION  - NO format variation, ALL scaffolds. Per item: the canonical
                permutation (1) x one label style (1) x {no-scaffold + each of the
-               4 scaffolds} = 5 prompts. Probes how each debiasing scaffold moves
-               the answer with format held fixed.
+               4 scaffolds} = 5 prompts. Probes how every debiasing scaffold moves
+               the answer with format held fixed (scaffold selection).
+  DIVERGENCE - NO format variation, NO scaffold. Per item: the canonical
+               permutation (1) x one label style (1) x the lone no-scaffold
+               condition = 1 prompt, scaffold_id None. Structurally identical to
+               NON_THINKING_BASELINE; the bare grid the divergence probe contrasts
+               against the thinking draws.
+  GEOMETRY   - NO format variation, the SINGLE interpretive_direction scaffold.
+               Per item: canonical perm (1) x one style (1) x {no-scaffold + that
+               one scaffold} = 2 prompts. The cheapest scaffold contrast, used for
+               the geometry probe.
 
-By default it generates EVERYTHING (all categories, both languages); --limit is
-an optional cap for quick runs. Outputs:
+By default it generates EVERYTHING (all categories, both languages); --limit /
+--categories / --languages are optional caps for quick runs. Outputs:
+  out/sesgo/non_thinking_baseline/prompt_dataset.json
   out/sesgo/stability/prompt_dataset.json
+  out/sesgo/selection/prompt_dataset.json
+  out/sesgo/divergence/prompt_dataset.json
   out/sesgo/geometry/prompt_dataset.json
 
 Usage:
@@ -43,11 +59,13 @@ from src.common.file_io import ensure_dir  # noqa: E402
 from src.common.logging import log, log_header, log_section  # noqa: E402
 from src.common.profiler import P  # noqa: E402
 from src.datasets.prompt import (  # noqa: E402
+    Scaffold,
     SesgoPromptConfig,
     SesgoPromptDataset,
     SesgoPromptDatasetGenerator,
+    get_sesgo_label_styles,
 )
-from src.datasets.sesgo import SesgoCategory, load_items  # noqa: E402
+from src.datasets.sesgo import SesgoCategory, SesgoItem, load_items  # noqa: E402
 
 # Friendly CLI names → SesgoCategory enum. The enum's own values ("racismo",
 # "genero", ...) are Spanish file stems used on disk, not user-facing, so we
@@ -59,14 +77,18 @@ _CATEGORY_ALIASES: dict[str, SesgoCategory] = {
     "gender": SesgoCategory.GENDER,
 }
 
-# The single canonical label style the GEOMETRY grid holds fixed (format off).
+# The single canonical label style the fixed-format studies hold constant. Only
+# STABILITY varies the style; the other four pin it here so format is off.
 _CANONICAL_LABEL_STYLE: tuple[str, str, str] = ("a)", "b)", "c)")
+
+# The one scaffold GEOMETRY isolates from the full set.
+_GEOMETRY_SCAFFOLD_ID = "interpretive_direction"
 
 
 def parse_args() -> argparse.Namespace:
     """Parse command-line arguments for prompt-dataset generation."""
     parser = argparse.ArgumentParser(
-        description="Generate the STABILITY + GEOMETRY SesgoPromptDatasets",
+        description="Generate all five SESGO baseline SesgoPromptDatasets",
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     # Source location and selection knobs.
@@ -97,7 +119,7 @@ def parse_args() -> argparse.Namespace:
         "--out-dir",
         type=Path,
         default=Path("out"),
-        help="Base output dir; datasets land at <out-dir>/sesgo/{stability,geometry}/",
+        help="Base output dir; each dataset lands at <out-dir>/sesgo/<name>/",
     )
     return parser.parse_args()
 
@@ -120,28 +142,51 @@ def resolve_languages(spec: str) -> tuple[str, ...]:
     return tuple(c.strip().lower() for c in spec.split(",") if c.strip())
 
 
-def log_stability_counts(dataset: SesgoPromptDataset) -> None:
-    """Report STABILITY coverage: scaffold (all None) and the format axes."""
-    scaffolds = Counter(s.scaffold_id or "(none)" for s in dataset.samples)
-    styles = Counter(s.label_style for s in dataset.samples)
-    perms = Counter(tuple(s.position_labels) for s in dataset.samples)
-    log(f"  by scaffold:    {dict(scaffolds)}")
-    log(f"  by label_style: {dict(styles)}")
-    log(f"  distinct permutations: {len(perms)}")
+def geometry_scaffold() -> Scaffold:
+    """The lone interpretive_direction scaffold GEOMETRY crosses over."""
+    # Pull from get_scaffolds() rather than re-importing the constant so the two
+    # stay in lockstep if the scaffold set is ever renamed/reordered.
+    for scaffold in get_scaffolds():
+        if scaffold.scaffold_id == _GEOMETRY_SCAFFOLD_ID:
+            return scaffold
+    raise SystemExit(f"Scaffold {_GEOMETRY_SCAFFOLD_ID!r} not found in get_scaffolds()")
 
 
-def log_geometry_counts(dataset: SesgoPromptDataset) -> None:
-    """Report GEOMETRY coverage: the scaffold axis (None baseline + each)."""
-    scaffolds = Counter(s.scaffold_id or "(none)" for s in dataset.samples)
-    styles = Counter(s.label_style for s in dataset.samples)
-    log(f"  by scaffold:    {dict(scaffolds)}")
-    log(f"  by label_style: {dict(styles)}")
+def log_counts(dataset: SesgoPromptDataset, n_items: int) -> None:
+    """Report a dataset's coverage: item/prompt totals and the scaffold split.
+
+    Per-scaffold counts are the load-bearing check (None baseline vs each
+    scaffold), so they print for every study even when there is only one bucket.
+    """
+    by_scaffold = Counter(s.scaffold_id or "(none)" for s in dataset.samples)
+    log(f"  items:       {n_items}")
+    log(f"  prompts:     {len(dataset.samples)}")
+    log(f"  per item:    {len(dataset.samples) / n_items:.0f}" if n_items else "  per item: 0")
+    log(f"  by scaffold: {dict(by_scaffold)}")
+
+
+def build_and_save(
+    config: SesgoPromptConfig,
+    items: list[SesgoItem],
+    scaffolds: list[Scaffold],
+    out_dir: Path,
+    description: str,
+) -> None:
+    """Render one study's grid, log its counts, and persist prompt_dataset.json."""
+    with P(f"generate_{config.name}"):
+        dataset = SesgoPromptDatasetGenerator(config).generate(items, scaffolds)
+    log_section(f"{config.name} dataset ({description})")
+    log_counts(dataset, len(items))
+    # One fixed filename per study dir; no config-snapshot json is written.
+    path = ensure_dir(out_dir / "sesgo" / config.name) / "prompt_dataset.json"
+    dataset.save_as_json(path)
+    log(f"[generate] wrote {path}")
 
 
 def main() -> None:
-    """Load items once, render both prompt grids, and persist each."""
+    """Load items once, render all five prompt grids, and persist each."""
     args = parse_args()
-    log_header("GENERATE PROMPT DATASETS (sesgo: stability + geometry)")
+    log_header("GENERATE PROMPT DATASETS (sesgo: 5-study split)")
 
     categories = resolve_categories(args.categories)
     languages = resolve_languages(args.languages)
@@ -154,55 +199,92 @@ def main() -> None:
         )
     log(f"[generate] loaded {len(items)} items (languages={list(languages)})")
 
+    # Source provenance recorded on every config; the caller loads items above.
     cat_values = [c.value for c in categories] if categories else []
+    lang_values = list(languages)
 
-    # STABILITY: all format variation, no scaffolding (generate(items, []) leaves
-    # only the no-scaffold condition -> scaffold_id always None).
-    stability_config = SesgoPromptConfig(
-        name="stability",
-        all_permutations=True,
-        label_styles=[("a)", "b)", "c)"), ("1)", "2)", "3)"), ("x)", "y)", "z)")],
-        include_no_scaffold=True,
-        categories=cat_values,
-        languages=list(languages),
-        limit=args.limit,
-    )
-    with P("generate_stability"):
-        stability = SesgoPromptDatasetGenerator(stability_config).generate(items, [])
-
-    log_section("stability dataset (format variation, no scaffold)")
-    log(f"  items:   {len(items)}")
-    log(f"  prompts: {len(stability.samples)}")
-    log_stability_counts(stability)
-    stability_dir = ensure_dir(args.out_dir / "sesgo" / "stability")
-    stability_path = stability_dir / "prompt_dataset.json"
-    stability.save_as_json(stability_path)
-    log(f"[generate] wrote {stability_path}")
-
-    # GEOMETRY: no format variation, varying scaffold (canonical perm + one style,
-    # crossed with the no-scaffold baseline plus each scaffold).
-    geometry_config = SesgoPromptConfig(
-        name="geometry",
-        all_permutations=False,
-        label_styles=[_CANONICAL_LABEL_STYLE],
-        include_no_scaffold=True,
-        categories=cat_values,
-        languages=list(languages),
-        limit=args.limit,
-    )
-    with P("generate_geometry"):
-        geometry = SesgoPromptDatasetGenerator(geometry_config).generate(
-            items, get_scaffolds()
+    def make_config(name: str, *, all_permutations: bool, label_styles) -> SesgoPromptConfig:
+        """Config sharing the common source provenance across all five studies."""
+        return SesgoPromptConfig(
+            name=name,
+            all_permutations=all_permutations,
+            label_styles=label_styles,
+            include_no_scaffold=True,
+            categories=cat_values,
+            languages=lang_values,
+            limit=args.limit,
         )
 
-    log_section("geometry dataset (scaffold variation, no format)")
-    log(f"  items:   {len(items)}")
-    log(f"  prompts: {len(geometry.samples)}")
-    log_geometry_counts(geometry)
-    geometry_dir = ensure_dir(args.out_dir / "sesgo" / "geometry")
-    geometry_path = geometry_dir / "prompt_dataset.json"
-    geometry.save_as_json(geometry_path)
-    log(f"[generate] wrote {geometry_path}")
+    # NON_THINKING_BASELINE: 1 prompt/item — canonical perm, one style, no
+    # scaffold (generate(items, []) leaves only the no-scaffold condition).
+    build_and_save(
+        make_config(
+            "non_thinking_baseline",
+            all_permutations=False,
+            label_styles=[_CANONICAL_LABEL_STYLE],
+        ),
+        items,
+        [],
+        args.out_dir,
+        "bare reference, no format/scaffold variation",
+    )
+
+    # STABILITY: 18 prompts/item — all 6 permutations x all 3 styles x the lone
+    # no-scaffold condition (scaffold_id always None).
+    build_and_save(
+        make_config(
+            "stability",
+            all_permutations=True,
+            label_styles=get_sesgo_label_styles(),
+        ),
+        items,
+        [],
+        args.out_dir,
+        "format variation, no scaffold",
+    )
+
+    # SELECTION: 5 prompts/item — canonical perm + one style, crossed with the
+    # no-scaffold baseline plus each of the 4 scaffolds.
+    build_and_save(
+        make_config(
+            "selection",
+            all_permutations=False,
+            label_styles=[_CANONICAL_LABEL_STYLE],
+        ),
+        items,
+        get_scaffolds(),
+        args.out_dir,
+        "all scaffolds, no format variation",
+    )
+
+    # DIVERGENCE: 1 prompt/item — canonical perm + one style, no scaffold
+    # (generate(items, []) leaves only the no-scaffold condition). Structurally
+    # identical to NON_THINKING_BASELINE.
+    build_and_save(
+        make_config(
+            "divergence",
+            all_permutations=False,
+            label_styles=[_CANONICAL_LABEL_STYLE],
+        ),
+        items,
+        [],
+        args.out_dir,
+        "no scaffold, no format variation",
+    )
+
+    # GEOMETRY: 2 prompts/item — canonical perm + one style, crossed with the
+    # no-scaffold baseline plus the single interpretive_direction scaffold.
+    build_and_save(
+        make_config(
+            "geometry",
+            all_permutations=False,
+            label_styles=[_CANONICAL_LABEL_STYLE],
+        ),
+        items,
+        [geometry_scaffold()],
+        args.out_dir,
+        "interpretive_direction scaffold only, no format variation",
+    )
 
 
 if __name__ == "__main__":
