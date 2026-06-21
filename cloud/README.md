@@ -112,7 +112,7 @@ wall-clock ≈ the slowest single (model, shard) box, not the sum.
 |---------------------------|------------|--------------|
 | `fleet_sizing.py`         | local      | Single source of truth: model→GPU sizing map (`<=8B`→1× RTX 4090, `<=16B`→1× A100, `<=40B`→1× H100 80GB, else 2× H100 SXM) + shard plan. `python cloud/fleet_sizing.py plan` emits one TSV row per `(model, shard)` box; the trailing `num_gpus` column drives multi-GPU boxes (e.g. Llama-3.1-70B on 2× H100). |
 | `fleet_launch.sh`         | local      | Fires every `vast create` **in parallel** (background), polls concurrently. Records ids under `cloud/.fleet/<tag>.id`. **Spends money.** |
-| `fleet_run.sh`            | local      | Drives all boxes **concurrently**: per box → `sync_up` → `at_setup` → run its model+shard pipeline → safe sync-back to its own quarantine → **self-destruct**. Per-box log at `cloud/.fleet/<tag>.log`. Passes `STUDIES`/`BATCH_SIZE`/`N_THINKING`/`SUBSAMPLE`/`MAX_NEW_TOKENS`/`ITEMS`/`GENERATE_ALL_DATA` through to the on-box driver. |
+| `fleet_run.sh`            | local      | Drives all boxes **concurrently**: per box → `sync_up` → `at_setup` → run its model+shard pipeline → safe sync-back to its own quarantine → **self-destruct**. Per-box log at `cloud/.fleet/<tag>.log`. Passes `STUDIES`/`BATCH_SIZE`/`N_THINKING`/`SUBSAMPLE`/`MAX_NEW_TOKENS`/`ITEMS`/`GENERATE_ALL_DATA`/`HF_FORWARD_MICRO_BATCH` through to the on-box driver. `HF_FORWARD_MICRO_BATCH` caps sequences per teacher-forced forward pass so a wide batch of long (scaffolded) prompts never OOMs a 24 GB 4090. |
 | `fleet_model_run.sh`      | **remote** | On-box per-`(model, shard)` driver: runs the batched, sharded studies (`--batch-size` drives vLLM continuous batching). `SUBSAMPLE` (0-1, unset == full grid) threads `--subsample` into the thinking studies (divergence/selection/geometry) so a run queries a strided fraction of the grid; every shard subsamples the SAME slice before taking its shard, so the K shards still tile one subsampled grid. `GENERATE_ALL_DATA=1` with `STUDIES=baseline_full` builds + runs the FULL-DATA baseline grid (all langs × all origins × {none+3 scaffolds}, 24480 prompts) into its own `out/sesgo/baseline_full/` tree. |
 | `fleet_destroy.sh`        | local      | Concurrent backstop teardown (in case a box hung). Needs `--yes-i-am-really-sure`. |
 
@@ -136,8 +136,15 @@ es-original runs:
 ```bash
 FLEET_DIR=cloud/.fleet_fulldata FLEET_MODELS=Qwen/Qwen3-0.6B FLEET_SHARDS=16 \
   bash cloud/fleet_launch.sh
-FLEET_DIR=cloud/.fleet_fulldata STUDIES=baseline_full GENERATE_ALL_DATA=1 BATCH_SIZE=64 \
+# BATCH_SIZE=16 + HF_FORWARD_MICRO_BATCH=8 keep the teacher-forced forward within a
+# 24 GB 4090 (the scaffolded prompts are long; a 64-wide batch OOMs).
+FLEET_DIR=cloud/.fleet_fulldata STUDIES=baseline_full GENERATE_ALL_DATA=1 \
+  BATCH_SIZE=16 HF_FORWARD_MICRO_BATCH=8 \
   bash cloud/fleet_run.sh    # generate full grid on-box, run, sync-back, self-destruct
+
+# After the fleet self-destructs, fold the 16 shard slices into one dataset:
+uv run python sesgo/baseline/combine_baseline_full_shards.py Qwen3-0.6B   # -> out/sesgo/baseline_full/Qwen3-0.6B/
+uv run python sesgo/baseline/visualize_baseline_full_samples.py out/sesgo/baseline_full/Qwen3-0.6B/response_samples.json
 ```
 
 ### Optional dataset sharding (one model across K boxes)
