@@ -37,3 +37,19 @@
   4090, keep BATCH_SIZE <= 16; the micro-batch is defense-in-depth.
 - Truncated shards look "successful" (box reports DONE+destroyed). ALWAYS verify
   a shard's sample COUNT and sample_idx RANGE, not just that a file landed.
+
+## Vast.ai fleet reliability + cost (full-data baseline run)
+- A Vast SSH-PROXY-WIDE outage (kex_exchange_identification reset across many
+  ssh*.vast.ai hosts + proxy IPs at once) can kill an ENTIRE in-flight fleet:
+  boxes mid-collect lose their sync_back and self-destruct, AND not-yet-started
+  boxes fail wait_ssh and self-destruct. More shards = MORE SSH endpoints = bigger
+  failure surface. Mitigation: fewer shards (8 not 16) shrink the surface; the
+  partial-sync mirror (sync/partial-box-*) preserves checkpoints up to the outage.
+- Local MPS is NOT a viable fallback for the 24480-prompt grid: contended MPS ran
+  ~4 samples/min (teacher-forced 3-way forward is heavy) => ~100h. Cloud RTX 4090
+  is ~25x faster. Keep the run on cloud.
+- A subsample STRIDE that is a multiple of the scaffold-block size (4 = none+3
+  scaffolds) collapses onto ONE scaffold. Use a stride COPRIME to 4 (e.g. 17) for
+  a subsample that still spans all scaffold conditions.
+- Account balance can read transiently NEGATIVE mid-run (settlement lag) then
+  recover; re-check `vastai show user` before concluding "out of credit".
