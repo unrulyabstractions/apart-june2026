@@ -33,17 +33,31 @@ echo "[at_setup] uv sync"
 uv sync
 
 # uv sync pulls the LATEST torch wheel (currently a +cu130 build) which fails CUDA
-# init on Vast hosts whose driver predates CUDA 13 (the fleet draws hosts on
-# 12.2..13). A CUDA 11.8 build is forward-compatible with ANY driver >= 11.8, so
-# reinstall it -- this is what makes the GPU actually usable on every box.
-echo "[at_setup] pinning torch 2.6.0+cu118 (forward-compatible across all hosts)"
-uv pip install --reinstall --no-deps "torch==2.6.0" "torchvision==0.21.0" \
-  --index-url https://download.pytorch.org/whl/cu118
+# init on Vast hosts whose driver predates CUDA 13 (the fleet draws a MIX of cuda-12
+# and cuda-13 hosts). A CUDA 12.4 build runs on every driver that supports CUDA >=
+# 12.4 -- i.e. ALL of them (the cheapest Vast 4090/A100/H100 hosts report
+# cuda_max_good 12.4..13.x). We reinstall the cu124 wheel so the GPU is usable on
+# every box.
+#
+# CRITICAL: do NOT pass --no-deps here. The torch wheel does NOT bundle the CUDA
+# runtime; it depends on the nvidia-*-cu12 pip packages (libcudart, libcublas, ...).
+# A --no-deps install left those out and torch import died with
+# "libcudart.so.11.0: cannot open shared object file". Installing WITH deps pulls
+# the matching nvidia-*-cu12 libs from the same pytorch index, so CUDA initializes.
+echo "[at_setup] pinning torch 2.6.0+cu124 (+ its nvidia-cu12 runtime libs)"
+uv pip install --reinstall "torch==2.6.0" "torchvision==0.21.0" \
+  --index-url https://download.pytorch.org/whl/cu124
 
-# Keep the cu118 torch we just pinned: every subsequent `uv run` defaults to
-# re-syncing the venv to the lockfile, which would reinstall the cu130 wheel and
-# undo the pin. UV_NO_SYNC makes uv run use the venv exactly as it is.
-export UV_NO_SYNC=1
+# CRITICAL: `uv run` ALWAYS re-syncs the venv to the lockfile first, which silently
+# reinstalls the cu130 wheel and undoes the pin above (confirmed in fleet logs:
+# even with UV_NO_SYNC=1 exported, `uv run python ...` re-downloaded torch 2.11+cu130
+# before our script ran). The robust fix is to STOP using `uv run` for anything that
+# touches torch and invoke the venv interpreter DIRECTLY (.venv/bin/python). The venv
+# is already fully built by `uv sync`, so direct invocation is correct and never
+# re-syncs. We expose it as PY for every downstream step.
+PY="$PWD/.venv/bin/python"
+[ -x "$PY" ] || { echo "[at_setup] FATAL: $PY missing after uv sync"; exit 1; }
+echo "[at_setup] using venv interpreter directly: $PY"
 
 # ── 3. Propagate HF_TOKEN into the env if the caller exported it ───────
 if [ -n "${HF_TOKEN:-}" ]; then
@@ -52,9 +66,9 @@ else
   echo "[at_setup] HF_TOKEN not set (fine for the public Qwen3-0.6B)."
 fi
 
-# ── 4. Device sanity check ─────────────────────────────────────────────
+# ── 4. Device sanity check (via the venv python directly, NOT `uv run`) ─
 echo "[at_setup] device check"
-uv run python - <<'PY'
+"$PY" - <<'PYEOF'
 import sys
 import platform
 import torch
@@ -63,9 +77,9 @@ print("platform:", platform.platform())
 ok = torch.cuda.is_available()
 print("cuda:    ", ok, "(", torch.cuda.get_device_name(0) if ok else "NONE", ")")
 if not ok:
-    print("[at_setup] FATAL: CUDA unavailable after the cu118 pin -- aborting so "
+    print("[at_setup] FATAL: CUDA unavailable after the cu124 pin -- aborting so "
           "this box never runs the model on CPU.")
     sys.exit(1)
-PY
+PYEOF
 
 echo "[at_setup] done."

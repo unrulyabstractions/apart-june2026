@@ -16,10 +16,13 @@ set -euo pipefail
 
 cd "$(dirname "$0")/.."   # repo root on the remote (/root/apart)
 
-# at_setup pinned a cu118 torch into .venv; UV_NO_SYNC stops every `uv run` below
-# from re-syncing the venv to the lockfile (which would revert it to the cu130
-# wheel and break CUDA on the box).
-export UV_NO_SYNC=1
+# at_setup pinned a cu124 torch (+ nvidia-cu12 libs) into .venv. `uv run` ALWAYS
+# re-syncs the venv to the lockfile first, which silently reinstalls the cu130 wheel
+# and breaks CUDA on any pre-CUDA-13 host (UV_NO_SYNC did NOT prevent this in
+# practice). So we invoke the venv interpreter DIRECTLY — it is already fully built
+# by at_setup, runs from the repo root on sys.path, and never re-syncs.
+PY="$PWD/.venv/bin/python"
+[ -x "$PY" ] || { echo "[fleet_model_run] FATAL: $PY missing (run at_setup first)" >&2; exit 1; }
 
 MODEL="${MODEL:-Qwen/Qwen3-0.6B}"
 SHARD_INDEX="${SHARD_INDEX:-0}"
@@ -33,7 +36,7 @@ echo "[fleet_model_run] model=$MODEL shard=$SHARD_INDEX/$SHARD_COUNT studies='$S
 
 # Regenerate the prompt datasets on the box (full grid; reads the synced xlsx).
 echo "[fleet_model_run] generate prompt datasets"
-uv run python sesgo/generate/generate_prompt_dataset.py
+"$PY" sesgo/generate/generate_prompt_dataset.py
 
 SHARD_ARGS="--shard-index $SHARD_INDEX --shard-count $SHARD_COUNT"
 
@@ -41,21 +44,21 @@ run_study() {
   local study="$1"
   case "$study" in
     baseline)
-      uv run python sesgo/baseline/collect_baseline_samples.py \
+      "$PY" sesgo/baseline/collect_baseline_samples.py \
         --model "$MODEL" --out-dir out --batch-size "$BATCH_SIZE" $SHARD_ARGS ;;
     selection)
-      uv run python sesgo/selection/collect_selection_samples.py \
+      "$PY" sesgo/selection/collect_selection_samples.py \
         --model "$MODEL" --out-dir out --batch-size "$BATCH_SIZE" \
         --n-thinking "$N_THINKING" --max-new-tokens "$MAX_NEW_TOKENS" $SHARD_ARGS ;;
     divergence)
-      uv run python sesgo/divergence/collect_divergence_samples.py \
+      "$PY" sesgo/divergence/collect_divergence_samples.py \
         --model "$MODEL" --out-dir out --batch-size "$BATCH_SIZE" \
         --n-thinking "$N_THINKING" --max-new-tokens "$MAX_NEW_TOKENS" $SHARD_ARGS ;;
     stability)
-      uv run python sesgo/stability/collect_stability_samples.py \
+      "$PY" sesgo/stability/collect_stability_samples.py \
         --model "$MODEL" --out-dir out $SHARD_ARGS ;;
     geometry)
-      uv run python sesgo/geometry/collect_geometry_samples.py \
+      "$PY" sesgo/geometry/collect_geometry_samples.py \
         --model "$MODEL" --out-dir out --batch-size "$BATCH_SIZE" \
         --n-thinking "$N_THINKING" $SHARD_ARGS ;;
     *) echo "[fleet_model_run] unknown study: $study" >&2; return 1 ;;
