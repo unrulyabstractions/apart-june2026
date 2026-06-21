@@ -2,34 +2,43 @@
 
 Run-by-path driver for baseline task 1.a (plus the part-2 scaffolding axis).
 Loads the SESGO ambiguous-context items, renders the full prompt grid with
-SesgoPromptDatasetGenerator, and writes the dataset plus a config snapshot to
-out/. The generator emits, per item, both the WITH-each-scaffold conditions and
-the WITHOUT (scaffold_id=None) baseline — that pairing is the with/without
+SesgoPromptDatasetGenerator, and writes the dataset to out/sesgo/. By default it
+generates EVERYTHING (all categories, both languages, all four scaffolds plus
+the no-scaffold baseline); --limit is an optional cap for quick runs. The
+generator emits, per item, both the WITH-each-scaffold conditions and the
+WITHOUT (scaffold_id=None) baseline — that pairing is the with/without
 comparison set this study reports on.
 
 Usage:
-  uv run python src/datasets/sesgo/baseline/generate_prompt_dataset.py
-  uv run python src/datasets/sesgo/baseline/generate_prompt_dataset.py \
-      --categories racism,gender --languages es --limit 5 --name sesgo_small
-  uv run python src/datasets/sesgo/baseline/generate_prompt_dataset.py --no-scaffolds
+  uv run python sesgo/baseline/generate_prompt_dataset.py
+  uv run python sesgo/baseline/generate_prompt_dataset.py \
+      --categories racism,gender --languages es --limit 5
+  uv run python sesgo/baseline/generate_prompt_dataset.py --no-scaffolds
 """
 
 from __future__ import annotations
 
 import argparse
+import pathlib
+import sys
 from collections import Counter
 from pathlib import Path
 
-from src.common.file_io import ensure_dir, save_json
-from src.common.logging import log, log_header, log_section
-from src.common.profiler import P
-from src.datasets.prompt import (
+# Bootstrap the repo root onto sys.path so `from src... import ...` and
+# `from sesgo.scaffolds import ...` resolve regardless of cwd. From
+# <repo>/sesgo/baseline/x.py, parents[2] is the repo root.
+sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[2]))
+
+from sesgo.scaffolds import get_scaffolds  # noqa: E402
+from src.common.file_io import ensure_dir  # noqa: E402
+from src.common.logging import log, log_header, log_section  # noqa: E402
+from src.common.profiler import P  # noqa: E402
+from src.datasets.prompt import (  # noqa: E402
     SesgoPromptConfig,
     SesgoPromptDataset,
     SesgoPromptDatasetGenerator,
 )
-from src.datasets.sesgo import SesgoCategory, load_items
-from src.datasets.sesgo.sesgo_scaffolds import get_scaffolds
+from src.datasets.sesgo import SesgoCategory, load_items  # noqa: E402
 
 # Friendly CLI names → SesgoCategory enum. The enum's own values ("racismo",
 # "genero", ...) are Spanish file stems used on disk, not user-facing, so we
@@ -63,13 +72,13 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--languages",
         default="es,en",
-        help="Comma list of language codes (default: es,en)",
+        help="Comma list of language codes (default: es,en == all)",
     )
     parser.add_argument(
         "--limit",
         type=int,
         default=None,
-        help="Cap items PER (category, language) (default: no cap)",
+        help="OPTIONAL cap on items PER (category, language) (default: all)",
     )
     # Scaffolding axis. The generator always emits the no-scaffold baseline;
     # --no-scaffolds drops the WITH-scaffold conditions so only that baseline
@@ -81,15 +90,10 @@ def parse_args() -> argparse.Namespace:
     )
     # Output.
     parser.add_argument(
-        "--name",
-        default="sesgo_baseline",
-        help="Dataset name (also the output subdirectory)",
-    )
-    parser.add_argument(
         "--out-dir",
         type=Path,
-        default=Path("out/sesgo"),
-        help="Base output directory (default: out/sesgo)",
+        default=Path("out"),
+        help="Base output directory; dataset lands at <out-dir>/sesgo/",
     )
     return parser.parse_args()
 
@@ -131,7 +135,7 @@ def log_grid_counts(dataset: SesgoPromptDataset) -> None:
 def main() -> None:
     """Load items, render the scaffold-crossed prompt grid, and persist it."""
     args = parse_args()
-    log_header(f"GENERATE PROMPT DATASET ({args.name})")
+    log_header("GENERATE PROMPT DATASET (sesgo)")
 
     categories = resolve_categories(args.categories)
     languages = resolve_languages(args.languages)
@@ -144,11 +148,11 @@ def main() -> None:
         )
     log(f"[generate] loaded {len(items)} items (languages={list(languages)})")
 
-    # --no-scaffolds means render only the no-scaffold baseline; otherwise cross
-    # every concrete debiasing scaffold against that same baseline.
+    # By default cross every concrete debiasing scaffold against the always-on
+    # no-scaffold baseline; --no-scaffolds renders only that baseline.
     scaffolds = [] if args.no_scaffolds else get_scaffolds()
     config = SesgoPromptConfig(
-        name=args.name,
+        name="sesgo",
         categories=[c.value for c in categories] if categories else [],
         languages=list(languages),
         limit=args.limit,
@@ -161,13 +165,10 @@ def main() -> None:
     log(f"  prompts: {len(dataset.samples)}")
     log_grid_counts(dataset)
 
-    out_dir = ensure_dir(args.out_dir / args.name)
+    out_dir = ensure_dir(args.out_dir / "sesgo")
     dataset_path = out_dir / "prompt_dataset.json"
-    config_path = out_dir / "sesgo_prompt_config.json"
     dataset.save_as_json(dataset_path)
-    save_json(config.to_dict(), config_path)
     log(f"[generate] wrote {dataset_path}")
-    log(f"[generate] wrote {config_path}")
 
 
 if __name__ == "__main__":

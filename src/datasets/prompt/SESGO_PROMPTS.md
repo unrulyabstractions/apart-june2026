@@ -88,7 +88,7 @@ it to `gold_label` (`UNKNOWN`) for correctness or to `TARGET`/`OTHER` for bias.
 
 ```python
 from src.datasets.sesgo import load_items
-from src.datasets.sesgo.sesgo_scaffolds import get_scaffolds
+from sesgo.scaffolds import get_scaffolds  # top-level sesgo/ package
 from src.datasets.prompt import SesgoPromptDatasetGenerator, SesgoPromptConfig
 
 items = load_items(limit=10)
@@ -114,4 +114,4 @@ through `to_dict`/`from_dict` and `save_as_json`/`from_json` via `BaseSchema`.
 | `sesgo_prompt_config.py` | `SesgoPromptConfig` (grid selection + provenance). |
 | `sesgo_prompt_dataset.py` | `SesgoPromptDataset` (save/load). |
 | `sesgo_prompt_generator.py` | `SesgoPromptDatasetGenerator.generate`. |
-| `../sesgo/sesgo_scaffolds.py` | The 4 concrete scaffolds + `get_scaffolds`. |
+| `<repo>/sesgo/scaffolds.py` | The 4 concrete scaffolds + `get_scaffolds` (top-level package). |

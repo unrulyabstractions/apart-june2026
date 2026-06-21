@@ -2,35 +2,46 @@
 
 Run-by-path driver for baseline task 1.a. Resolves subjects (either from an
 already-extracted tree, or by decrypting the encrypted official corpus first),
-renders the full prompt grid with RiskPromptGenerator, and writes the dataset
-plus a config snapshot to out/.
+renders the full prompt grid with RiskPromptGenerator, and writes the dataset to
+out/mental_risk/. By default it generates EVERYTHING (all disorders, all
+framings/languages/task types); --limit is an optional cap for quick runs.
 
 Usage:
-  uv run python src/datasets/mental_risk/baseline/generate_prompt_dataset.py
-  uv run python src/datasets/mental_risk/baseline/generate_prompt_dataset.py \
+  uv run python mental_risk/baseline/generate_prompt_dataset.py
+  uv run python mental_risk/baseline/generate_prompt_dataset.py \
       --corpus-dir datasets/corpusMentalRiskES --password-file secret.txt
-  uv run python src/datasets/mental_risk/baseline/generate_prompt_dataset.py \
-      --disorders anxiety,depression --limit 5 --name mr_small
+  uv run python mental_risk/baseline/generate_prompt_dataset.py \
+      --disorders anxiety,depression --limit 5
 """
 
 from __future__ import annotations
 
 import argparse
+import pathlib
+import sys
 import tempfile
 from collections import Counter
 from pathlib import Path
 
-from src.common.file_io import ensure_dir, save_json
-from src.common.logging import log, log_header, log_section
-from src.common.profiler import P
-from src.datasets.mental_risk import (
+# Bootstrap the repo root onto sys.path so `from src... import ...` resolves
+# regardless of cwd. From <repo>/mental_risk/baseline/x.py, parents[2] is root.
+sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[2]))
+
+from src.common.file_io import ensure_dir  # noqa: E402
+from src.common.logging import log, log_header, log_section  # noqa: E402
+from src.common.profiler import P  # noqa: E402
+from src.datasets.mental_risk import (  # noqa: E402
     Disorder,
     MentalRiskSubject,
     extract_corpus,
     load_subjects,
     resolve_password,
 )
-from src.datasets.prompt import RiskPromptConfig, RiskPromptDataset, RiskPromptGenerator
+from src.datasets.prompt import (  # noqa: E402
+    RiskPromptConfig,
+    RiskPromptDataset,
+    RiskPromptGenerator,
+)
 
 # Friendly CLI names → corpus Disorder enum. The enum's own values ("Anxiety",
 # "Depress", "ED") are on-disk directory names, not user-facing, so we expose
@@ -83,19 +94,14 @@ def parse_args() -> argparse.Namespace:
         "--limit",
         type=int,
         default=None,
-        help="Cap subjects PER disorder (default: no cap)",
+        help="OPTIONAL cap on subjects PER disorder (default: all)",
     )
     # Output.
     parser.add_argument(
-        "--name",
-        default="mentalriskes_baseline",
-        help="Dataset name (also the output subdirectory)",
-    )
-    parser.add_argument(
         "--out-dir",
         type=Path,
-        default=Path("out/mental_risk/baseline"),
-        help="Base output directory (default: out/mental_risk/baseline)",
+        default=Path("out"),
+        help="Base output directory; dataset lands at <out-dir>/mental_risk/",
     )
     return parser.parse_args()
 
@@ -149,13 +155,13 @@ def log_axis_counts(dataset: RiskPromptDataset) -> None:
 def main() -> None:
     """Resolve subjects, render the prompt grid, and persist the dataset."""
     args = parse_args()
-    log_header(f"GENERATE PROMPT DATASET ({args.name})")
+    log_header("GENERATE PROMPT DATASET (mental_risk)")
 
     with P("resolve_subjects"):
         subjects = resolve_subjects(args)
     log(f"[generate] loaded {len(subjects)} subjects from source={args.source}")
 
-    config = RiskPromptConfig(name=args.name)
+    config = RiskPromptConfig(name="mental_risk")
     with P("generate_prompts"):
         dataset = RiskPromptGenerator(config).generate(subjects)
 
@@ -163,13 +169,10 @@ def main() -> None:
     log(f"  prompts: {len(dataset.samples)}")
     log_axis_counts(dataset)
 
-    out_dir = ensure_dir(args.out_dir / args.name)
+    out_dir = ensure_dir(args.out_dir / "mental_risk")
     dataset_path = out_dir / "prompt_dataset.json"
-    config_path = out_dir / "prompt_config.json"
     dataset.save_as_json(dataset_path)
-    save_json(config.to_dict(), config_path)
     log(f"[generate] wrote {dataset_path}")
-    log(f"[generate] wrote {config_path}")
 
 
 if __name__ == "__main__":

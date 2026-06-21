@@ -5,24 +5,32 @@ generate_prompt_dataset.py, queries every prompt at both the non-thinking
 (teacher-forced) and thinking (sampled) levels, and persists the resulting
 RiskDataset plus a short summary.
 
+Output lands at out/mental_risk/<MODEL>/responses.json (MODEL == bare name).
+
 Usage:
-  uv run python src/datasets/mental_risk/baseline/collect_llm_responses.py \
-      out/mental_risk/baseline/mentalriskes_baseline/prompt_dataset.json
-  uv run python src/datasets/mental_risk/baseline/collect_llm_responses.py \
+  uv run python mental_risk/baseline/collect_llm_responses.py \
+      out/mental_risk/prompt_dataset.json
+  uv run python mental_risk/baseline/collect_llm_responses.py \
       PROMPTS.json --model Qwen/Qwen3-0.6B --n-thinking 8 --subsample 0.5
 """
 
 from __future__ import annotations
 
 import argparse
+import pathlib
+import sys
 from pathlib import Path
 
 import numpy as np
 
-from src.common.logging import log, log_header, log_section
-from src.common.profiler import P
-from src.datasets.prompt import RiskPromptDataset
-from src.datasets.risk import RiskDataset, RiskQuerier, RiskQueryConfig
+# Bootstrap the repo root onto sys.path so `from src... import ...` resolves
+# regardless of cwd. From <repo>/mental_risk/baseline/x.py, parents[2] is root.
+sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[2]))
+
+from src.common.logging import log, log_header, log_section  # noqa: E402
+from src.common.profiler import P  # noqa: E402
+from src.datasets.prompt import RiskPromptDataset  # noqa: E402
+from src.datasets.risk import RiskDataset, RiskQuerier, RiskQueryConfig  # noqa: E402
 
 
 def parse_args() -> argparse.Namespace:
@@ -70,8 +78,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--out-dir",
         type=Path,
-        default=Path("out/mental_risk/baseline"),
-        help="Base output directory (default: out/mental_risk/baseline)",
+        default=Path("out"),
+        help="Base output directory; responses land at <out-dir>/mental_risk/<MODEL>/",
     )
     return parser.parse_args()
 
@@ -116,10 +124,16 @@ def log_summary(dataset: RiskDataset) -> None:
     log(f"  samples:            {len(dataset.samples)}")
     log(f"  mean non-thinking:  {_mean(non_thinking)}")
     log(f"  mean thinking:      {_mean(thinking)}")
-    log(f"  corr(non-thinking, gold): {_pearson(*map(list, zip(*nt_pairs)))}"
-        if nt_pairs else "  corr(non-thinking, gold): n/a")
-    log(f"  corr(thinking, gold):     {_pearson(*map(list, zip(*th_pairs)))}"
-        if th_pairs else "  corr(thinking, gold):     n/a")
+    log(
+        f"  corr(non-thinking, gold): {_pearson(*map(list, zip(*nt_pairs)))}"
+        if nt_pairs
+        else "  corr(non-thinking, gold): n/a"
+    )
+    log(
+        f"  corr(thinking, gold):     {_pearson(*map(list, zip(*th_pairs)))}"
+        if th_pairs
+        else "  corr(thinking, gold):     n/a"
+    )
 
 
 def main() -> None:
@@ -128,8 +142,7 @@ def main() -> None:
     log_header(f"COLLECT LLM RESPONSES ({args.model})")
 
     prompt_dataset = RiskPromptDataset.from_json(args.prompt_dataset)
-    name = prompt_dataset.config.name
-    log(f"[collect] loaded {len(prompt_dataset.samples)} prompts (dataset={name})")
+    log(f"[collect] loaded {len(prompt_dataset.samples)} prompts")
 
     # Subsampling is applied by RiskQuerier from the config (args.subsample).
     config = RiskQueryConfig(
@@ -143,10 +156,10 @@ def main() -> None:
 
     log_summary(dataset)
 
-    # Output sits alongside the prompt dataset, keyed by bare model name.
-    out_dir = args.out_dir / name
+    # out/mental_risk/<MODEL>/responses.json, keyed by bare model name.
+    out_dir = args.out_dir / "mental_risk" / dataset.model_name
     out_dir.mkdir(parents=True, exist_ok=True)
-    out_path = out_dir / f"responses_{dataset.model_name}.json"
+    out_path = out_dir / "responses.json"
     dataset.save_as_json(out_path)
     log(f"[collect] wrote {out_path}")
 

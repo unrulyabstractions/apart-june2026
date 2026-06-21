@@ -3,14 +3,15 @@
 Four bilingual preambles derived from the TAIS 2026 cultural-confabulation
 paper; each pushes the model toward answering "unknown" on ambiguous items by a
 distinct mechanism (reframing the task, warning about prior dominance, licensing
-the unknown answer, or demanding register respect). They live beside the SESGO
-loader — not in the prompt module — because they are this benchmark's content,
-while the prompt module only knows the generic Scaffold shape.
+the unknown answer, or demanding register respect). They live at the top level
+beside the run-by-path drivers — not in the prompt module — because they are
+this benchmark's content, while the prompt module only knows the generic
+Scaffold shape.
 """
 
 from __future__ import annotations
 
-from src.datasets.prompt.sesgo_scaffold import Scaffold
+from src.datasets.prompt import Scaffold
 
 # Reframes the task: judge whether the text identifies anyone, do not guess.
 INTERPRETIVE_DIRECTION = Scaffold(
