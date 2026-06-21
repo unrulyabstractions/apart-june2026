@@ -33,6 +33,11 @@ N_THINKING="${N_THINKING:-8}"
 # own default (full grid / 512 tokens) — backward-compatible no-op.
 SUBSAMPLE="${SUBSAMPLE:-}"
 MAX_NEW_TOKENS="${MAX_NEW_TOKENS:-}"
+# ITEMS passes straight through to the STABILITY case in fleet_model_run.sh: keep
+# all 36 surface variants of this many DISTINCT items per box (a valid, tractable
+# stability slice). Defaults EMPTY so an unset value runs the full item grid —
+# backward-compatible no-op. Other studies ignore it.
+ITEMS="${ITEMS:-}"
 
 [ -d "$FLEET_DIR" ] || { echo "No fleet. Run cloud/fleet_launch.sh first." >&2; exit 1; }
 
@@ -151,7 +156,7 @@ run_one() {
     INSTANCE="$iid" MODEL="$model" SHARD_INDEX="$sidx" SHARD_COUNT="$scount" \
       STUDIES="$STUDIES" BATCH_SIZE="$BATCH_SIZE" N_THINKING="$N_THINKING" \
       bash "$HERE/at_vast.sh" \
-      "HF_TOKEN='$HF_TOKEN' HF_DEVICE_MAP='$hf_device_map' MODEL='$model' SHARD_INDEX=$sidx SHARD_COUNT=$scount STUDIES='$STUDIES' BATCH_SIZE=$BATCH_SIZE N_THINKING=$N_THINKING SUBSAMPLE='$SUBSAMPLE' MAX_NEW_TOKENS='$MAX_NEW_TOKENS' bash cloud/fleet_model_run.sh"
+      "HF_TOKEN='$HF_TOKEN' HF_DEVICE_MAP='$hf_device_map' MODEL='$model' SHARD_INDEX=$sidx SHARD_COUNT=$scount STUDIES='$STUDIES' BATCH_SIZE=$BATCH_SIZE N_THINKING=$N_THINKING SUBSAMPLE='$SUBSAMPLE' MAX_NEW_TOKENS='$MAX_NEW_TOKENS' ITEMS='$ITEMS' bash cloud/fleet_model_run.sh"
 
     # Step 5: pull THIS box's results into ITS OWN sync/box-<tag>/ quarantine.
     INSTANCE="$iid" SYNC_SUBDIR="box-$tag" bash "$HERE/sync_back.sh"
@@ -164,7 +169,7 @@ run_one() {
 }
 
 export -f run_one wait_running instance_status wait_ssh sync_and_setup
-export FLEET_DIR STUDIES BATCH_SIZE N_THINKING SUBSAMPLE MAX_NEW_TOKENS HERE HF_TOKEN
+export FLEET_DIR STUDIES BATCH_SIZE N_THINKING SUBSAMPLE MAX_NEW_TOKENS ITEMS HERE HF_TOKEN
 
 echo ">> Driving all boxes concurrently (studies: $STUDIES, batch_size: $BATCH_SIZE)..."
 for idf in "$FLEET_DIR"/*.id; do

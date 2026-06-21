@@ -40,8 +40,17 @@ SUBSAMPLE="${SUBSAMPLE:-}"
 # Build the optional --subsample flag once so each study case stays one line.
 SUBSAMPLE_ARG=""
 [ -n "$SUBSAMPLE" ] && SUBSAMPLE_ARG="--subsample $SUBSAMPLE"
+# ITEMS: number of DISTINCT items (question_ids) to keep for the STABILITY study,
+# keeping ALL 36 surface variants of each. UNSET == full item×variant grid
+# (backward-compatible no-op). Stability consistency is per-item ACROSS its
+# variants, so a flat --subsample would leave it undefined; --items keeps whole
+# items, which is the valid way to take a tractable stability slice (~60 items ×
+# 36 variants per box). Only the stability case reads ITEMS; other studies ignore it.
+ITEMS="${ITEMS:-}"
+ITEMS_ARG=""
+[ -n "$ITEMS" ] && ITEMS_ARG="--items $ITEMS"
 
-echo "[fleet_model_run] model=$MODEL shard=$SHARD_INDEX/$SHARD_COUNT studies='$STUDIES' batch=$BATCH_SIZE subsample='${SUBSAMPLE:-full}'"
+echo "[fleet_model_run] model=$MODEL shard=$SHARD_INDEX/$SHARD_COUNT studies='$STUDIES' batch=$BATCH_SIZE subsample='${SUBSAMPLE:-full}' items='${ITEMS:-full}'"
 
 # Regenerate the prompt datasets on the box (full grid; reads the synced xlsx).
 echo "[fleet_model_run] generate prompt datasets"
@@ -79,7 +88,7 @@ run_study() {
         --n-thinking "$N_THINKING" --max-new-tokens "$MAX_NEW_TOKENS" $SUBSAMPLE_ARG $SHARD_ARGS ;;
     stability)
       "$PY" sesgo/stability/collect_stability_samples.py \
-        --model "$MODEL" --out-dir out $SHARD_ARGS ;;
+        --model "$MODEL" --out-dir out $ITEMS_ARG $SHARD_ARGS ;;
     geometry)
       "$PY" sesgo/geometry/collect_geometry_samples.py \
         --model "$MODEL" --out-dir out --batch-size "$BATCH_SIZE" \
