@@ -8,6 +8,7 @@ import torch
 
 from ..common.device_utils import get_device, clear_gpu_memory
 from ..common.profiler import profile
+from .chat_template_markers import ChatTemplateMarkers, structural_markers_for
 from .interventions import Intervention, Interventions
 from .backends import (
     ModelBackend,
@@ -60,6 +61,42 @@ CLAUDE_MODEL_ALIASES: dict[str, str] = {
     "sonnet-3": "claude-3-sonnet-20240229",
     "haiku-3": "claude-3-haiku-20240307",
 }
+
+
+def detect_backend_for_name(model_name: str) -> ModelBackend:
+    """Backend a bare/prefixed model name routes to (cloud API or local default).
+
+    Module-level twin of ``ModelRunner._detect_backend`` so callers can decide
+    cloud-vs-local BEFORE constructing a runner (e.g. to pin the HuggingFace
+    backend only for local models). Cloud aliases/prefixes route to their API
+    backend; everything else falls back to the recommended local backend.
+    """
+    name = model_name.lower()
+
+    # Claude shorthand aliases ("haiku", "opus", "sonnet", ...) are Anthropic.
+    if name in CLAUDE_MODEL_ALIASES:
+        return ModelBackend.ANTHROPIC
+    if name.startswith("anthropic:") or name.startswith("claude"):
+        return ModelBackend.ANTHROPIC
+    if name.startswith("openai:") or any(
+        name.startswith(p) or name == p
+        for p in ("openai", "gpt-3", "gpt-4", "gpt-5", "o1", "o3", "o4")
+    ):
+        return ModelBackend.OPENAI
+    # Gemini API only — NOT the "google/" HF org prefix, which carries LOCAL
+    # weights (e.g. google/gemma-2-2b-it is a HuggingFace model, not the API).
+    if name.startswith("gemini:") or name.startswith("gemini"):
+        return ModelBackend.GEMINI
+    return get_recommended_backend_inference()
+
+
+def is_cloud_api_name(model_name: str) -> bool:
+    """Whether a model name routes to a cloud-API backend (no local weights)."""
+    return detect_backend_for_name(model_name) in (
+        ModelBackend.OPENAI,
+        ModelBackend.ANTHROPIC,
+        ModelBackend.GEMINI,
+    )
 
 
 def resolve_claude_model(model: str) -> str:
@@ -996,44 +1033,10 @@ class ModelRunner:
         Used when no backend is explicitly provided and the model name is not
         given via an explicit "provider:" prefix. Lets bare names like "claude",
         "gpt-4o", or "gemini-2.5-pro" route to the right cloud API backend.
+        Delegates to the module-level ``detect_backend_for_name`` so the same
+        routing is reusable before a runner exists.
         """
-        name = model_name.lower()
-
-        # Claude shorthand aliases ("haiku", "opus", "sonnet", ...) denote
-        # Anthropic models even though they don't start with "claude"/"anthropic".
-        # (Alias -> full id resolution happens later in _init_anthropic.)
-        if name in CLAUDE_MODEL_ALIASES:
-            return ModelBackend.ANTHROPIC
-
-        # Google Gemini
-        gemini_prefixes = ["gemini", "google/", "google-"]
-        if any(name.startswith(prefix) for prefix in gemini_prefixes):
-            return ModelBackend.GEMINI
-
-        # OpenAI models (GPT-3/4/5, o1/o3/o4 reasoning models)
-        openai_prefixes = [
-            "openai",
-            "gpt-3",
-            "gpt-4",
-            "gpt-5",
-            "o1",
-            "o3",
-            "o4",
-        ]
-        if any(
-            name.startswith(prefix) or name == prefix for prefix in openai_prefixes
-        ):
-            return ModelBackend.OPENAI
-
-        # Anthropic models
-        anthropic_prefixes = ["anthropic", "claude"]
-        if any(
-            name.startswith(prefix) or name == prefix for prefix in anthropic_prefixes
-        ):
-            return ModelBackend.ANTHROPIC
-
-        # Default to recommended local backend
-        return get_recommended_backend_inference()
+        return detect_backend_for_name(model_name)
 
     def _init_transformerlens(self, process_weights: bool = True) -> None:
         from .backends import TransformerLensBackend
@@ -1301,6 +1304,17 @@ class ModelRunner:
         if self.is_reasoning_model:
             return "<think>\n</think>\n\n"
         return ""
+
+    @property
+    def structural_markers(self) -> ChatTemplateMarkers:
+        """Model-aware chat-template markers (assistant turn + think scratch-pad).
+
+        Lets geometry locate structural token positions per family instead of
+        hardcoding Qwen's tokens. think_open/think_close are empty for
+        non-reasoning families; for cloud APIs (no local chat template) there is
+        no meaningful structural marker, so callers gate on `is_cloud_api`.
+        """
+        return structural_markers_for(self.model_name)
 
     def cleanup(self) -> None:
         """Unload model from memory and clear GPU/MPS memory.

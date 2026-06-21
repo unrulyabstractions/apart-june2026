@@ -69,6 +69,18 @@ and `predicted` (argmax `prob`, ties → UNKNOWN).
 `normalize_log_probs` for the 3-way softmax; `aggregate(..., MEAN)` for the
 thinking pick fractions. Non-thinking `prob` is already normalized by the softmax.
 
+## Model backend (cross-family)
+
+`SesgoQuerier._load_model` pins the **HuggingFace** backend for local models
+(`google/gemma-2-2b-it`, `meta-llama/Llama-3.2-1B-Instruct`,
+`mistralai/Mistral-7B-Instruct-v0.3`, `Qwen/Qwen3-0.6B`, …). The Apple-Silicon
+default (MLX) cannot reliably load every non-Qwen instruct family, so HF — which
+loads any HF causal-LM on CPU/MPS/CUDA — is the robust cross-model path.
+Cloud-API names (`claude`/`gpt`/`gemini`) auto-detect their backend instead
+(`is_cloud_api_name`). The reasoning vs non-reasoning split is automatic: the
+skip-thinking prefix and the `<think>` markers are no-ops for Llama/Gemma/Mistral
+(they have no scratch-pad), so `choose3` and the parse work unchanged.
+
 ## Public API
 
 | Symbol | Purpose |

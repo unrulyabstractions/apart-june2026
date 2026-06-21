@@ -4,12 +4,18 @@ Run-by-path driver for the SESGO GEOMETRY half. For every prompt it (1) runs the
 normal SesgoQuerier readout (non-thinking 3-way + thinking draws) and (2) follows
 the model's GREEDY NON-THINKING answer path (greedy decode past an empty
 <think></think> block) and snapshots the FULL per-layer residual stream
-([n_layers, d_model]) at four structural token positions:
+([n_layers, d_model]) at up to four MODEL-AWARE structural token positions:
 
-    turn         - the last <|im_start|> (the assistant turn boundary)
-    think_open   - the <think> token of the skip-thinking prefix
-    think_close  - the </think> token
+    turn         - the last assistant-turn marker (family-specific: Qwen
+                   <|im_start|>, Llama <|start_header_id|>, Gemma
+                   <start_of_turn>, Mistral [/INST])
+    think_open   - the <think> token of the skip-thinking prefix (reasoning
+                   models only; absent for Llama/Gemma/Mistral)
+    think_close  - the </think> token (reasoning models only)
     answer       - the first greedily-generated answer token
+
+For non-reasoning families the think_* positions simply don't exist, so each
+sample captures turn + answer; reasoning models additionally capture think_*.
 
 Each snapshot is torch.save'd under out/sesgo/geometry/<MODEL>/activations/ and
 referenced (by relative path only) from a GeometrySample, so the samples.json
@@ -88,9 +94,11 @@ def load_prompt_dataset(path: Path, subsample: float) -> SesgoPromptDataset:
 def _single_token_id(runner: TernaryChoiceRunner, text: str) -> int | None:
     """Token id for ``text`` iff it encodes to exactly one (special) token.
 
-    Special markers like <|im_start|> / <think> are single tokens in the Qwen
-    vocab; we encode WITHOUT special tokens so we read the literal id and can
-    search for it in the forced sequence. Returns None when it isn't single.
+    Each family's assistant-turn / think markers (<|im_start|>,
+    <|start_header_id|>, <start_of_turn>, [/INST], <think>, ...) are single
+    tokens in their own vocab; we encode WITHOUT special tokens so we read the
+    literal id and can search for it in the forced sequence. Returns None when
+    it isn't single (so an unexpected multi-token marker is skipped, not split).
     """
     ids = runner.encode_ids(text, add_special_tokens=False)
     return ids[0] if len(ids) == 1 else None
@@ -133,29 +141,44 @@ def _last_index(ids: list[int], target: int | None) -> int | None:
     return None
 
 
+def _marker_position(runner: TernaryChoiceRunner, ids: list[int], marker: str) -> int | None:
+    """Last index of the single-token ``marker`` in ``ids`` (None if absent/multi).
+
+    Empty markers (non-reasoning families have no think scratch-pad) resolve to
+    None so the caller simply skips that structural position.
+    """
+    if not marker:
+        return None
+    return _last_index(ids, _single_token_id(runner, marker))
+
+
 def find_positions(
     runner: TernaryChoiceRunner, ids: list[int], answer_start: int
 ) -> dict[str, int]:
-    """Locate the four structural token positions in the forced id sequence.
+    """Locate the structural token positions in the forced id sequence.
 
-    Resolves each special marker to its (single) token id and searches ``ids``:
-    the assistant turn is the LAST <|im_start|>; think_open/close are the
-    <think>/</think> tokens. The answer marker is appended LAST, so its first
-    token sits at ``answer_start`` (the length of the prompt+prefix prefix); we
-    use that index directly rather than re-tokenizing the marker, which would
-    miss leading-space BPE merges (" a" != "a"). Missing positions are omitted
-    so the caller can log + skip them.
+    The markers are MODEL-AWARE: each instruct family delimits the assistant
+    turn with its own single special token (Qwen `<|im_start|>`, Llama
+    `<|start_header_id|>`, Gemma `<start_of_turn>`, Mistral `[/INST]`), and only
+    reasoning families carry the <think>/</think> scratch-pad. We ask the runner
+    for its family's markers (``runner.structural_markers``) and search ``ids``:
+    the assistant turn is the LAST turn marker; think_open/close are present only
+    for reasoning models. The answer marker is appended LAST, so its first token
+    sits at ``answer_start`` (the prompt+prefix length); we use that index
+    directly rather than re-tokenizing, which would miss leading-space BPE merges
+    (" a" != "a"). Missing positions are omitted so the caller can log + skip.
     """
+    markers = runner.structural_markers
     found: dict[str, int] = {}
 
-    turn = _last_index(ids, _single_token_id(runner, "<|im_start|>"))
+    turn = _marker_position(runner, ids, markers.turn_marker)
     if turn is not None:
         found["turn"] = turn
 
-    open_i = _last_index(ids, _single_token_id(runner, "<think>"))
+    open_i = _marker_position(runner, ids, markers.think_open)
     if open_i is not None:
         found["think_open"] = open_i
-    close_i = _last_index(ids, _single_token_id(runner, "</think>"))
+    close_i = _marker_position(runner, ids, markers.think_close)
     if close_i is not None:
         found["think_close"] = close_i
 
