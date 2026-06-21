@@ -109,4 +109,8 @@ class SesgoPromptDatasetGenerator:
             position_labels=tuple(roles),
             choice_prefix=prefix,
             gold_label=item.gold_label,
+            bbq=item.bbq,
+            # answer_info convention: ans1=TARGET group, ans0=OTHER group.
+            target_identity=item.target_text,
+            other_identity=item.other_text,
         )

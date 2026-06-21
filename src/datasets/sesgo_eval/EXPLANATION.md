@@ -16,8 +16,9 @@ Each `SesgoPromptSample` already carries everything needed to decode a reply:
 `text`, `option_labels` (the 3 position markers), `position_labels` (position i →
 the role shown there), `choice_prefix`, `gold_label` (= UNKNOWN), plus the
 color-by axes (`question_id`, `bias_category`, `question_polarity`, `language`,
-`scaffold_id`, `label_style`, `sample_idx`). The querier never re-derives any of
-this.
+`scaffold_id`, `label_style`, `sample_idx`, `bbq` origin, `target_identity`,
+`other_identity`). The querier copies all of them onto `SesgoSample` and never
+re-derives any of this.
 
 ## The core remap: positions → meanings
 

@@ -33,6 +33,12 @@ class SesgoPromptSample(BaseSchema):
     position_labels: tuple[SesgoLabel, SesgoLabel, SesgoLabel]  # pos i -> role shown
     choice_prefix: str
     gold_label: SesgoLabel = SesgoLabel.UNKNOWN
+    # Provenance / social-group axes carried so any downstream record can colour
+    # by them without re-joining the source item. bbq: original vs BBQ-adapted;
+    # target_identity (ans1) / other_identity (ans0) are the literal group strings.
+    bbq: bool = False
+    target_identity: str = ""
+    other_identity: str = ""
 
     @property
     def gold_position(self) -> int:

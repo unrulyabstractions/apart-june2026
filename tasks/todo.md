@@ -76,3 +76,41 @@ Turn token verified per family: `<|start_header_id|>` (Llama),
   faithful capture, just a model-specific quirk worth noting downstream.
 - A pre-existing verbose debug print lives in `choice_utils.py`
   (`encode_into_trajectory_ids`); not in scope, left untouched.
+
+---
+
+# Workstream: thread ALL per-sample labels + funnel geometry viz through every axis
+
+## Feature 1 — thread every per-sample label to records the viz reads
+- [ ] Add `origin_label` helper + `target_text`/`other_text` access on SesgoItem (bbq already present).
+- [ ] Add fields to SesgoPromptSample: bbq, target_identity, other_identity, label_style(present), gold_label(present), scaffold_id(present). Set in sesgo_prompt_generator from item.
+- [ ] Add fields to SesgoSample: bbq, target_identity, other_identity. Set in sesgo_querier.query_sample from prompt sample (MINIMAL/LOCALIZED — worktree edits this file).
+- [ ] Add fields to GeometrySample: bbq, target_identity, other_identity, label_style. Set in collect_geometry_samples (MINIMAL — worktree edits this file).
+- [ ] origin label helper: False->"original", True->"BBQ-adapted".
+
+## Feature 2 — geometry viz funnels representation through ALL axes
+- [ ] analyze_geometry: carry every per-sample label into projections.json rows + per-axis silhouette/separation for every axis (incl high-cardinality target/other identity).
+- [ ] visualize_geometry_samples: PCA scatter colored by EACH axis (scaffold, origin, language, bias_category, question_polarity, target_identity, other_identity, gold_label, label_style). One file per axis `pca_by_<axis>.png` at representative layer + answer position; cap high-cardinality at top-K + "other".
+- [ ] Keep centroid-shift + explained-variance plots.
+
+## Verify (MANDATORY visual)
+- [ ] Regenerate prompts, re-collect geometry (subsample 0.006) + baseline (0.02), re-analyze, re-viz.
+- [ ] READ every new PNG as an image; confirm legends legible for every axis. Iterate.
+- [ ] py_compile all changed files.
+
+## Review (this workstream) — DONE
+- Feature 1: bbq + target_identity + other_identity now on SesgoPromptSample (set in
+  sesgo_prompt_generator from item), SesgoSample (set in sesgo_querier query_sample),
+  and GeometrySample (+label_style; set in collect_geometry_samples). origin_label
+  helper added to sesgo_item.py (False->"original", True->"BBQ-adapted").
+- Feature 2: analyze_geometry now carries ALL per-sample axes into projections.json
+  rows + per-axis silhouette/separation for all 8 non-scaffold axes. viz renders
+  pca_by_<axis>.png for 9 axes + pca_axes_grid.png; high-cardinality identity axes
+  capped at top-8 + (other) with caption; per-group centroid anchoring keeps minority
+  groups in-frame. Centroid-shift + EV plots kept.
+- Verified visually: read pca_axes_grid, pca_by_{scaffold_id,origin,language,
+  bias_category,question_polarity,target_identity,other_identity,gold_label}.png —
+  every legend legible; fixed language panel that was clipping the en group off-view.
+- Worktree-shared files (sesgo_querier.py, collect_geometry_samples.py) touched with
+  minimal, localized additive edits only.
+- All changed .py files py_compile OK. Docs updated (sesgo + sesgo_eval + prompt).

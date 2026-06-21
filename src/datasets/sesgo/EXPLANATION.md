@@ -39,6 +39,11 @@ role encoding**: `ans0` = OTHER, `ans1` = TARGET, `ans2` = UNKNOWN. We unpack
 these into `other_text` / `target_text` / `unknown_text` once, at load time, so
 no downstream code re-derives roles from positions. `options_in_canonical_order`
 re-emits them in the original ans0/ans1/ans2 order as role-tagged pairs.
+`target_text` (ans1) and `other_text` (ans0) are the literal social-group
+strings threaded onto every downstream sample as `target_identity` /
+`other_identity`. The `bbq` flag records provenance; `origin_label(bbq)` (module
+helper, also exposed as the `SesgoItem.origin_label` property) maps it to the
+human axis value `False` → "original", `True` → "BBQ-adapted".
 
 ## question_id and polarity pairing
 

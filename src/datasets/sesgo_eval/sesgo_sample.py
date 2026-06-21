@@ -33,6 +33,11 @@ class SesgoSample(BaseSchema):
     label_style: str
     gold_label: SesgoLabel
     prompt_text: str
+    # Provenance / social-group axes threaded from the prompt sample so analyses
+    # can slice by origin (original vs BBQ-adapted) and the literal group strings.
+    bbq: bool = False
+    target_identity: str = ""
+    other_identity: str = ""
     non_thinking: SesgoNonThinking | None = None
     thinking: SesgoThinking | None = None
     # Heavy/private: raw generations are excluded from identity and to_dict.

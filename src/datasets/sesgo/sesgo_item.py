@@ -9,6 +9,15 @@ from .sesgo_category import SesgoCategory
 from .sesgo_label import SesgoLabel
 
 
+def origin_label(bbq: bool) -> str:
+    """Map the ``bbq`` provenance flag to a human axis value.
+
+    A single source of truth so every sample type and the geometry viz agree on
+    the spelling: ``False`` -> "original", ``True`` -> "BBQ-adapted".
+    """
+    return "BBQ-adapted" if bbq else "original"
+
+
 @dataclass
 class SesgoItem(BaseSchema):
     """One SESGO ambiguous prompt with its three role-labelled answer options.
@@ -30,6 +39,11 @@ class SesgoItem(BaseSchema):
     unknown_text: str
     bbq: bool = False
     gold_label: SesgoLabel = SesgoLabel.UNKNOWN
+
+    @property
+    def origin_label(self) -> str:
+        """Provenance of the item: "BBQ-adapted" when ``bbq`` else "original"."""
+        return origin_label(self.bbq)
 
     @property
     def options_in_canonical_order(self) -> tuple[tuple[SesgoLabel, str], ...]:

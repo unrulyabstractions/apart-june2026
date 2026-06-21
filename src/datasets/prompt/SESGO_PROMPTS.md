@@ -77,6 +77,9 @@ force one cue across both languages.
 | `position_labels` | Role shown at each position — the decode map. |
 | `choice_prefix` | Language-localized answer cue (`"Answer: "` / `"Respuesta: "`); teacher-forced verbatim by the non-thinking querier. |
 | `gold_label` | Always `SesgoLabel.UNKNOWN`. |
+| `bbq` | Origin flag: `False` original, `True` BBQ-adapted (see `origin_label`). |
+| `target_identity` | The ans1 (TARGET) social-group string, threaded from the item. |
+| `other_identity` | The ans0 (OTHER) social-group string, threaded from the item. |
 | `gold_position` | Property: index in `position_labels` that is `UNKNOWN`. |
 | `label_for_position(i)` | Method: the role displayed at position `i`. |
 

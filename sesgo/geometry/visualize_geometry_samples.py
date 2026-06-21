@@ -10,6 +10,12 @@ Run-by-path driver. Renders into out/sesgo/geometry/<MODEL>/plots/:
       * pca_scatter_<position>.png : PC1-PC2 scatter at a representative layer,
         points coloured by scaffold ((baseline) vs interpretive_direction),
         per-class centroids marked, and an arrow drawn for the centroid SHIFT.
+      * pca_by_<axis>.png : the SAME PCA projection (answer position, representative
+        layer) recoloured by EVERY per-sample axis — scaffold, origin, language,
+        bias_category, question_polarity, target_identity, other_identity,
+        gold_label, label_style — each with a compact legend. High-cardinality
+        identity axes are capped at the top-K values + an "(other)" bucket.
+      * pca_axes_grid.png : all those axis panels in one small-multiples grid.
       * centroid_shift_by_position.png : centroid-shift magnitude across every
         (layer, position) cell.
       * explained_variance.png : EV%(PC1..3) context per position.
@@ -30,7 +36,7 @@ import argparse
 import pathlib
 import sys
 import textwrap
-from collections import defaultdict
+from collections import Counter, defaultdict
 from pathlib import Path
 
 import matplotlib
@@ -49,8 +55,34 @@ from src.datasets.sesgo_eval import GeometryDataset  # noqa: E402
 _BASELINE = "(baseline)"
 _SCATTER_LAYER = "mean"  # representative layer for the PCA scatter panels
 _POSITIONS = ("turn", "think_open", "think_close", "answer")
-# Colourblind-safe (Okabe-Ito): blue baseline, vermillion intervention, grey rest.
+# The structural position whose PCA panel the per-axis scatters colour. "answer"
+# is the most behaviourally meaningful (the residual over the chosen token).
+_AXIS_PANEL_POSITION = "answer"
+# Every per-sample axis we render a coloured PCA panel for, in display order. The
+# pretty names are the panel titles / filename stems.
+_AXES: tuple[tuple[str, str], ...] = (
+    ("scaffold_id", "scaffold"),
+    ("origin", "origin (BBQ-adapted vs original)"),
+    ("language", "language"),
+    ("bias_category", "bias category"),
+    ("question_polarity", "question polarity"),
+    ("target_identity", "target identity"),
+    ("other_identity", "other identity"),
+    ("gold_label", "gold label"),
+    ("label_style", "label style"),
+)
+# High-cardinality axes: cap the legend at the top-K most frequent values, fold
+# the rest into a single "(other)" bucket so the legend stays legible.
+_TOP_K = 8
+_OTHER_BUCKET = "(other)"
+# Colourblind-safe (Okabe-Ito) extended for higher-cardinality axes; first entry
+# anchors the scaffold baseline, last is reserved for the "(other)" bucket.
 _PALETTE = ("#0072B2", "#D55E00", "#009E73", "#CC79A7", "#E69F00", "#56B4E9")
+_AXIS_PALETTE = (
+    "#0072B2", "#D55E00", "#009E73", "#CC79A7", "#E69F00",
+    "#56B4E9", "#F0E442", "#999999", "#7E2F8E", "#4DBEEE",
+)
+_OTHER_COLOUR = "#bbbbbb"  # neutral grey for the folded-in "(other)" bucket
 _SAVE = dict(dpi=150, bbox_inches="tight")  # consistent crisp export
 
 
@@ -290,6 +322,145 @@ def plot_pca_scatter(block: dict, ptype: str, model: str, out_path: Path) -> Pat
     return _finish(fig, out_path)
 
 
+# ── Per-axis PCA scatters (colour the SAME projection by every label) ─────────
+
+
+def _axis_value(sample: dict, axis: str) -> str:
+    """Read one per-sample axis as a display string (scaffold None -> baseline)."""
+    if axis == "scaffold_id":
+        return sample.get("scaffold_id") or _BASELINE
+    return str(sample.get(axis, "(missing)"))
+
+
+def _legend_order(values: list[str]) -> list[str]:
+    """Most-frequent-first ordering, capped at top-K + an "(other)" bucket.
+
+    High-cardinality identity axes can have many distinct group strings; folding
+    the long tail into "(other)" keeps the legend legible. The baseline scaffold
+    label, when present, is pinned first for a stable reading.
+    """
+    counts = Counter(values)
+    ranked = [v for v, _ in counts.most_common()]
+    if _BASELINE in ranked:  # pin the scaffold baseline first
+        ranked = [_BASELINE] + [v for v in ranked if v != _BASELINE]
+    if len(ranked) <= _TOP_K:
+        return ranked
+    return ranked[:_TOP_K] + [_OTHER_BUCKET]
+
+
+def _axis_colour(label: str, ordered: list[str]) -> str:
+    """Stable colour per axis value; the folded "(other)" bucket is neutral grey."""
+    if label == _OTHER_BUCKET:
+        return _OTHER_COLOUR
+    return _AXIS_PALETTE[ordered.index(label) % len(_AXIS_PALETTE)]
+
+
+def _bucket(label: str, kept: set[str]) -> str:
+    """Map a raw value to its legend bucket (itself, or "(other)" if folded)."""
+    return label if label in kept else _OTHER_BUCKET
+
+
+def _draw_axis_scatter(ax, coords: np.ndarray, values: list[str], evr: list[float]) -> int:
+    """Scatter the PCA cloud coloured by one axis; return the off-view count.
+
+    Shared by the standalone per-axis figures and the small-multiples grid so the
+    capping / colouring / framing logic lives in exactly one place.
+    """
+    ordered = _legend_order(values)
+    kept = {v for v in ordered if v != _OTHER_BUCKET}
+    centroids: list[list[float]] = []
+    for lab in ordered:
+        idx = [i for i, v in enumerate(values) if _bucket(v, kept) == lab]
+        if not idx:
+            continue
+        # Anchor each group's centroid so the Tukey-fence framing can never clip
+        # an entire minority group out of view (e.g. the smaller language group).
+        centroids.append(coords[idx].mean(axis=0).tolist())
+        ax.scatter(
+            coords[idx, 0], coords[idx, 1], s=60, alpha=0.8,
+            color=_axis_colour(lab, ordered), edgecolor="white", linewidth=0.5,
+            label=f"{lab} (n={len(idx)})", zorder=4,
+        )
+    xlim, ylim = _robust_limits(coords, np.asarray(centroids, dtype=float))
+    ax.set_xlim(*xlim)
+    ax.set_ylim(*ylim)
+    ax.axhline(0, color="#cccccc", lw=0.8, zorder=1)
+    ax.axvline(0, color="#cccccc", lw=0.8, zorder=1)
+    ax.set_xlabel(f"PC1  ({evr[0]:.0%} EV)")
+    ax.set_ylabel(f"PC2  ({evr[1]:.0%} EV)" if len(evr) > 1 else "PC2")
+    inside = (
+        (coords[:, 0] >= xlim[0]) & (coords[:, 0] <= xlim[1])
+        & (coords[:, 1] >= ylim[0]) & (coords[:, 1] <= ylim[1])
+    )
+    return int((~inside).sum())
+
+
+def _axis_caption(values: list[str]) -> str | None:
+    """Note capping when a high-cardinality axis was folded to top-K + (other)."""
+    n_distinct = len(set(values))
+    if n_distinct <= _TOP_K:
+        return None
+    return f"{n_distinct} distinct values; legend shows top {_TOP_K} + (other)"
+
+
+def plot_pca_by_axis(block: dict, axis: str, pretty: str, model: str, out_path: Path) -> Path:
+    """Standalone PC1-PC2 scatter of the answer projection coloured by one axis."""
+    coords = np.asarray([s["coord2d"] for s in block["samples"]], dtype=float)
+    values = [_axis_value(s, axis) for s in block["samples"]]
+    evr = block["explained_variance_ratio"]
+    sep = block.get("axis_separation", {}).get(axis, {}) if axis != "scaffold_id" else {}
+    sil = (block["scaffold_stats"].get("silhouette") if axis == "scaffold_id"
+           else sep.get("silhouette"))
+
+    fig, ax = plt.subplots(figsize=(8, 6.5))
+    n_off = _draw_axis_scatter(ax, coords, values, evr)
+    if n_off:
+        ax.text(0.99, 0.01, f"{n_off} outlier point(s) off-view",
+                transform=ax.transAxes, ha="right", va="bottom", fontsize=8,
+                color="#777777", style="italic")
+    subtitle = f"@ {_AXIS_PANEL_POSITION}, layer={_SCATTER_LAYER}, n={block['n_samples']}"
+    if sil is not None:
+        subtitle += f", silhouette={sil:.2f}"
+    cap = _axis_caption(values)
+    if cap:
+        subtitle += f"\n{cap}"
+    ax.set_title(
+        _wrapped_title(f"SESGO geometry coloured by {pretty}  ({model})") + f"\n{subtitle}",
+        fontsize=12,
+    )
+    ax.legend(loc="best", frameon=True, framealpha=0.92, fontsize=8, title=pretty,
+              title_fontsize=9)
+    return _finish(fig, out_path)
+
+
+def plot_axes_grid(block: dict, model: str, out_path: Path) -> Path:
+    """Small-multiples grid: the answer projection recoloured by EVERY axis."""
+    coords = np.asarray([s["coord2d"] for s in block["samples"]], dtype=float)
+    evr = block["explained_variance_ratio"]
+    n = len(_AXES)
+    ncols = 3
+    nrows = (n + ncols - 1) // ncols
+    fig, axes = plt.subplots(nrows, ncols, figsize=(5.2 * ncols, 4.6 * nrows))
+    flat = axes.ravel()
+    for ax, (axis, pretty) in zip(flat, _AXES):
+        values = [_axis_value(s, axis) for s in block["samples"]]
+        _draw_axis_scatter(ax, coords, values, evr)
+        cap = _axis_caption(values)
+        ax.set_title(pretty + (f"\n({cap})" if cap else ""), fontsize=10)
+        ax.legend(loc="best", frameon=True, framealpha=0.9, fontsize=6.5,
+                  markerscale=0.8, handletextpad=0.3, borderpad=0.3)
+    for ax in flat[n:]:  # blank any unused grid cells
+        ax.axis("off")
+    fig.suptitle(
+        _wrapped_title(
+            f"SESGO answer-position geometry by every axis  ({model}, "
+            f"layer={_SCATTER_LAYER}, n={block['n_samples']})", 78
+        ),
+        fontsize=13, fontweight="bold",
+    )
+    return _finish(fig, out_path)
+
+
 def plot_centroid_shift_bars(results: dict, model: str, out_path: Path) -> Path:
     """Grouped bars: centroid-shift magnitude per (layer, position) cell."""
     layers = list(results.keys())
@@ -396,8 +567,29 @@ def _behavioral_plots(dataset: GeometryDataset, plots_dir: Path) -> list[Path]:
     return written
 
 
+def _per_axis_plots(cells: dict, model: str, plots_dir: Path) -> list[Path]:
+    """Recolour the answer-position PCA projection by EVERY per-sample axis.
+
+    One ``pca_by_<axis>.png`` per axis plus a single small-multiples grid; all
+    share the same projection so the cloud is identical and only the colouring
+    changes. Falls back to any present position if "answer" is missing.
+    """
+    panel = cells.get(_AXIS_PANEL_POSITION) or next(
+        (cells[p] for p in _POSITIONS if p in cells), None
+    )
+    if panel is None:
+        log("[viz] no projection cell available; skipping per-axis panels")
+        return []
+    written = [
+        plot_pca_by_axis(panel, axis, pretty, model, plots_dir / f"pca_by_{axis}.png")
+        for axis, pretty in _AXES
+    ]
+    written.append(plot_axes_grid(panel, model, plots_dir / "pca_axes_grid.png"))
+    return written
+
+
 def _geometry_plots(results: dict, model: str, plots_dir: Path) -> list[Path]:
-    """Render the PCA scatters, centroid-shift bars, and EV% context."""
+    """Render the PCA scatters, per-axis panels, centroid-shift bars, EV% context."""
     written: list[Path] = []
     scatter_layer = _SCATTER_LAYER if _SCATTER_LAYER in results else next(iter(results))
     cells = results[scatter_layer]
@@ -409,6 +601,7 @@ def _geometry_plots(results: dict, model: str, plots_dir: Path) -> list[Path]:
         written.append(
             plot_pca_scatter(block, ptype, model, plots_dir / f"pca_scatter_{ptype}.png")
         )
+    written += _per_axis_plots(cells, model, plots_dir)
     written.append(
         plot_centroid_shift_bars(results, model, plots_dir / "centroid_shift_by_position.png")
     )

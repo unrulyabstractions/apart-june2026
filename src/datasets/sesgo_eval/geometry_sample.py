@@ -31,6 +31,12 @@ class GeometrySample(BaseSchema):
     language: str
     gold_label: SesgoLabel
     prompt_text: str
+    # Every per-sample colour-by axis the geometry viz funnels the representation
+    # through: label_style + provenance (bbq) + the literal social-group strings.
+    label_style: str = ""
+    bbq: bool = False
+    target_identity: str = ""
+    other_identity: str = ""
     non_thinking: SesgoNonThinking | None = None
     thinking: SesgoThinking | None = None
     activations: list[GeometryActivation] = field(default_factory=list)

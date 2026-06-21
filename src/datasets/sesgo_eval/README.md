@@ -44,7 +44,11 @@ result is invariant to ordering, which is exactly what defeats position bias.
 
 Every axis is a flat field for slicing without a re-join: `sample_idx`,
 `question_id`, `scaffold_id`, `question_polarity`, `bias_category`, `language`,
-`label_style`, `gold_label`.
+`label_style`, `gold_label`, plus the provenance / social-group axes `bbq`
+(origin: `False` original vs `True` BBQ-adapted), `target_identity` (the ans1
+group string) and `other_identity` (the ans0 group string). `GeometrySample`
+carries the same set so the geometry viz can colour the projection by any of
+them.
 
 ## Per-option non-thinking vectors (`SesgoNonThinking`)
 

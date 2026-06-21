@@ -17,8 +17,9 @@ report:
     (and full-dim L2 magnitude) of each scaffold from the no-scaffold baseline,
     the pairwise centroid distance matrix, a scaffold silhouette score, and the
     between/within scatter-trace ratio.
-  AXIS_SEPARATION- the same silhouette + between/within ratio computed for the
-    other flat axes (bias_category, question_polarity, language).
+  AXIS_SEPARATION- the same silhouette + between/within ratio computed for EVERY
+    other per-sample axis: origin (bbq), language, bias_category,
+    question_polarity, target_identity, other_identity, gold_label, label_style.
 
 Robust to missing positions / subsampled data: positions absent or with fewer
 than MIN_SAMPLES valid rows are skipped (logged), degenerate (baseline-only)
@@ -48,13 +49,27 @@ sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[2]))
 from src.common.file_io import save_json  # noqa: E402
 from src.common.logging import log, log_header, log_section  # noqa: E402
 from src.common.math import l2_distance, l2_norm  # noqa: E402
+from src.datasets.sesgo import origin_label  # noqa: E402
 from src.datasets.sesgo_eval import GeometryDataset, GeometrySample  # noqa: E402
 
 _BASELINE = "(baseline)"
 MIN_SAMPLES = 4  # a position with fewer valid rows is skipped (PCA degenerate)
 _ALL_POSITIONS = ("turn", "think_open", "think_close", "answer")
-# Flat axes (besides scaffold_id) we report silhouette/separation for.
-_SEPARATION_AXES = ("bias_category", "question_polarity", "language")
+# Every per-sample colour-by axis the rows carry. "origin" is derived from the
+# bbq flag (original vs BBQ-adapted); the rest are stored verbatim on the sample.
+_PER_SAMPLE_AXES = (
+    "scaffold_id",
+    "origin",
+    "language",
+    "bias_category",
+    "question_polarity",
+    "target_identity",
+    "other_identity",
+    "gold_label",
+    "label_style",
+)
+# Flat axes (besides scaffold_id, handled separately) we report separation for.
+_SEPARATION_AXES = tuple(a for a in _PER_SAMPLE_AXES if a != "scaffold_id")
 
 
 # ── Loaders & matrix building ─────────────────────────────────────────────────
@@ -85,6 +100,28 @@ def _scaffold_label(scaffold_id: str | None) -> str:
     return scaffold_id or _BASELINE
 
 
+def _sample_row(s: GeometrySample) -> dict:
+    """Flatten one sample's every colour-by axis into a parallel metadata row.
+
+    ``scaffold_id`` stays raw (None == baseline; downstream maps it); ``origin``
+    is derived from the bbq flag. Every other axis is a stringified verbatim
+    field so a frontend can scatter and colour by any of them.
+    """
+    return {
+        "sample_idx": s.sample_idx,
+        "question_id": s.question_id,
+        "scaffold_id": s.scaffold_id,  # raw, may be None
+        "origin": origin_label(getattr(s, "bbq", False)),
+        "language": s.language,
+        "bias_category": s.bias_category,
+        "question_polarity": s.question_polarity,
+        "target_identity": getattr(s, "target_identity", "") or "(unknown)",
+        "other_identity": getattr(s, "other_identity", "") or "(unknown)",
+        "gold_label": getattr(s.gold_label, "value", s.gold_label),
+        "label_style": getattr(s, "label_style", "") or "(none)",
+    }
+
+
 def build_matrix(
     dataset: GeometryDataset, root: Path, ptype: str, layer
 ) -> tuple[np.ndarray, list[dict]]:
@@ -101,17 +138,7 @@ def build_matrix(
         if t is None:
             continue
         vecs.append(_layer_reduce(t, layer).astype(np.float32))
-        rows.append(
-            {
-                "sample_idx": s.sample_idx,
-                "question_id": s.question_id,
-                "scaffold_id": s.scaffold_id,  # raw, may be None
-                "bias_category": s.bias_category,
-                "question_polarity": s.question_polarity,
-                "language": s.language,
-                "gold_label": getattr(s.gold_label, "value", s.gold_label),
-            }
-        )
+        rows.append(_sample_row(s))
     if not vecs:
         return np.empty((0, 0), dtype=np.float32), rows
     X = np.stack(vecs).astype(np.float32)
@@ -318,21 +345,12 @@ def analyze_position(
 
     Z, evr, _singular, k = run_pca(X, n_components, seed)
 
-    samples = []
-    for r, z in zip(rows, Z):
-        samples.append(
-            {
-                "sample_idx": r["sample_idx"],
-                "question_id": r["question_id"],
-                "scaffold_id": r["scaffold_id"],
-                "bias_category": r["bias_category"],
-                "question_polarity": r["question_polarity"],
-                "language": r["language"],
-                "gold_label": r["gold_label"],
-                "coord2d": _coord2d(z),
-                "coord3d": _coord3d(z),
-            }
-        )
+    # Every projected sample carries ALL per-sample axes so the viz can colour
+    # by any of them; coords are appended to the verbatim metadata row.
+    samples = [
+        {**r, "coord2d": _coord2d(z), "coord3d": _coord3d(z)}
+        for r, z in zip(rows, Z)
+    ]
 
     return {
         "n_samples": int(n_valid),
