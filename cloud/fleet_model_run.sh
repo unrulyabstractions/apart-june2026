@@ -55,6 +55,10 @@ ITEMS_ARG=""
 # scaffolds}) that the baseline_full study below consumes. Exported so the
 # generator subprocess inherits it.
 export GENERATE_ALL_DATA="${GENERATE_ALL_DATA:-}"
+# HF_FORWARD_MICRO_BATCH: cap on sequences per teacher-forced forward pass so a wide
+# batch of long (scaffolded) prompts never OOMs the GPU. Exported so the on-box
+# collect subprocess (model_runner) inherits it. UNSET == one pass (no-op).
+export HF_FORWARD_MICRO_BATCH="${HF_FORWARD_MICRO_BATCH:-}"
 
 echo "[fleet_model_run] model=$MODEL shard=$SHARD_INDEX/$SHARD_COUNT studies='$STUDIES' batch=$BATCH_SIZE subsample='${SUBSAMPLE:-full}' items='${ITEMS:-full}' all_data='${GENERATE_ALL_DATA:-off}'"
 

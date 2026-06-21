@@ -22,6 +22,23 @@ from .generated_trajectory import (
 from .batched_padding_helpers import left_pad_batch, unpad_row
 
 
+def _forward_micro_batch_size() -> int:
+    """Teacher-forced forward micro-batch cap from ``HF_FORWARD_MICRO_BATCH``.
+
+    The teacher-forced forward materializes the full vocab logits for every
+    sequence at once, so a wide batch of long prompts can OOM a small GPU. Setting
+    ``HF_FORWARD_MICRO_BATCH`` to a positive integer caps how many sequences go
+    through each forward pass (bigger = more throughput until OOM); the public
+    ``compute_trajectories_batch`` chunks the logical batch accordingly. Unset (or
+    non-positive) returns a very large cap, i.e. ONE pass — the original behavior,
+    so existing callers are unchanged.
+    """
+    raw = os.environ.get("HF_FORWARD_MICRO_BATCH", "")
+    if raw.strip().isdigit() and int(raw) >= 1:
+        return int(raw)
+    return 1 << 30  # effectively unbounded: one forward pass over the whole batch
+
+
 # Claude model aliases → full model IDs
 # Latest models default to their API aliases (no date suffix needed)
 CLAUDE_MODEL_ALIASES: dict[str, str] = {
@@ -601,12 +618,21 @@ class ModelRunner:
         self,
         token_ids_batch: list[list[int]],
     ) -> list[GeneratedTrajectory]:
-        """Teacher-forced logprobs/logits for a batch in ONE forward pass.
+        """Teacher-forced logprobs/logits for a batch of sequences.
 
         Left-pads the ragged batch and passes the attention mask so pad tokens
         never leak into attention; each sample's real logits are then sliced back
         out at its left-pad offset, giving per-sample trajectories identical to
         the single-sample path within fp tolerance.
+
+        The forward pass materializes the full vocab logits for EVERY sequence at
+        once, so a large logical batch of long prompts can OOM a small GPU (a
+        24 GB 4090 cannot hold a 64-wide teacher-forced batch of scaffolded SESGO
+        prompts). When ``HF_FORWARD_MICRO_BATCH`` is set, the batch is processed in
+        fixed-size, independently-padded micro-batches and the trajectories are
+        concatenated — bit-identical to the unchunked path (each micro-batch is
+        left-padded on its own), just memory-bounded. Unset == one pass (the
+        original behavior), so existing callers are unchanged.
         """
         if self.is_cloud_api:
             raise NotImplementedError(
@@ -618,6 +644,22 @@ class ModelRunner:
         if not token_ids_batch:
             return []
 
+        step = _forward_micro_batch_size()
+        if step >= len(token_ids_batch):
+            return self._trajectories_for_micro_batch(token_ids_batch)
+        # Memory-bounded path: forward each micro-batch on its own, concatenate.
+        trajs: list[GeneratedTrajectory] = []
+        for start in range(0, len(token_ids_batch), step):
+            trajs.extend(
+                self._trajectories_for_micro_batch(token_ids_batch[start : start + step])
+            )
+        return trajs
+
+    def _trajectories_for_micro_batch(
+        self,
+        token_ids_batch: list[list[int]],
+    ) -> list[GeneratedTrajectory]:
+        """One teacher-forced forward over a (sub-)batch; slice per-sample logits."""
         # A single sequence needs no padding/mask — keep the exact original path.
         if len(token_ids_batch) == 1:
             input_ids = torch.tensor([token_ids_batch[0]], device=self.device)
