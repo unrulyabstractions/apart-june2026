@@ -1,11 +1,30 @@
 """Shared residual-geometry capture primitives (single-sample + batched paths).
 
-Locating structural token positions and snapshotting the per-layer residual
-stream is identical whether one prompt or a chunk is processed; both the
-single-sample driver and the batched driver import these so the captured geometry
-is byte-identical across paths. Markers are MODEL-AWARE via
-``runner.structural_markers`` (Qwen <|im_start|>/<think>, Llama
-<|start_header_id|>, Gemma <start_of_turn>, Mistral [/INST]).
+Snapshotting the residual stream at the structural token positions is identical
+whether one prompt or a chunk is processed; both the single-sample driver and the
+batched driver import these so the captured geometry is byte-identical across
+paths. Locating the positions themselves lives in ``geometry_position_finder``.
+
+POSITIONS captured (fine-grained chat-template boundary, in sequence order):
+
+    im_end        - the special token CLOSING the previous (user) turn
+                    (Qwen <|im_end|>, Llama <|eot_id|>, Gemma <end_of_turn>)
+    newline       - the literal "\\n" token right after the assistant opener
+    im_start      - the assistant-turn opener (Qwen <|im_start|>, Llama
+                    <|start_header_id|>, Gemma <start_of_turn>, Mistral [/INST])
+    assistant     - the role word the template emits ("assistant"/"model")
+    think_open    - the <think> token (reasoning models only)
+    think_close   - the </think> token (reasoning models only)
+    answer_prefix - the token JUST BEFORE the emitted answer (end of the forced
+                    "Answer: " prefix; i.e. answer_start - 1)
+    label         - the first GENERATED answer-label token (answer_start)
+
+Markers a family lacks (think_* for non-reasoning models, im_end/assistant for
+Mistral) are simply omitted so the caller can log + skip them.
+
+For each located position we save the residual stream PER LAYER as a separate
+.pt tensor (keyed by both position AND layer), so downstream can differentiate
+every captured layer (middle->last) rather than only a layer mean.
 """
 
 from __future__ import annotations
@@ -17,20 +36,25 @@ import torch
 from src.datasets.prompt import SesgoPromptSample
 from src.datasets.sesgo_eval import GeometryActivation
 from src.ternary_choice import TernaryChoiceRunner
+from .geometry_position_finder import answer_start_for, find_positions
 
-# Structural positions we look for, in capture order. think_* exist only for
-# reasoning models (skip-thinking prefix); missing ones are logged and skipped.
-_POSITION_TYPES = ("turn", "think_open", "think_close", "answer")
+# Structural positions we look for, in capture (sequence) order. think_* exist
+# only for reasoning models; im_end/assistant only for families whose template
+# emits them. Missing ones are logged and skipped.
+_POSITION_TYPES = (
+    "im_end",
+    "newline",
+    "im_start",
+    "assistant",
+    "think_open",
+    "think_close",
+    "answer_prefix",
+    "label",
+)
 
 # Tokens to greedily decode for the non-thinking answer path. We only need the
 # answer token (the first generated token); a few extra give a stable sequence.
 _GREEDY_TOKENS = 24
-
-
-def _single_token_id(runner: TernaryChoiceRunner, text: str) -> int | None:
-    """Token id for ``text`` iff it encodes to exactly one (special) token."""
-    ids = runner.encode_ids(text, add_special_tokens=False)
-    return ids[0] if len(ids) == 1 else None
 
 
 def _resid_filter(layers: list[int] | None):
@@ -46,71 +70,11 @@ def _resid_filter(layers: list[int] | None):
     return keep
 
 
-def _stack_resid(cache: dict, layers: list[int], pos: int) -> torch.Tensor:
-    """Stack the residual vector at token ``pos`` across layers -> [n_layers, d_model]."""
-    vecs = []
-    for layer in layers:
-        # cache tensors are [batch, seq, d_model]; batch is always 1 here.
-        act = cache[f"blocks.{layer}.hook_resid_post"]
-        vecs.append(act[0, pos].detach().float().cpu())
-    return torch.stack(vecs, dim=0)
-
-
-def _last_index(ids: list[int], target: int | None) -> int | None:
-    """Index of the LAST occurrence of ``target`` in ``ids`` (None if absent)."""
-    if target is None:
-        return None
-    for i in range(len(ids) - 1, -1, -1):
-        if ids[i] == target:
-            return i
-    return None
-
-
-def _marker_position(runner: TernaryChoiceRunner, ids: list[int], marker: str) -> int | None:
-    """Last index of the single-token ``marker`` in ``ids`` (None if absent/multi)."""
-    if not marker:
-        return None
-    return _last_index(ids, _single_token_id(runner, marker))
-
-
-def find_positions(
-    runner: TernaryChoiceRunner, ids: list[int], answer_start: int
-) -> dict[str, int]:
-    """Locate the structural token positions in the forced id sequence.
-
-    The assistant turn is the LAST turn marker; think_open/close are present only
-    for reasoning models. The answer marker is appended LAST, so its first token
-    sits at ``answer_start`` (we use that index directly rather than re-tokenizing,
-    which would miss leading-space BPE merges). Missing positions are omitted so
-    the caller can log + skip.
-    """
-    markers = runner.structural_markers
-    found: dict[str, int] = {}
-
-    turn = _marker_position(runner, ids, markers.turn_marker)
-    if turn is not None:
-        found["turn"] = turn
-
-    open_i = _marker_position(runner, ids, markers.think_open)
-    if open_i is not None:
-        found["think_open"] = open_i
-    close_i = _marker_position(runner, ids, markers.think_close)
-    if close_i is not None:
-        found["think_close"] = close_i
-
-    if 0 <= answer_start < len(ids):
-        found["answer"] = answer_start
-    return found
-
-
-def answer_start_for(runner: TernaryChoiceRunner, head: str, forced: str) -> int:
-    """First index where the realized sequence diverges from the prefix-only one."""
-    ids = runner.encode_ids(forced, add_special_tokens=True)
-    head_ids = runner.encode_ids(head, add_special_tokens=True)
-    return next(
-        (i for i in range(min(len(head_ids), len(ids))) if head_ids[i] != ids[i]),
-        len(head_ids),
-    )
+def _layer_resid(cache: dict, layer: int, pos: int) -> torch.Tensor:
+    """Residual vector at token ``pos`` for ONE layer -> [d_model] float32 CPU."""
+    # cache tensors are [batch, seq, d_model]; batch is always 1 here.
+    act = cache[f"blocks.{layer}.hook_resid_post"]
+    return act[0, pos].detach().float().cpu()
 
 
 def save_positions(
@@ -123,23 +87,32 @@ def save_positions(
     sample_dir: Path,
     rel_root: Path,
 ) -> tuple[list[GeometryActivation], list[str]]:
-    """Persist each located structural residual stack; return captures + missing."""
+    """Persist each (position, layer) residual as its OWN tensor; return captures.
+
+    Saving per-(position, LAYER) — not one stacked tensor per position — keys the
+    geometry by layer so downstream can differentiate every captured layer
+    (middle->last) independently. ``layers`` is the middle->last layer subset the
+    caller selected; one .pt of shape [d_model] is written per (position, layer).
+    """
     captured: list[GeometryActivation] = []
     for ptype in _POSITION_TYPES:
         pos = positions.get(ptype)
         if pos is None:
             continue
-        resid = _stack_resid(cache, layers, pos)  # [n_layers, d_model]
-        fname = f"sample_{sample_idx}_{ptype}.pt"
-        torch.save(resid, sample_dir / fname)
-        captured.append(
-            GeometryActivation(
-                position_type=ptype,
-                token_position=pos,
-                token_text=runner.decode_ids([ids[pos]]),
-                path=str((sample_dir / fname).relative_to(rel_root)),
+        token_text = runner.decode_ids([ids[pos]])
+        for layer in layers:
+            resid = _layer_resid(cache, layer, pos)  # [d_model]
+            fname = f"sample_{sample_idx}_{ptype}_L{layer}.pt"
+            torch.save(resid, sample_dir / fname)
+            captured.append(
+                GeometryActivation(
+                    position_type=ptype,
+                    token_position=pos,
+                    token_text=token_text,
+                    path=str((sample_dir / fname).relative_to(rel_root)),
+                    layer=layer,
+                )
             )
-        )
     missing = [p for p in _POSITION_TYPES if p not in positions]
     return captured, missing
 

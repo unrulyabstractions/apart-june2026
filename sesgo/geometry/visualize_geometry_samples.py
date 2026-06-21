@@ -16,14 +16,23 @@ BEHAVIOURAL (read directly from response_samples.json):
 
 GEOMETRY (from analysis/projections.json; run analyze_geometry.py first):
   pca_scatter_<position>.png : PC1-PC2 scatter coloured by scaffold, centroids +
-    baseline->interpretive shift arrow, at every structural position.
-  pca_by_<axis>.png / pca_axes_grid.png : the SAME answer-position projection
-    recoloured by EVERY per-sample axis (scaffold, origin, language, bias category,
-    question polarity, context condition, accuracy, identities, gold, label style).
+    baseline->interpretive shift arrow, at every structural position (at the
+    deepest captured / representative late layer).
+  pca_by_<axis>.png / pca_axes_grid.png : the SAME late-layer answer projection
+    recoloured by EVERY axis in the shared geometry_color_axes registry —
+    CATEGORICAL axes (scaffold, origin, language, bias category, question polarity,
+    context condition, accuracy, selected/gold role, readout, identities, gold,
+    label style) get a discrete legend; CONTINUOUS answer-distribution signals
+    (top-choice prob/logit, entropy, diversity, inverse perplexity) get a
+    sequential colormap + colorbar.
+  silhouette_by_layer_axis.png : (layer x axis) silhouette HEATMAP — at what depth
+    each colour-by axis becomes separable (the per-layer differentiation, visible).
+  silhouette_layer_sweep.png : silhouette-vs-layer line sweep for the KEY axes
+    (accuracy, context_condition, selected_role, scaffold).
   centroid_shift_by_position.png : centroid-shift magnitude per (layer, position)
     with bootstrap 95% CIs.
-  silhouette_separability.png : per-axis silhouette separability with bootstrap CI
-    on the scaffold axis.
+  silhouette_separability.png : per-axis silhouette separability at the
+    representative layer/position, with bootstrap CI on the scaffold axis.
   explained_variance.png : EV%(PC1-3) per structural position.
 
 Usage:
@@ -52,7 +61,18 @@ from src.common.file_io import load_json  # noqa: E402
 from src.common.logging import log, log_header, log_section  # noqa: E402
 from src.datasets.sesgo_eval import GeometryDataset  # noqa: E402
 
+from sesgo.geometry.geometry_color_axes import (  # noqa: E402
+    COLOR_AXES,
+    KEY_SWEEP_AXIS_KEYS,
+    SCAFFOLD_AXIS_KEY,
+)
+from sesgo.geometry.geometry_layer_plot_helpers import (  # noqa: E402
+    draw_continuous_scatter,
+    draw_layer_sweep,
+    draw_silhouette_heatmap,
+)
 from sesgo.geometry.geometry_plot_helpers import (  # noqa: E402
+    AXIS_PALETTE,
     BASELINE,
     PALETTE,
     apply_style,
@@ -65,22 +85,20 @@ from sesgo.geometry.geometry_plot_helpers import (  # noqa: E402
     wrapped,
 )
 
-_SCATTER_LAYER = "mean"  # representative layer for the PCA scatter panels
-_POSITIONS = ("turn", "think_open", "think_close", "answer")
-_AXIS_PANEL_POSITION = "answer"  # the projection the per-axis scatters recolour
-_AXES: tuple[tuple[str, str], ...] = (
-    ("scaffold_id", "scaffold"),
-    ("origin", "origin (BBQ-adapted vs original)"),
-    ("language", "language"),
-    ("bias_category", "bias category"),
-    ("question_polarity", "question polarity"),
-    ("context_condition", "context condition (ambig vs disambig)"),
-    ("accuracy", "accuracy (correct vs incorrect)"),
-    ("target_identity", "target identity"),
-    ("other_identity", "other identity"),
-    ("gold_label", "gold label"),
-    ("label_style", "label style"),
+_POSITIONS = (
+    "im_end",
+    "newline",
+    "im_start",
+    "assistant",
+    "think_open",
+    "think_close",
+    "answer_prefix",
+    "label",
 )
+_AXIS_PANEL_POSITION = "label"  # the projection the per-axis scatters recolour
+# The colour-by axes come straight from the single shared registry (DRY): adding
+# one ColorAxis there makes it appear in every per-axis panel + the grid here.
+_AXES = COLOR_AXES
 
 
 def parse_args() -> argparse.Namespace:
@@ -105,6 +123,21 @@ def _ordered_scaffolds(labels: set[str]) -> list[str]:
     """Scaffold labels with the baseline first, the rest sorted after it."""
     rest = sorted(labels - {BASELINE})
     return ([BASELINE] if BASELINE in labels else []) + rest
+
+
+def _representative_layer(results: dict) -> str:
+    """The deepest captured INTEGER layer (a late-layer view) for the scatters.
+
+    Answer/task representations crystallise late, so the per-axis recolour panels
+    use the deepest captured layer rather than a layer-mean cloud. Falls back to
+    "mean", then the first available layer key, when no integer layer is present.
+    """
+    int_layers = sorted((L for L in results if L.lstrip("-").isdigit()), key=int)
+    if int_layers:
+        return int_layers[-1]
+    if "mean" in results:
+        return "mean"
+    return next(iter(results))
 
 
 # ── PCA scatter (coloured by scaffold, with shift arrow) ──────────────────────
@@ -138,7 +171,7 @@ def _draw_centroid_shift(ax, stats: dict, ordered: list[str]) -> None:
                               alpha=0.85), zorder=7)
 
 
-def plot_pca_scatter(block: dict, ptype: str, model: str, out_path: Path) -> Path:
+def plot_pca_scatter(block: dict, ptype: str, layer: str, model: str, out_path: Path) -> Path:
     """PC1-PC2 scatter coloured by scaffold, with centroids + shift arrow."""
     coords = np.asarray([s["coord2d"] for s in block["samples"]], dtype=float)
     labels = [s["scaffold_id"] or BASELINE for s in block["samples"]]
@@ -174,7 +207,7 @@ def plot_pca_scatter(block: dict, ptype: str, model: str, out_path: Path) -> Pat
     ax.set_ylabel(f"PC2  ({evr[1]:.0%} explained variance)" if len(evr) > 1 else "PC2")
 
     sil = stats.get("silhouette")
-    subtitle = f"layer={_SCATTER_LAYER}, n={block['n_samples']}"
+    subtitle = f"layer={layer}, n={block['n_samples']}"
     if sil is not None:
         lo, hi = stats.get("silhouette_ci_low"), stats.get("silhouette_ci_high")
         subtitle += f", scaffold silhouette={sil:.2f}"
@@ -189,61 +222,92 @@ def plot_pca_scatter(block: dict, ptype: str, model: str, out_path: Path) -> Pat
 # ── Per-axis PCA panels ───────────────────────────────────────────────────────
 
 
-def _axis_value(sample: dict, axis: str) -> str:
-    """Read one per-sample axis as a display string (scaffold None -> baseline)."""
-    if axis == "scaffold_id":
+def _cat_value(sample: dict, key: str) -> str:
+    """Read one CATEGORICAL axis as a display string (scaffold None -> baseline)."""
+    if key == SCAFFOLD_AXIS_KEY:
         return sample.get("scaffold_id") or BASELINE
-    return str(sample.get(axis, "(missing)"))
+    return str(sample.get(key, "(missing)"))
 
 
-def plot_pca_by_axis(block: dict, axis: str, pretty: str, model: str, out_path: Path) -> Path:
+def _cont_value(sample: dict, key: str) -> float:
+    """Read one CONTINUOUS axis scalar (NaN when missing so it greys out)."""
+    v = sample.get(key)
+    return float(v) if isinstance(v, (int, float)) else float("nan")
+
+
+def _axis_silhouette(block: dict, key: str) -> float | None:
+    """The stored silhouette for a categorical axis out of one PCA cell."""
+    if key == SCAFFOLD_AXIS_KEY:
+        return block["scaffold_stats"].get("silhouette")
+    return block.get("axis_separation", {}).get(key, {}).get("silhouette")
+
+
+def _draw_one_axis(ax, block: dict, axis, evr: list[float]):
+    """Draw one cell coloured by ``axis`` (continuous colormap or discrete legend).
+
+    Continuous answer-distribution scalars get a sequential colormap (mappable
+    returned for the colorbar); categorical axes get the discrete-legend scatter.
+    Returns (mappable_or_None, off_view_count).
+    """
+    samples = block["samples"]
+    if axis.continuous:
+        vals = [_cont_value(s, axis.key) for s in samples]
+        coords = np.asarray([s["coord2d"] for s in samples], dtype=float)
+        return draw_continuous_scatter(ax, coords, vals, evr), 0
+    vals = [_cat_value(s, axis.key) for s in samples]
+    coords = np.asarray([s["coord2d"] for s in samples], dtype=float)
+    return None, draw_axis_scatter(ax, coords, vals, evr)
+
+
+def plot_pca_by_axis(block: dict, axis, layer: str, model: str, out_path: Path) -> Path:
     """Standalone PC1-PC2 scatter of the answer projection coloured by one axis."""
-    coords = np.asarray([s["coord2d"] for s in block["samples"]], dtype=float)
-    values = [_axis_value(s, axis) for s in block["samples"]]
     evr = block["explained_variance_ratio"]
-    sep = block.get("axis_separation", {}).get(axis, {}) if axis != "scaffold_id" else {}
-    sil = (block["scaffold_stats"].get("silhouette") if axis == "scaffold_id"
-           else sep.get("silhouette"))
-
     fig, ax = plt.subplots(figsize=(8, 6.5))
-    n_off = draw_axis_scatter(ax, coords, values, evr)
+    mappable, n_off = _draw_one_axis(ax, block, axis, evr)
     if n_off:
         ax.text(0.99, 0.01, f"{n_off} outlier point(s) off-view",
                 transform=ax.transAxes, ha="right", va="bottom", fontsize=8,
                 color="#777777", style="italic")
-    subtitle = f"@ {_AXIS_PANEL_POSITION}, layer={_SCATTER_LAYER}, n={block['n_samples']}"
-    if sil is not None:
-        subtitle += f", silhouette={sil:.2f}"
-    cap = axis_caption(values)
-    if cap:
-        subtitle += f"\n{cap}"
-    ax.set_title(wrapped(f"SESGO geometry coloured by {pretty}  ({model})")
+    subtitle = f"@ {_AXIS_PANEL_POSITION}, layer={layer}, n={block['n_samples']}"
+    if mappable is not None:
+        fig.colorbar(mappable, ax=ax, fraction=0.046, pad=0.02, label=axis.pretty)
+    else:
+        sil = _axis_silhouette(block, axis.key)
+        if sil is not None:
+            subtitle += f", silhouette={sil:.2f}"
+        cap = axis_caption([_cat_value(s, axis.key) for s in block["samples"]])
+        if cap:
+            subtitle += f"\n{cap}"
+        ax.legend(loc="best", frameon=True, framealpha=0.92, fontsize=8,
+                  title=axis.pretty, title_fontsize=9)
+    ax.set_title(wrapped(f"SESGO geometry coloured by {axis.pretty}  ({model})")
                  + f"\n{subtitle}", fontsize=12)
-    ax.legend(loc="best", frameon=True, framealpha=0.92, fontsize=8, title=pretty,
-              title_fontsize=9)
     return finish(fig, out_path)
 
 
-def plot_axes_grid(block: dict, model: str, out_path: Path) -> Path:
+def plot_axes_grid(block: dict, layer: str, model: str, out_path: Path) -> Path:
     """Small-multiples grid: the answer projection recoloured by EVERY axis."""
-    coords = np.asarray([s["coord2d"] for s in block["samples"]], dtype=float)
     evr = block["explained_variance_ratio"]
     n = len(_AXES)
     ncols = 3
     nrows = (n + ncols - 1) // ncols
     fig, axes = plt.subplots(nrows, ncols, figsize=(5.2 * ncols, 4.6 * nrows))
     flat = axes.ravel()
-    for ax, (axis, pretty) in zip(flat, _AXES):
-        values = [_axis_value(s, axis) for s in block["samples"]]
-        draw_axis_scatter(ax, coords, values, evr)
-        cap = axis_caption(values)
-        ax.set_title(pretty + (f"\n({cap})" if cap else ""), fontsize=10)
-        ax.legend(loc="best", frameon=True, framealpha=0.9, fontsize=6.5,
-                  markerscale=0.8, handletextpad=0.3, borderpad=0.3)
+    for ax, axis in zip(flat, _AXES):
+        mappable, _ = _draw_one_axis(ax, block, axis, evr)
+        title = axis.pretty
+        if axis.continuous:
+            fig.colorbar(mappable, ax=ax, fraction=0.046, pad=0.02)
+        else:
+            cap = axis_caption([_cat_value(s, axis.key) for s in block["samples"]])
+            title += f"\n({cap})" if cap else ""
+            ax.legend(loc="best", frameon=True, framealpha=0.9, fontsize=6.5,
+                      markerscale=0.8, handletextpad=0.3, borderpad=0.3)
+        ax.set_title(title, fontsize=10)
     for ax in flat[n:]:
         ax.axis("off")
     fig.suptitle(wrapped(f"SESGO answer-position geometry by every axis  ({model}, "
-                         f"layer={_SCATTER_LAYER}, n={block['n_samples']})", 78),
+                         f"layer={layer}, n={block['n_samples']})", 78),
                  fontsize=13, fontweight="bold")
     return finish(fig, out_path)
 
@@ -298,9 +362,8 @@ def plot_centroid_shift_bars(results: dict, model: str, out_path: Path) -> Path:
     return finish(fig, out_path)
 
 
-def plot_silhouette_separability(results: dict, model: str, out_path: Path) -> Path:
+def plot_silhouette_separability(results: dict, layer: str, model: str, out_path: Path) -> Path:
     """Per-axis silhouette separability at the representative layer/position."""
-    layer = _SCATTER_LAYER if _SCATTER_LAYER in results else next(iter(results))
     block = results[layer].get(_AXIS_PANEL_POSITION) or next(
         (results[layer][p] for p in _POSITIONS if p in results[layer]), None)
     if block is None:
@@ -336,9 +399,8 @@ def plot_silhouette_separability(results: dict, model: str, out_path: Path) -> P
     return finish(fig, out_path)
 
 
-def plot_explained_variance(results: dict, model: str, out_path: Path) -> Path:
+def plot_explained_variance(results: dict, layer: str, model: str, out_path: Path) -> Path:
     """Grouped bars of EV%(PC1..3) per position at the representative layer."""
-    layer = _SCATTER_LAYER if _SCATTER_LAYER in results else next(iter(results))
     cells = results[layer]
     positions = [p for p in _POSITIONS if p in cells]
     n_pc = 3
@@ -367,6 +429,29 @@ def plot_explained_variance(results: dict, model: str, out_path: Path) -> Path:
     return finish(fig, out_path)
 
 
+# ── Layer-aware separability (heatmap + key-axis sweep) ───────────────────────
+
+
+def plot_silhouette_heatmap(table: dict, model: str, out_path: Path) -> Path:
+    """(layer x axis) silhouette heatmap: at what DEPTH each axis separates."""
+    fig, ax = plt.subplots(figsize=(1.0 + 0.55 * len(table["layers"]),
+                                    0.45 * len(table["axes"]) + 2.0))
+    draw_silhouette_heatmap(ax, table)
+    ax.set_title(wrapped(f"Silhouette separability by layer x axis @ "
+                         f"{table['position']}  ({model})", 60)
+                 + "\nred = separable, white = not; read across to see depth")
+    return finish(fig, out_path)
+
+
+def plot_silhouette_layer_sweep(table: dict, model: str, out_path: Path) -> Path:
+    """Silhouette-vs-layer sweep for the KEY axes (accuracy / context / role / scaffold)."""
+    fig, ax = plt.subplots(figsize=(8.5, 5.5))
+    draw_layer_sweep(ax, table, KEY_SWEEP_AXIS_KEYS, AXIS_PALETTE)
+    ax.set_title(wrapped(f"Where each key axis becomes separable (depth sweep) @ "
+                         f"{table['position']}  ({model})", 62))
+    return finish(fig, out_path)
+
+
 # ── Orchestration ─────────────────────────────────────────────────────────────
 
 
@@ -378,37 +463,52 @@ def _behavioral_plots(dataset: GeometryDataset, plots_dir: Path) -> list[Path]:
     ]
 
 
-def _per_axis_plots(cells: dict, model: str, plots_dir: Path) -> list[Path]:
-    """Recolour the answer-position projection by EVERY per-sample axis."""
+def _per_axis_plots(cells: dict, layer: str, model: str, plots_dir: Path) -> list[Path]:
+    """Recolour the late-layer answer projection by EVERY registry axis."""
     panel = cells.get(_AXIS_PANEL_POSITION) or next(
         (cells[p] for p in _POSITIONS if p in cells), None)
     if panel is None:
         log("[viz] no projection cell available; skipping per-axis panels")
         return []
-    written = [plot_pca_by_axis(panel, axis, pretty, model, plots_dir / f"pca_by_{axis}.png")
-               for axis, pretty in _AXES]
-    written.append(plot_axes_grid(panel, model, plots_dir / "pca_axes_grid.png"))
+    written = [plot_pca_by_axis(panel, axis, layer, model,
+                                plots_dir / f"pca_by_{axis.key}.png")
+               for axis in _AXES]
+    written.append(plot_axes_grid(panel, layer, model, plots_dir / "pca_axes_grid.png"))
     return written
 
 
-def _geometry_plots(results: dict, model: str, plots_dir: Path) -> list[Path]:
-    """PCA scatters, per-axis panels, centroid-shift, silhouette, EV%."""
+def _layer_separability_plots(table: dict, model: str, plots_dir: Path) -> list[Path]:
+    """The (layer x axis) silhouette heatmap + the key-axis depth sweep."""
+    if not table or not table.get("layers"):
+        log("[viz] no layer_axis_silhouette table; skipping the depth heatmap/sweep")
+        return []
+    return [
+        plot_silhouette_heatmap(table, model, plots_dir / "silhouette_by_layer_axis.png"),
+        plot_silhouette_layer_sweep(table, model, plots_dir / "silhouette_layer_sweep.png"),
+    ]
+
+
+def _geometry_plots(payload: dict, model: str, plots_dir: Path) -> list[Path]:
+    """PCA scatters, per-axis panels, centroid-shift, silhouette, EV%, depth views."""
+    results = payload["results"]
     written: list[Path] = []
-    scatter_layer = _SCATTER_LAYER if _SCATTER_LAYER in results else next(iter(results))
-    cells = results[scatter_layer]
+    layer = _representative_layer(results)
+    cells = results[layer]
     for ptype in _POSITIONS:
         block = cells.get(ptype)
         if block is None:
             log(f"[viz] no projection for position '{ptype}'; skipping its scatter")
             continue
-        written.append(plot_pca_scatter(block, ptype, model,
+        written.append(plot_pca_scatter(block, ptype, layer, model,
                                         plots_dir / f"pca_scatter_{ptype}.png"))
-    written += _per_axis_plots(cells, model, plots_dir)
+    written += _per_axis_plots(cells, layer, model, plots_dir)
+    written += _layer_separability_plots(payload.get("layer_axis_silhouette", {}),
+                                         model, plots_dir)
     written.append(plot_centroid_shift_bars(results, model,
                                             plots_dir / "centroid_shift_by_position.png"))
-    written.append(plot_silhouette_separability(results, model,
+    written.append(plot_silhouette_separability(results, layer, model,
                                                 plots_dir / "silhouette_separability.png"))
-    written.append(plot_explained_variance(results, model,
+    written.append(plot_explained_variance(results, layer, model,
                                             plots_dir / "explained_variance.png"))
     return written
 
@@ -430,8 +530,8 @@ def main() -> None:
 
     proj_path = model_dir / "analysis" / "projections.json"
     if proj_path.exists():
-        results = load_json(proj_path)["results"]
-        written += _geometry_plots(results, dataset.model_name, plots_dir)
+        payload = load_json(proj_path)
+        written += _geometry_plots(payload, dataset.model_name, plots_dir)
     else:
         log_section("missing projections.json")
         log(f"[viz] {proj_path} not found — run analyze_geometry.py first for the "

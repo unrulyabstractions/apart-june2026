@@ -7,20 +7,32 @@ scaffold condition moves the representation away from the no-scaffold baseline i
 the low-dimensional projection. Writes a single frontend-consumable JSON to
 out/sesgo/geometry/<MODEL>/analysis/projections.json.
 
-For each (layer, position) we build the [n_valid, d_model] matrix of that
-position's residual (one row per sample, reduced over layers), fit a PCA, and
-report:
+Activations are captured PER (position, LAYER) — one tensor per structural token
+position x mid-to-last transformer layer — so every captured layer is its own
+analysis unit. For each (layer-view, position) we build the [n_valid, d_model]
+matrix of that position's residual at that layer view (one row per sample; the
+layer view is a single captured layer, the highest captured "last", or the
+"mean" over all captured layers), fit a PCA, and report:
 
   PROJECTIONS    - per-sample PC1-2 / PC1-3 coordinates (+ the flat color-by
-    axes), so a frontend can scatter and color points.
+    axes, both categorical and the continuous answer-distribution signals), so a
+    frontend can scatter and color points.
   SCAFFOLD_STATS - in FULL PCA space: per-scaffold centroids, the shift vector
     (and full-dim L2 magnitude) of each scaffold from the no-scaffold baseline,
     the pairwise centroid distance matrix, a scaffold silhouette score, and the
     between/within scatter-trace ratio.
   AXIS_SEPARATION- the same silhouette + between/within ratio computed for EVERY
-    other per-sample axis: origin (bbq), language, bias_category,
-    question_polarity, context_condition (ambig vs disambig), accuracy (correct vs
-    incorrect), target_identity, other_identity, gold_label, label_style.
+    other categorical per-sample axis in the shared geometry_color_axes registry:
+    scaffold (has-scaffold), origin (bbq), language, bias_category,
+    question_polarity, context_condition (ambig vs disambig), accuracy (correct
+    vs incorrect), selected_role, gold_role, readout, target_identity,
+    other_identity, gold_label, label_style.
+
+By DEFAULT (--layer all) every captured mid->last layer is its OWN PCA cell (plus
+a "mean" layer-averaged cell), so depth is differentiated rather than collapsed.
+A top-level LAYER_AXIS_SILHOUETTE table re-keys the per-cell silhouettes into a
+(layer x axis) grid at a representative late position, so a frontend can render a
+heatmap / per-axis layer sweep showing AT WHAT DEPTH each axis becomes separable.
 
 Robust to missing positions / subsampled data: positions absent or with fewer
 than MIN_SAMPLES valid rows are skipped (logged), degenerate (baseline-only)
@@ -57,49 +69,64 @@ from src.common.math import (  # noqa: E402
 from src.datasets.sesgo import origin_label  # noqa: E402
 from src.datasets.sesgo_eval import GeometryDataset, GeometrySample  # noqa: E402
 
+from sesgo.geometry.geometry_color_axes import (  # noqa: E402
+    SCAFFOLD_AXIS_KEY,
+    SEPARATION_AXES,
+)
+
 _BASELINE = "(baseline)"
 MIN_SAMPLES = 4  # a position with fewer valid rows is skipped (PCA degenerate)
-_ALL_POSITIONS = ("turn", "think_open", "think_close", "answer")
-# Every per-sample colour-by axis the rows carry. "origin" is derived from the
-# bbq flag (original vs BBQ-adapted); the rest are stored verbatim on the sample.
-_PER_SAMPLE_AXES = (
-    "scaffold_id",
-    "origin",
-    "language",
-    "bias_category",
-    "question_polarity",
-    "context_condition",
-    "accuracy",
-    "target_identity",
-    "other_identity",
-    "gold_label",
-    "label_style",
+_ALL_POSITIONS = (
+    "im_end",
+    "newline",
+    "im_start",
+    "assistant",
+    "think_open",
+    "think_close",
+    "answer_prefix",
+    "label",
 )
-# Flat axes (besides scaffold_id, handled separately) we report separation for.
-_SEPARATION_AXES = tuple(a for a in _PER_SAMPLE_AXES if a != "scaffold_id")
+# Flat CATEGORICAL axes (besides scaffold_id, handled separately) we report
+# silhouette / between-within separation for — straight from the single registry.
+_SEPARATION_AXIS_KEYS = tuple(a.key for a in SEPARATION_AXES)
 
 
 # ── Loaders & matrix building ─────────────────────────────────────────────────
 
 
-def _load_tensor(root: Path, sample: GeometrySample, ptype: str) -> np.ndarray | None:
-    """Load the [n_layers, d_model] residual for one sample's position type."""
-    for a in sample.activations:
-        if a.position_type == ptype:
-            return torch.load(root / a.path, map_location="cpu").numpy()
-    return None
+def _load_layer_vec(root: Path, act) -> np.ndarray:
+    """Load one saved single-layer [d_model] residual tensor as a numpy vector."""
+    return torch.load(root / act.path, map_location="cpu").numpy()
 
 
-def _layer_reduce(t: np.ndarray, layer) -> np.ndarray:
-    """Reduce a [n_layers, d_model] residual to a single [d_model] vector.
+def _captured_layers(sample: GeometrySample, ptype: str) -> list[int]:
+    """The captured layer indices for this sample's position, sorted ascending."""
+    return sorted(a.layer for a in sample.activations if a.position_type == ptype)
 
-    ``layer`` is "last" (top layer), "mean" (mean over layers), or an int index.
+
+def _load_position_vec(
+    root: Path, sample: GeometrySample, ptype: str, layer
+) -> np.ndarray | None:
+    """The [d_model] residual at one (position, layer view) for one sample.
+
+    Tensors are stored PER (position, LAYER). ``layer`` selects the view:
+    "last" (the highest captured layer), "mean" (mean over ALL captured layers
+    for this position), or an int layer index (that exact captured layer). Returns
+    None when the sample lacks the position (or the requested int layer).
     """
-    if layer == "last":
-        return t[-1]
+    acts = [a for a in sample.activations if a.position_type == ptype]
+    if not acts:
+        return None
     if layer == "mean":
-        return t.mean(axis=0)
-    return t[int(layer)]
+        return np.mean([_load_layer_vec(root, a) for a in acts], axis=0)
+    if layer == "last":
+        target = max(a.layer for a in acts)
+    else:
+        target = int(layer)
+    for a in acts:
+        if a.layer == target:
+            return _load_layer_vec(root, a)
+    return None
 
 
 def _scaffold_label(scaffold_id: str | None) -> str:
@@ -122,25 +149,39 @@ def _accuracy_label(s: GeometrySample) -> str:
 def _sample_row(s: GeometrySample) -> dict:
     """Flatten one sample's every colour-by axis into a parallel metadata row.
 
-    ``scaffold_id`` stays raw (None == baseline; downstream maps it); ``origin``
-    is derived from the bbq flag; ``accuracy`` from the non-thinking readout vs the
-    per-condition gold. Every other axis is a stringified verbatim field so a
-    frontend can scatter and colour by any of them.
+    ``scaffold_id`` stays raw (None == baseline; downstream maps it); ``scaffold``
+    is the has-scaffold binary; ``origin`` is derived from the bbq flag;
+    ``accuracy`` from the non-thinking readout vs the per-condition gold;
+    ``selected_role``/``gold_role``/``readout`` come from the flat schema fields;
+    the five answer-distribution signals are continuous colormap axes. Every
+    categorical axis is a stringified verbatim field so a frontend can scatter and
+    colour by any of them.
     """
+    sig = s.answer_signals
     return {
         "sample_idx": s.sample_idx,
         "question_id": s.question_id,
         "scaffold_id": s.scaffold_id,  # raw, may be None
+        "scaffold": "scaffold" if s.has_scaffold else "no-scaffold",
         "origin": origin_label(getattr(s, "bbq", False)),
         "language": s.language,
         "bias_category": s.bias_category,
         "question_polarity": s.question_polarity,
         "context_condition": getattr(s, "context_condition", "") or "(unknown)",
         "accuracy": _accuracy_label(s),
+        "selected_role": s.selected_role,
+        "gold_role": s.gold_role,
+        "readout": s.readout,
         "target_identity": getattr(s, "target_identity", "") or "(unknown)",
         "other_identity": getattr(s, "other_identity", "") or "(unknown)",
         "gold_label": getattr(s.gold_label, "value", s.gold_label),
         "label_style": getattr(s, "label_style", "") or "(none)",
+        # Continuous answer-distribution signals (colormap axes).
+        "top_choice_prob": sig.top_choice_prob,
+        "top_choice_logit": sig.top_choice_logit,
+        "vocab_entropy": sig.vocab_entropy,
+        "answer_diversity": sig.answer_diversity,
+        "inv_perplexity": sig.inv_perplexity,
     }
 
 
@@ -156,10 +197,10 @@ def build_matrix(
     vecs: list[np.ndarray] = []
     rows: list[dict] = []
     for idx, s in enumerate(dataset.samples):
-        t = _load_tensor(root, s, ptype)
-        if t is None:
+        vec = _load_position_vec(root, s, ptype, layer)
+        if vec is None:
             continue
-        vecs.append(_layer_reduce(t, layer).astype(np.float32))
+        vecs.append(vec.astype(np.float32))
         rows.append(_sample_row(s))
     if not vecs:
         return np.empty((0, 0), dtype=np.float32), rows
@@ -293,7 +334,7 @@ def _silhouette_stat(Z: np.ndarray, labels: np.ndarray) -> float:
 def _axis_separation(Z: np.ndarray, rows: list[dict]) -> dict:
     """Per-axis silhouette + between/within ratio for the non-scaffold axes."""
     block: dict[str, dict] = {}
-    for axis in _SEPARATION_AXES:
+    for axis in _SEPARATION_AXIS_KEYS:
         groups = _group_indices(rows, axis)
         labels = [None] * len(rows)
         for lab, idxs in groups.items():
@@ -433,8 +474,27 @@ def _resolve_positions(dataset: GeometryDataset, requested: str) -> list[str]:
     return [p.strip() for p in requested.split(",") if p.strip()]
 
 
-def _resolve_layers(requested: str) -> list:
-    """Resolve the --layer arg (comma list of last|mean|int) to a list."""
+def _all_captured_layers(dataset: GeometryDataset) -> list[int]:
+    """Every distinct captured layer index across the dataset, ascending.
+
+    The capture keys tensors per (position, LAYER) over the MIDDLE->LAST band, so
+    this is the mid-to-last layer set the geometry probe actually saved. Used to
+    expand ``--layer all`` so EVERY captured layer is its own PCA / silhouette unit
+    (never collapsed to only a mean view).
+    """
+    return sorted({a.layer for s in dataset.samples for a in s.activations if a.layer >= 0})
+
+
+def _resolve_layers(requested: str, dataset: GeometryDataset) -> list:
+    """Resolve --layer to a layer-view list (last|mean|int, or 'all'+'mean').
+
+    "all" expands to EVERY captured layer index (mid->last) PLUS the "mean" view,
+    so the per-(layer, position) grid differentiates every depth while still
+    keeping the layer-averaged cloud as one comparison cell. A comma list resolves
+    each token to last|mean|<captured-layer-int> verbatim.
+    """
+    if requested.strip() == "all":
+        return [*_all_captured_layers(dataset), "mean"]
     out: list = []
     for tok in requested.split(","):
         tok = tok.strip()
@@ -442,6 +502,45 @@ def _resolve_layers(requested: str) -> list:
             continue
         out.append(tok if tok in ("last", "mean") else int(tok))
     return out
+
+
+def _cell_silhouette(block: dict, axis_key: str) -> float | None:
+    """The silhouette for one colour-by axis out of an already-computed cell.
+
+    The scaffold axis is stored under ``scaffold_stats``; every other categorical
+    axis under ``axis_separation``. Returns None when the cell never scored it.
+    """
+    if axis_key == SCAFFOLD_AXIS_KEY:
+        return block["scaffold_stats"].get("silhouette")
+    return block.get("axis_separation", {}).get(axis_key, {}).get("silhouette")
+
+
+def layer_axis_silhouette(results: dict, positions: list[str]) -> dict:
+    """Flat (layer x axis) silhouette table at a representative late position.
+
+    Re-keys the per-cell silhouettes into ``{position, layers, axes, values}`` so
+    the viz can draw a layer x axis heatmap (where, at what depth, each axis
+    becomes separable) WITHOUT recomputing PCA. The position is the latest
+    structural one present (``label`` preferred), and only INTEGER layers are
+    swept (the depth axis), with the rows ordered ascending so the heatmap reads
+    shallow->deep top-to-bottom.
+    """
+    int_layers = sorted(L for L in results if L.lstrip("-").isdigit())
+    if not int_layers:
+        return {}
+    pos = next((p for p in reversed(positions)
+                if any(p in results[L] for L in int_layers)), None)
+    if pos is None:
+        return {}
+    axes = [a.key for a in SEPARATION_AXES] + [SCAFFOLD_AXIS_KEY]
+    values = {
+        axis: [
+            _cell_silhouette(results[L][pos], axis) if pos in results[L] else None
+            for L in int_layers
+        ]
+        for axis in axes
+    }
+    return {"position": pos, "layers": int_layers, "axes": axes, "values": values}
 
 
 # ── Stats table & main ────────────────────────────────────────────────────────
@@ -487,14 +586,16 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--layer",
         type=str,
-        default="last,mean",
-        help="comma list, each of last|mean|<int> (default: last,mean)",
+        default="all",
+        help="'all' (EVERY captured mid->last layer + mean) or a comma list, each "
+        "of last|mean|<captured-layer-int> (default: all)",
     )
     parser.add_argument(
         "--position",
         type=str,
         default="all",
-        help="'all' or comma list of position_types (turn|think_open|think_close|answer)",
+        help="'all' or comma list of position_types (im_end|newline|im_start|"
+        "assistant|think_open|think_close|answer_prefix|label)",
     )
     parser.add_argument("--n-components", type=int, default=10, help="max PCA components")
     parser.add_argument("--seed", type=int, default=42, help="PCA random_state")
@@ -510,7 +611,7 @@ def main() -> None:
     root = args.samples.resolve().parent  # activation paths are relative to here
     log(f"[analyze] loaded {len(dataset.samples)} samples (model={dataset.model_name})")
 
-    layers = _resolve_layers(args.layer)
+    layers = _resolve_layers(args.layer, dataset)
     positions = _resolve_positions(dataset, args.position)
     log(f"[analyze] layers={layers} positions={positions} "
         f"n_components={args.n_components} seed={args.seed}")
@@ -538,6 +639,9 @@ def main() -> None:
             "seed": args.seed,
         },
         "results": results,
+        # Flat (layer x axis) silhouette table for the depth-of-separation
+        # heatmap + per-axis layer sweep (built from the per-cell silhouettes).
+        "layer_axis_silhouette": layer_axis_silhouette(results, positions),
     }
 
     _log_stats_table(results, layers, positions)

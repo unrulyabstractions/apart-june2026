@@ -3,29 +3,32 @@
 Run-by-path driver for the SESGO GEOMETRY half. For every prompt it (1) runs the
 normal SesgoQuerier readout (non-thinking 3-way + thinking draws) and (2) follows
 the model's GREEDY NON-THINKING answer path (greedy decode past an empty
-<think></think> block) and snapshots the FULL per-layer residual stream
-([n_layers, d_model]) at up to four MODEL-AWARE structural token positions:
+<think></think> block) and snapshots the residual stream PER (LAYER, POSITION) —
+one tensor per (structural token position) x (MIDDLE->LAST transformer layer) —
+at up to eight MODEL-AWARE structural token positions:
 
-    turn         - the last assistant-turn marker (family-specific: Qwen
-                   <|im_start|>, Llama <|start_header_id|>, Gemma
-                   <start_of_turn>, Mistral [/INST])
-    think_open   - the <think> token of the skip-thinking prefix (reasoning
-                   models only; absent for Llama/Gemma/Mistral)
-    think_close  - the </think> token (reasoning models only)
-    answer       - the first greedily-generated answer token
+    im_end        - the special token closing the previous (user) turn
+    newline       - the literal "\\n" after the assistant opener
+    im_start      - the assistant-turn opener (family-specific: Qwen <|im_start|>,
+                    Llama <|start_header_id|>, Gemma <start_of_turn>, Mistral [/INST])
+    assistant     - the role word the template emits ("assistant"/"model")
+    think_open    - the <think> token (reasoning models only)
+    think_close   - the </think> token (reasoning models only)
+    answer_prefix - the token just before the emitted answer ("Answer: " end)
+    label         - the first greedily-generated answer-label token
 
-For non-reasoning families the think_* positions simply don't exist, so each
-sample captures turn + answer; reasoning models additionally capture think_*.
-
-Each snapshot is torch.save'd under out/sesgo/geometry/<MODEL>/activations/ and
-referenced (by relative path only) from a GeometrySample, so the response_samples.json
-stays small. The headline downstream question is geometric: how far does each
-scaffold move these representations versus the no-scaffold baseline.
+Positions a family lacks (think_* for non-reasoning models, im_end/assistant for
+Mistral) are simply omitted. Each snapshot is torch.save'd under
+out/sesgo/geometry/<MODEL>/activations/ and referenced (by relative path only,
+keyed by position AND layer) from a GeometrySample, so response_samples.json stays
+small. The headline downstream question is geometric: how far does each scaffold
+move these representations versus the no-scaffold baseline — and the geometry grid
+captures BOTH scaffolded and no-scaffold prompts so that axis is colourable.
 
 Usage:
   uv run python sesgo/geometry/collect_geometry_samples.py
   uv run python sesgo/geometry/collect_geometry_samples.py PROMPTS.json \
-      --model Qwen/Qwen3-0.6B --n-thinking 4 --subsample 0.5 --layers 0,6,12
+      --model Qwen/Qwen3-0.6B --n-thinking 4 --subsample 0.5 --layers 12,18,24
 """
 
 from __future__ import annotations
@@ -49,6 +52,7 @@ from src.datasets.prompt import (  # noqa: E402
     SesgoPromptSample,
 )
 from src.datasets.sesgo_eval import (  # noqa: E402
+    GeometryAnswerSignals,
     GeometryDataset,
     GeometrySample,
     SesgoQuerier,
@@ -112,20 +116,42 @@ def _resume_geometry(
     return kept, done
 
 
-def load_prompt_dataset(path: Path, subsample: float) -> SesgoPromptDataset:
-    """Load prompts, striding the RAW json before deserializing (fast path).
+def _subsample_keeping_scaffolds(raw: list[dict], subsample: float) -> list[dict]:
+    """Keep an evenly-spaced ``subsample`` fraction of WHOLE per-item scaffold blocks.
 
-    Mirrors the stability collect: when subsample < 1 we json-load once and take
-    an evenly-spaced stride over the raw sample dicts (so the slice still spans
-    every scaffold/permutation block) and build only the kept samples.
+    The geometry grid emits each item as a contiguous block of scaffold conditions
+    (no-scaffold then the interpretive scaffold), so striding the FLAT prompt list
+    could land on only one condition and silently drop the scaffold-vs-none axis.
+    We instead stride over the per-item blocks (grouped by question_id) and keep
+    every prompt of each selected item, so BOTH scaffold conditions always survive.
+    """
+    blocks: list[list[dict]] = []
+    for d in raw:
+        if blocks and blocks[-1][0]["question_id"] == d["question_id"]:
+            blocks[-1].append(d)
+        else:
+            blocks.append([d])
+    n = max(1, math.ceil(len(blocks) * subsample))
+    stride = max(1, len(blocks) // n)
+    kept_blocks = blocks[::stride][:n]
+    return [d for block in kept_blocks for d in block]
+
+
+def load_prompt_dataset(path: Path, subsample: float) -> SesgoPromptDataset:
+    """Load prompts, subsampling whole per-item scaffold blocks before deserializing.
+
+    When subsample < 1 we json-load once and keep an evenly-spaced fraction of the
+    per-item blocks (NOT a flat stride), so every kept item retains BOTH its
+    no-scaffold and scaffolded prompts — keeping the scaffold-vs-none geometry axis
+    colourable on partial runs — then build only the kept samples.
     """
     if subsample >= 1.0:
         return SesgoPromptDataset.from_json(path)
     data = load_json(Path(path))
-    raw = data["samples"]
-    n = max(1, math.ceil(len(raw) * subsample))
-    stride = max(1, len(raw) // n)
-    kept = [SesgoPromptSample.from_dict(d) for d in raw[::stride][:n]]
+    kept = [
+        SesgoPromptSample.from_dict(d)
+        for d in _subsample_keeping_scaffolds(data["samples"], subsample)
+    ]
     return SesgoPromptDataset(
         dataset_id=data["dataset_id"],
         config=SesgoPromptConfig.from_dict(data["config"]),
@@ -134,14 +160,30 @@ def load_prompt_dataset(path: Path, subsample: float) -> SesgoPromptDataset:
     )
 
 
+def _answer_signals(sesgo) -> GeometryAnswerSignals:
+    """Continuous answer-distribution scalars from the 3-option readout.
+
+    Derived from the teacher-forced non-thinking role distribution (the readout
+    the residual geometry is captured along): top-choice prob/logit + the whole
+    distribution's entropy / diversity / inverse perplexity. Reuses the shared
+    information-theory helpers via GeometryAnswerSignals — no maths reimplemented.
+    Falls back to all-zero signals when that readout is absent.
+    """
+    nt = sesgo.non_thinking
+    if nt is None:
+        return GeometryAnswerSignals()
+    return GeometryAnswerSignals.from_distribution(nt.prob, nt.logit)
+
+
 def _make_sample(prompt: SesgoPromptSample, sesgo, activations) -> GeometrySample:
     """Assemble one GeometrySample from its readout + captured activations.
 
     Carries every per-sample colour-by axis (context_condition, provenance, the
     literal social-group strings) AND all four readouts (3-option non-thinking,
     2-option forced choice, greedy-thinking, sampled thinking) so the geometry
-    viz can slice / score by any of them. The single source of truth for the
-    GeometrySample shape — both the batched and single-sample paths call it.
+    viz can slice / score by any of them. The continuous answer-distribution
+    signals and the has_scaffold flag are derived here once. The single source of
+    truth for the GeometrySample shape — both batched and single-sample paths call it.
     """
     return GeometrySample(
         sample_idx=prompt.sample_idx,
@@ -162,6 +204,8 @@ def _make_sample(prompt: SesgoPromptSample, sesgo, activations) -> GeometrySampl
         greedy_thinking=sesgo.greedy_thinking,
         thinking=sesgo.thinking,
         activations=activations,
+        answer_signals=_answer_signals(sesgo),
+        has_scaffold=prompt.scaffold_id is not None,
     )
 
 
@@ -261,7 +305,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--layers",
         default=None,
-        help="Optional comma list of layer indices to subset (default: all)",
+        help="Optional comma list of layer indices (default: middle->last, floor(L/2)..L-1)",
     )
     return parser.parse_args()
 
@@ -299,10 +343,13 @@ def main() -> None:
     runner = TernaryChoiceRunner(model_name=args.model, backend=ModelBackend.HUGGINGFACE)
     querier._runner = runner
 
-    # All resid_post layers by default; --layers subsets them.
-    all_layers = list(range(runner.n_layers))
+    # MIDDLE->LAST resid_post layers by default (floor(L/2)..L-1): the early
+    # layers carry mostly lexical/positional structure, so the geometry probe
+    # keeps every mid-to-late layer (where task/answer representations form) as
+    # its own captured unit. --layers overrides with an explicit comma list.
+    mid_to_last = list(range(runner.n_layers // 2, runner.n_layers))
     layers = (
-        [int(x) for x in args.layers.split(",")] if args.layers else all_layers
+        [int(x) for x in args.layers.split(",")] if args.layers else mid_to_last
     )
 
     out_root = shard_out_dir(
@@ -343,9 +390,14 @@ def main() -> None:
     log_section("geometry collection summary")
     log(f"  samples written : {len(dataset.samples)} -> {out_path}")
     log(f"  activation files: {n_act_files} new -> {act_dir}")
+    log(f"  layers captured : {layers} (middle->last)")
+    # Scaffold-vs-none coverage check: both buckets must be non-empty for the
+    # scaffold axis to be colourable downstream.
+    by_scaffold = Counter(s.scaffold_id or "(none)" for s in dataset.samples)
+    log(f"  by scaffold     : {dict(by_scaffold)}")
     log("  positions located (count over samples):")
     for ptype in _POSITION_TYPES:
-        log(f"    {ptype:<12} {found_counter.get(ptype, 0)}")
+        log(f"    {ptype:<14} {found_counter.get(ptype, 0)}")
 
 
 if __name__ == "__main__":

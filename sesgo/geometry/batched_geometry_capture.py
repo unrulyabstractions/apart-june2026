@@ -22,10 +22,9 @@ from src.ternary_choice import TernaryChoiceRunner
 from .geometry_capture_helpers import (
     _GREEDY_TOKENS,
     _resid_filter,
-    answer_start_for,
-    find_positions,
     save_positions,
 )
+from .geometry_position_finder import answer_start_for, find_positions
 
 
 def capture_activations_batch(
