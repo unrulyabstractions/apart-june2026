@@ -67,10 +67,12 @@ Models are loaded in `__init__` based on detected backend:
 - **Auto chat model detection**: Detects instruct models by name patterns
 - **Reasoning model detection**: Checks tokenizer's chat template for thinking tokens
 - **Model-aware structural markers**: `runner.structural_markers` returns the
-  family's assistant-turn token and (reasoning-only) `<think>`/`</think>` markers
-  so callers (e.g. SESGO geometry) can locate structural token positions per
-  family — Qwen `<|im_start|>`, Llama `<|start_header_id|>`, Gemma
-  `<start_of_turn>`, Mistral `[/INST]` — instead of hardcoding Qwen's tokens.
+  family's assistant-turn token, the previous-turn closer (`turn_end`), the
+  assistant role word (`assistant_role`), and (reasoning-only) `<think>`/
+  `</think>` markers so callers (e.g. SESGO geometry) can locate fine-grained
+  structural token positions per family — Qwen `<|im_start|>`/`<|im_end|>`,
+  Llama `<|start_header_id|>`/`<|eot_id|>`, Gemma `<start_of_turn>`/
+  `<end_of_turn>`, Mistral `[/INST]` — instead of hardcoding Qwen's tokens.
 - **Encoding/decoding**: Unified tokenizer access regardless of backend
 - **Trajectory generation**: Returns `GeneratedTrajectory` with logprobs
 
@@ -94,10 +96,12 @@ sims = runner.similarities("hello", ["hi", "bye"])
 
 ## chat_template_markers.py
 
-`structural_markers_for(name)` → `ChatTemplateMarkers` (turn marker + optional
-`<think>`/`</think>`), resolved by instruct-family substring. Every marker is a
-single token in its family's vocab, so position-finders can search the forced id
-sequence directly. Surfaced on the runner via `ModelRunner.structural_markers`.
+`structural_markers_for(name)` → `ChatTemplateMarkers` (turn marker + previous-
+turn closer `turn_end` + role word `assistant_role` + optional `<think>`/
+`</think>`), resolved by instruct-family substring. The single-token markers are
+located by exact id; the multi-token role word is matched by its first token
+after the turn opener, so position-finders can search the forced id sequence
+directly. Surfaced on the runner via `ModelRunner.structural_markers`.
 
 ## Backends Directory
 

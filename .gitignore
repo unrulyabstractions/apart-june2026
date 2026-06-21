@@ -119,3 +119,5 @@ worktree/
 
 # fleet runtime state (instance ids + per-box logs)
 cloud/.fleet/
+
+cloud/.fleet*/

@@ -35,11 +35,30 @@ uv run python sesgo/divergence/collect_divergence_samples.py [--subsample 0.05 -
 uv run python sesgo/divergence/visualize_divergence_samples.py <RS>
 
 # geometry — residual-stream capture along the greedy path (forces the HF backend)
-uv run python sesgo/geometry/collect_geometry_samples.py    [--subsample 0.1 --n-thinking 0]
-uv run python sesgo/geometry/analyze_geometry.py            <RS>   # PCA + per-axis separation
-uv run python sesgo/geometry/visualize_geometry_samples.py  <RS>   # PCA grid (every label axis)
+# Captures PER (position, layer): 8 chat-template positions (im_end, newline,
+# im_start, assistant, think_open, think_close, answer_prefix, label) x each
+# MIDDLE->LAST transformer layer (floor(L/2)..L-1; override with --layers). The
+# grid spans BOTH no-scaffold and scaffolded prompts (scaffold-vs-none axis).
+uv run python sesgo/geometry/collect_geometry_samples.py    [--subsample 0.1 --n-thinking 0 --layers 14,20,27]
+uv run python sesgo/geometry/analyze_geometry.py            <RS>   # PCA per (layer x position) + per-axis separation
+uv run python sesgo/geometry/visualize_geometry_samples.py  <RS>   # PCA grid (every colour axis) + depth heatmap/sweep
 PORT=8002 bash sesgo/geometry/visualize_geometry.sh         <RS>   # interactive viz server
 ```
+`analyze_geometry.py` defaults to `--layer all`: it runs a SEPARATE PCA for EVERY
+captured mid->last layer (plus a `mean` layer-averaged cell), so depth is never
+collapsed. Alongside the per-cell projections it writes a top-level
+`layer_axis_silhouette` table — silhouette separability per (layer x colour-axis)
+at a representative late position — so one can see at what depth each axis becomes
+separable. `visualize_geometry_samples.py` renders, at the deepest captured layer:
+a `pca_by_<axis>.png` per axis from the shared `geometry_color_axes` registry
+(categorical axes -> discrete legend; the continuous answer-distribution signals —
+top-choice prob/logit, entropy, diversity, inverse perplexity -> sequential
+colormap + colorbar), the small-multiples `pca_axes_grid.png`, and two layer-aware
+depth views: `silhouette_by_layer_axis.png` (the layer x axis heatmap) and
+`silhouette_layer_sweep.png` (silhouette-vs-layer for the key axes accuracy /
+context_condition / selected_role / scaffold). To add a colour-by axis, add ONE
+`ColorAxis` row to `sesgo/geometry/geometry_color_axes.py` — analysis separation
+AND every viz panel pick it up automatically.
 The viz server is **multi-model**: it discovers every model under
 `out/sesgo/geometry/*/` that has both `response_samples.json` and
 `analysis/projections.json`, and exposes a **Model** selector. Switching models
