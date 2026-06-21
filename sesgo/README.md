@@ -42,6 +42,11 @@ uv run python sesgo/divergence/visualize_divergence_samples.py <RS>
 # MIDDLE->LAST transformer layer (floor(L/2)..L-1; override with --layers). The
 # grid spans BOTH no-scaffold and scaffolded prompts (scaffold-vs-none axis).
 uv run python sesgo/geometry/collect_geometry_samples.py    [--subsample 0.1 --n-thinking 0 --layers 14,20,27]
+# when run sharded across cloud boxes, fold the shard slices (samples + .pt) into one set first.
+# (merge_sync.sh's --ignore-existing is WRONG for shards: it keeps only the first shard's
+#  response_samples.json. This concatenates samples de-duped by sample_idx and unions the
+#  per-shard activations/.pt — disjoint by global sample_idx — into one model dir.)
+uv run python sesgo/geometry/combine_geometry_shards.py Qwen3-0.6B  [--sync-dir sync --out-dir out]
 uv run python sesgo/geometry/analyze_geometry.py            <RS>   # PCA per (layer x position) + per-axis separation
 uv run python sesgo/geometry/visualize_geometry_samples.py  <RS>   # PCA grid (every colour axis) + depth heatmap/sweep
 PORT=8002 bash sesgo/geometry/visualize_geometry.sh         <RS>   # interactive viz server
