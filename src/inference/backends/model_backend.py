@@ -37,6 +37,9 @@ class ModelBackend(Enum):
     OPENAI = "openai"
     ANTHROPIC = "anthropic"
     GEMINI = "gemini"
+    # CUDA-only high-throughput batched backend (continuous batching). Not
+    # installable on Apple Silicon; selected explicitly on cloud GPU boxes.
+    VLLM = "vllm"
 
 
 class Backend(ABC):

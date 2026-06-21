@@ -247,6 +247,8 @@ class ModelRunner:
             self._init_pyvene()
         elif backend == ModelBackend.HUGGINGFACE:
             self._init_huggingface()
+        elif backend == ModelBackend.VLLM:
+            self._init_vllm()
         elif backend == ModelBackend.MLX:
             try:
                 self._init_mlx()
@@ -1241,6 +1243,19 @@ class ModelRunner:
         print(f"Loading {self.model_name} (MLX)...")
         self._model, tokenizer = load(self.model_name)
         self._backend = MLXBackend(self, tokenizer)
+
+    def _init_vllm(self) -> None:
+        """Load the vLLM CUDA backend (continuous batching, generation fast path).
+
+        vLLM owns its engine/weights, so ``self._model`` stays None — activation
+        capture and interventions are unsupported by design and route to HF.
+        """
+        from .vllm_batched_backend import VLLMBackend
+
+        print(f"Loading {self.model_name} on cuda (vLLM)...")
+        dtype = "float16" if self.dtype == torch.float16 else "bfloat16"
+        self._model = None
+        self._backend = VLLMBackend(self, model_name=self.model_name, dtype=dtype)
 
     def _init_openai(self) -> None:
         from .backends import OpenAIBackend
