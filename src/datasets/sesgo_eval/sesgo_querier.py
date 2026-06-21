@@ -116,16 +116,20 @@ class SesgoQuerier:
         )
 
     def _subsample(self, samples: list[SesgoPromptSample]) -> list[SesgoPromptSample]:
-        """Deterministically keep the first ``subsample`` fraction of prompts.
+        """Deterministically keep an EVENLY-SPACED ``subsample`` fraction.
 
-        A leading slice (not a random sample) keeps runs reproducible without a
-        seed and preserves the per-item prompt grouping in dataset order.
+        Scaffold conditions are emitted as contiguous blocks per item, so a
+        leading slice would only ever cover the first condition (defeating the
+        with/without-scaffold comparison on a partial run). An evenly-spaced
+        stride spans all conditions/permutations/categories while staying
+        reproducible without a seed.
         """
         frac = self.config.subsample
         if frac >= 1.0 or not samples:
             return samples
         n = max(1, math.ceil(len(samples) * frac))
-        return samples[:n]
+        stride = max(1, len(samples) // n)
+        return samples[::stride][:n]
 
     def query_dataset(
         self, prompt_dataset: SesgoPromptDataset, model_name: str
