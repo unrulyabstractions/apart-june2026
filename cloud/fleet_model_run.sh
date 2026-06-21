@@ -16,6 +16,11 @@ set -euo pipefail
 
 cd "$(dirname "$0")/.."   # repo root on the remote (/root/apart)
 
+# at_setup pinned a cu118 torch into .venv; UV_NO_SYNC stops every `uv run` below
+# from re-syncing the venv to the lockfile (which would revert it to the cu130
+# wheel and break CUDA on the box).
+export UV_NO_SYNC=1
+
 MODEL="${MODEL:-Qwen/Qwen3-0.6B}"
 SHARD_INDEX="${SHARD_INDEX:-0}"
 SHARD_COUNT="${SHARD_COUNT:-1}"

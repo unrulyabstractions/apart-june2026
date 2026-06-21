@@ -40,6 +40,11 @@ echo "[at_setup] pinning torch 2.6.0+cu118 (forward-compatible across all hosts)
 uv pip install --reinstall --no-deps "torch==2.6.0" "torchvision==0.21.0" \
   --index-url https://download.pytorch.org/whl/cu118
 
+# Keep the cu118 torch we just pinned: every subsequent `uv run` defaults to
+# re-syncing the venv to the lockfile, which would reinstall the cu130 wheel and
+# undo the pin. UV_NO_SYNC makes uv run use the venv exactly as it is.
+export UV_NO_SYNC=1
+
 # ── 3. Propagate HF_TOKEN into the env if the caller exported it ───────
 if [ -n "${HF_TOKEN:-}" ]; then
   echo "[at_setup] HF_TOKEN is set; huggingface-hub will pick it up from env."
