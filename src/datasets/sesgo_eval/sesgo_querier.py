@@ -14,18 +14,16 @@ import math
 from src.common.device_utils import ProgressTracker, clear_gpu_memory
 from src.common.logging import log
 from src.datasets.prompt import SesgoPromptDataset, SesgoPromptSample
-from src.datasets.sesgo import SesgoLabel
 from src.ternary_choice import TernaryChoiceRunner
 from .sesgo_dataset import SesgoDataset
-from .sesgo_label_distribution import SesgoLabelDistribution
+from .sesgo_non_thinking import SesgoNonThinking
 from .sesgo_query_config import SesgoQueryConfig
 from .sesgo_response_parsing import parse_chosen_label
 from .sesgo_sample import SesgoSample
+from .sesgo_thinking import SesgoThinking, summarize_labels
 
 # Periodically free accelerator memory so long runs don't accumulate caches.
 _GPU_CLEAR_EVERY = 25
-# Canonical role order shared by the distribution's (p_target, p_other, p_unknown).
-_ROLE_ORDER = (SesgoLabel.TARGET, SesgoLabel.OTHER, SesgoLabel.UNKNOWN)
 
 
 class SesgoQuerier:
@@ -44,27 +42,36 @@ class SesgoQuerier:
 
     def _non_thinking(
         self, sample: SesgoPromptSample, runner: TernaryChoiceRunner
-    ) -> SesgoLabelDistribution:
-        """Teacher-forced 3-way softmax remapped from positions to roles."""
-        choice = runner.choose3(
-            sample.text, sample.choice_prefix or "Answer: ", sample.option_labels
+    ) -> SesgoNonThinking:
+        """Teacher-forced 3-way readout PLUS a greedy non-thinking decode.
+
+        choose3 gives the per-option-path scores (remapped to roles); the greedy
+        decode (skip-thinking prefill, temperature 0) gives the role the model
+        actually emits when answering without reasoning.
+        """
+        prefix = sample.choice_prefix or "Answer: "
+        choice = runner.choose3(sample.text, prefix, sample.option_labels)
+        # from_ternary scatters each position's scores into its canonical role
+        # slot via position_labels — invariant to which slot the role occupied.
+        nt = SesgoNonThinking.from_ternary(choice, sample.position_labels)
+
+        greedy = runner.generate(
+            sample.text,
+            max_new_tokens=24,
+            temperature=0.0,
+            prefilling=runner.skip_thinking_prefix + prefix,
         )
-        # Move each position's probability into its role bucket — invariant to
-        # which slot the role occupied.
-        buckets = {role: 0.0 for role in _ROLE_ORDER}
-        for i, prob in enumerate(choice.probs):
-            buckets[sample.position_labels[i]] += prob
-        return SesgoLabelDistribution.from_label_probs(
-            buckets[SesgoLabel.TARGET],
-            buckets[SesgoLabel.OTHER],
-            buckets[SesgoLabel.UNKNOWN],
-            n=1,
+        nt.greedy_text = greedy.strip()[:200]
+        nt.greedy_label = parse_chosen_label(greedy, sample)
+        nt.decoding_mismatch = (
+            nt.greedy_label is not None and nt.greedy_label != nt.predicted
         )
+        return nt
 
     def _thinking(
         self, sample: SesgoPromptSample, runner: TernaryChoiceRunner
-    ) -> tuple[SesgoLabelDistribution, list[str]]:
-        """Sample N free-form draws, parse each role, count into a distribution."""
+    ) -> tuple[SesgoThinking, list[str]]:
+        """Sample N free-form draws, parse each role, summarize mean/std."""
         completions = [
             runner.generate(
                 sample.text,
@@ -78,14 +85,7 @@ class SesgoQuerier:
             for label in (parse_chosen_label(c, sample) for c in completions)
             if label is not None
         ]
-        counts = {role: labels.count(role) for role in _ROLE_ORDER}
-        dist = SesgoLabelDistribution.from_counts(
-            counts[SesgoLabel.TARGET],
-            counts[SesgoLabel.OTHER],
-            counts[SesgoLabel.UNKNOWN],
-            n=len(labels),
-        )
-        return dist, completions
+        return summarize_labels(labels), completions
 
     def query_sample(
         self, prompt_sample: SesgoPromptSample, runner: TernaryChoiceRunner

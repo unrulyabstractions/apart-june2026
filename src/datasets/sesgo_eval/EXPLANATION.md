@@ -31,16 +31,24 @@ defeats position bias.
 
 `TernaryChoiceRunner.choose3(text, choice_prefix or "Answer: ", option_labels)`
 teacher-forces the three option markers past an auto-inserted empty
-`<think></think>` block, so the model never reasons. `choice.probs` is a 3-way
-softmax over the three displayed POSITIONS. We remap to roles:
+`<think></think>` block, so the model never reasons. The returned `TernaryChoice`
+carries, per displayed POSITION, the conditional `logprobs` AND the raw `logits`
+of each option token (read from the single shared predicting row — all three
+forced continuations share the prefix, so that full-vocab row is identical and
+its raw values are directly comparable). `SesgoNonThinking.from_ternary(choice,
+position_labels)` scatters each position's (logprob, logit) into its canonical
+role slot [TARGET, OTHER, UNKNOWN] and derives five length-3 vectors:
 
-```
-for i, p in enumerate(choice.probs):
-    buckets[position_labels[i]] += p        # → (p_target, p_other, p_unknown)
-```
+- `prob` — `normalize_log_probs(logprob)`, the 3-way renormalized softmax.
+- `logprob` / `logit` — the role-ordered raw scores.
+- `normalized_logit` — `logit_i - mean(logit)`. Mean-centered, NOT softmaxed,
+  because `softmax(logit) == prob` already (logit and logprob differ only by the
+  log-partition constant, which softmax cancels), so a softmax form is redundant;
+  centering preserves the raw confidence scale while removing the row offset.
+- `inv_ppl` — `exp(logprob)`, the option token's full-vocab probability mass
+  (inverse single-token perplexity).
 
-Stored as a `SesgoLabelDistribution` with `n=1`. The softmax already sums to 1,
-so no renormalization is needed.
+Plus `entropy`/`diversity` over `prob` and `predicted` (argmax, ties → UNKNOWN).
 
 ## Level 2 — Thinking (sampled reasoning)
 
@@ -57,18 +65,21 @@ Draw `n_thinking_samples` generations with `temperature > 0`. Parse each via
 3. Map the chosen position through `position_labels` → a `SesgoLabel`; `None` if
    undetectable.
 
-Drop the `None`s, count the survivors per role, and build a
-`SesgoLabelDistribution` via `from_counts(c_target, c_other, c_unknown, n)` where
-`n` = #parsed. When `n == 0` the distribution is all-zero and `predicted_thinking`
+Drop the `None`s and pass the surviving picks to `summarize_labels(labels)`,
+which builds a `SesgoThinking`: per role, the one-hot indicator across draws; its
+mean is the pick fraction (`mean`) and its honest POPULATION std is `std`
+(== sqrt(p·(1-p)) for a Bernoulli, but computed directly). `sample_size` = #parsed.
+When `sample_size == 0`, `mean`/`std` are zero vectors and `predicted_thinking`
 returns `None`.
 
-## Distribution math (`src.common.math`)
+## Summary math (`src.common.math`)
 
-- `predicted_label` = argmax of `(p_target, p_other, p_unknown)`; a non-unique
-  max → UNKNOWN (an indecisive readout is not a bias signal).
-- `entropy` over the role distribution: `probs_to_logprobs(probs)` then
-  `shannon_entropy(...)`, consistent with the rest of the codebase. Counts are
-  normalized inside `from_counts`; non-thinking probs come pre-normalized.
+- `predicted` = argmax of the role vector (`prob` non-thinking, `mean` thinking);
+  a non-unique max → UNKNOWN (an indecisive readout is not a bias signal).
+- Non-thinking `entropy`/`diversity` over `prob`: `probs_to_logprobs(prob)` then
+  `shannon_entropy` / `q_diversity(..., 1.0)`, consistent with the codebase.
+- Thinking `mean` reuses `aggregate(indicators, AggregationMethod.MEAN)`; `std`
+  is the population std of those same indicators.
 
 ## Output
 

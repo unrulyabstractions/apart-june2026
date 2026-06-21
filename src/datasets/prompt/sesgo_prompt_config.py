@@ -32,7 +32,10 @@ class SesgoPromptConfig(BaseSchema):
     all_permutations: bool = True
     # Whether to also emit the no-scaffold (baseline) condition per item.
     include_no_scaffold: bool = True
-    choice_prefix: str = "Answer: "
+    # Optional grid-wide override for the answer cue. Left None so the generator
+    # derives it from each item's language ("Answer: " / "Respuesta: "); set a
+    # string only to force one cue across both languages.
+    choice_prefix: str | None = None
     # Source provenance only; the caller loads items with these.
     categories: list[str] = field(default_factory=list)
     languages: list[str] = field(default_factory=list)

@@ -15,6 +15,7 @@ from itertools import permutations, product
 from src.datasets.sesgo import SesgoItem, SesgoLabel
 from .sesgo_prompt_config import SesgoPromptConfig
 from .sesgo_prompt_dataset import SesgoPromptDataset
+from .sesgo_prompt_localization import sesgo_choice_prefix, sesgo_markers
 from .sesgo_prompt_sample import SesgoPromptSample
 from .sesgo_scaffold import Scaffold
 
@@ -24,14 +25,20 @@ _CANONICAL_ROLES = (SesgoLabel.OTHER, SesgoLabel.TARGET, SesgoLabel.UNKNOWN)
 
 
 def _render(scaffold: Scaffold | None, item: SesgoItem, markers, roles, prefix) -> str:
-    """Render one prompt: optional scaffold, then context/question/3 options."""
+    """Render one prompt: optional scaffold, then context/question/3 options.
+
+    Section markers are localized to the item's language so a Spanish item reads
+    as one coherent Spanish prompt; the option text itself is already authored
+    in that language.
+    """
     preamble = f"{scaffold.text(item.language)}\n\n" if scaffold else ""
+    ctx_marker, q_marker, opt_marker = sesgo_markers(item.language)
     texts = _role_texts(item)
     options = "\n".join(f"{markers[i]} {texts[roles[i]]}" for i in range(3))
     return (
-        f"{preamble}##context\n{item.context}\n"
-        f"##question\n{item.question}\n"
-        f"##options\n{options}\n"
+        f"{preamble}{ctx_marker}\n{item.context}\n"
+        f"{q_marker}\n{item.question}\n"
+        f"{opt_marker}\n{options}\n"
         f"{prefix}"
     )
 
@@ -85,7 +92,9 @@ class SesgoPromptDatasetGenerator:
 
     def _build(self, item, scaffold, roles, markers, idx) -> SesgoPromptSample:
         """Render one cell and capture its role-decoding metadata."""
-        prefix = self.config.choice_prefix
+        # Default to the language-derived cue so es prompts teacher-force
+        # "Respuesta: "; an explicit config override wins if one is set.
+        prefix = self.config.choice_prefix or sesgo_choice_prefix(item.language)
         text = _render(scaffold, item, markers, roles, prefix)
         return SesgoPromptSample(
             sample_idx=idx,

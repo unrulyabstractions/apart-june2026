@@ -16,16 +16,25 @@ from ..common.choice import TernaryChoice
 from ..common.profiler import profile
 
 
-def _divergent_logprobs(
+def _divergent_scores(
     trajs: list[GeneratedTrajectory],
-) -> tuple[float, float, float]:
-    """Read each trajectory's conditional logprob at the divergence position.
+) -> tuple[tuple[float, float, float], tuple[float, float, float]]:
+    """Read each option's conditional logprob AND raw logit at the divergence.
 
     The three forced continuations share `effective_prefix`, so their token-id
     sequences are identical up to the option-label token. The divergence
     position is the FIRST index where the three sequences are not all equal —
     that index holds each label's option-label token, and traj.logprobs[i] is
     its conditional logprob P(label_token | prompt + prefix).
+
+    Raw logits: because the three continuations share the prefix, the full-vocab
+    row that PREDICTS the divergent token (full_logits[div_pos]) is identical
+    across all three trajectories. We therefore read that ONE shared row (from
+    trajs[0]) and index each option's first-divergent token id into it to get
+    the raw logit. logprobs is already log_softmax of that same row at each
+    token, so the two are consistent by construction.
+
+    Returns (logprobs, logits), each a 3-tuple in label order.
     """
     id_seqs = [t.token_ids for t in trajs]
     min_len = min(len(s) for s in id_seqs)
@@ -39,11 +48,17 @@ def _divergent_logprobs(
 
     # logprobs[div_pos] is conditioned on the shared prefix, so the three are
     # directly comparable as P(label) and can be softmaxed.
-    return (
+    logprobs = (
         float(trajs[0].logprobs[div_pos]),
         float(trajs[1].logprobs[div_pos]),
         float(trajs[2].logprobs[div_pos]),
     )
+
+    # full_logits[div_pos] is the shared predicting row; index each option's own
+    # divergent token id to recover its RAW logit (same row for all three).
+    shared_row = trajs[0].full_logits[div_pos]
+    logits = tuple(float(shared_row[seq[div_pos]]) for seq in id_seqs)
+    return logprobs, logits
 
 
 class TernaryChoiceRunner(ModelRunner):
@@ -74,8 +89,9 @@ class TernaryChoiceRunner(ModelRunner):
                            like ("0", "1", "2") or ("a", "b", "c").
 
         Returns:
-            TernaryChoice with the labels and three divergent conditional
-            logprobs (softmax → probs, argmax → choice_idx).
+            TernaryChoice with the labels, three divergent conditional logprobs,
+            and the three raw logits of those tokens from the shared predicting
+            row (softmax of logprobs → probs, argmax → choice_idx).
         """
         templated_prompt = self.apply_chat_template(prompt)
 
@@ -90,9 +106,9 @@ class TernaryChoiceRunner(ModelRunner):
         ]
 
         trajs = self._run_triple(ids_list)
-        logprobs = _divergent_logprobs(trajs)
+        logprobs, logits = _divergent_scores(trajs)
 
-        return TernaryChoice(labels=tuple(labels), logprobs=logprobs)
+        return TernaryChoice(labels=tuple(labels), logprobs=logprobs, logits=logits)
 
     @profile("_run_triple")
     def _run_triple(

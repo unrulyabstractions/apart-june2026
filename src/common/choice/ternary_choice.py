@@ -1,12 +1,13 @@
 """Ternary (3-way) choice result.
 
 A TernaryChoice records the three divergent conditional logprobs the model
-assigned to three option-label tokens (under teacher forcing) and derives a
+assigned to three option-label tokens (under teacher forcing), the raw model
+logits of those same tokens (from the one shared predicting row), and derives a
 probability distribution over the options via a 3-way softmax. This is the
 N=3 generalization of SimpleBinaryChoice: where binary compares two logprobs
 at the fork, ternary softmaxes over three.
 
-Kept as a clean BaseSchema (only the labels + the three scalar logprobs are
+Kept as a clean BaseSchema (labels + three logprobs + three logits are the only
 identity fields — no heavy tensors), so it serializes/roundtrips cheaply.
 """
 
@@ -29,10 +30,17 @@ class TernaryChoice(BaseSchema):
         labels:   The three option labels, e.g. ("0", "1", "2").
         logprobs: Conditional logprobs of each label's option-label token at
             the position where the three forced continuations first diverge.
+        logits:   RAW (pre-softmax) model logit of each label's first-divergent
+            token, read from the SAME shared predicting row. Because all three
+            forced continuations share the prefix up to divergence, that
+            full-vocab row is identical across the three trajectories, so these
+            logits are directly comparable. logprobs == log_softmax(full row)
+            indexed at each token; logits are that full row's raw values.
     """
 
     labels: tuple[str, str, str]
     logprobs: tuple[float, float, float]
+    logits: tuple[float, float, float]
 
     @property
     def probs(self) -> tuple[float, float, float]:

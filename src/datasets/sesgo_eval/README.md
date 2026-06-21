@@ -13,8 +13,8 @@ This is the SESGO counterpart of `src/datasets/risk/`; the loader package
 
 | Level | How | Output |
 |-------|-----|--------|
-| **Non-thinking** | Teacher-force the three option markers past an empty `<think></think>` block (`TernaryChoiceRunner.choose3`) — no reasoning. | A 3-way softmax over the displayed POSITIONS, **remapped to ROLES** via `position_labels` → `(p_target, p_other, p_unknown)`, `n=1`. |
-| **Thinking** | Sample `n_thinking_samples` free-form generations (`temperature > 0`), parse which role each chose, count them. | An empirical role distribution `counts / n_parsed` (`n` = #parsed draws, may be 0). |
+| **Non-thinking** | Teacher-force the three option markers past an empty `<think></think>` block (`TernaryChoiceRunner.choose3`) — no reasoning. | A `SesgoNonThinking`: five per-option vectors (`prob`, `logprob`, `logit`, `normalized_logit`, `inv_ppl`), each length-3 in role order [TARGET, OTHER, UNKNOWN], **remapped from POSITIONS** via `position_labels`, plus `entropy`/`diversity`/`predicted`. |
+| **Thinking** | Sample `n_thinking_samples` free-form generations (`temperature > 0`), parse which role each chose. | A `SesgoThinking`: per-role `mean` (pick fraction) and `std` (population std of the one-hot indicator), `sample_size` (#parsed, may be 0), `predicted`. |
 
 Levels run per prompt according to `SesgoQueryConfig` (`do_non_thinking`,
 `do_thinking`).
@@ -23,11 +23,11 @@ Levels run per prompt according to `SesgoQueryConfig` (`do_non_thinking`,
 
 The prompt generator emits all 6 role↔position orderings, so the slot a model
 picks is meaningless on its own. For each displayed position `i`,
-`sample.position_labels[i]` says which role sits there. Non-thinking adds
-`c.probs[i]` to that role's bucket; thinking maps the chosen position through
-the same tuple. The result is a role distribution that is invariant to ordering,
-which is exactly what defeats position bias. `predicted_label` = argmax role,
-**ties → UNKNOWN**.
+`sample.position_labels[i]` says which role sits there. Non-thinking scatters
+each position's scores into that role's slot (`SesgoNonThinking.from_ternary`);
+thinking maps the chosen position through the same tuple before summarizing. The
+result is invariant to ordering, which is exactly what defeats position bias.
+`predicted` = argmax role, **ties → UNKNOWN**.
 
 ## Thinking parse (`parse_chosen_label`)
 
@@ -46,11 +46,28 @@ Every axis is a flat field for slicing without a re-join: `sample_idx`,
 `question_id`, `scaffold_id`, `question_polarity`, `bias_category`, `language`,
 `label_style`, `gold_label`.
 
+## Per-option non-thinking vectors (`SesgoNonThinking`)
+
+All length-3, role order [TARGET, OTHER, UNKNOWN]:
+
+- `prob` — 3-way renormalized softmax over the option logprobs (sums to 1).
+- `logprob` — full-vocab conditional logprob of each option token.
+- `logit` — raw model logit of each option token (shared predicting row).
+- `normalized_logit` — mean-centered logits `logit_i - mean(logits)`. We center
+  rather than softmax because `softmax(logits) == prob` (logits/logprobs differ
+  only by the log-partition, which softmax cancels), so a softmax form would be
+  redundant; centering keeps the raw confidence SCALE while dropping the offset.
+- `inv_ppl` — inverse single-token perplexity `exp(logprob)` = the option
+  token's full-vocab probability mass.
+
+Plus scalars `entropy` / `diversity` (`q_diversity(probs_to_logprobs(prob), 1)`)
+and `predicted` (argmax `prob`, ties → UNKNOWN).
+
 ## Math reused (`src.common.math` — not reimplemented)
 
-`probs → probs_to_logprobs → shannon_entropy` for the entropy of a role
-distribution; `from_counts` normalizes thinking counts. Non-thinking probs are
-already normalized by the softmax.
+`probs_to_logprobs → shannon_entropy` / `q_diversity` for entropy/diversity;
+`normalize_log_probs` for the 3-way softmax; `aggregate(..., MEAN)` for the
+thinking pick fractions. Non-thinking `prob` is already normalized by the softmax.
 
 ## Public API
 
@@ -59,7 +76,8 @@ already normalized by the softmax.
 | `SesgoQueryConfig` | Query knobs (samples, temperature, tokens, which levels, subsample). |
 | `SesgoQuerier` | `query_sample(prompt_sample, runner)` and `query_dataset(prompt_dataset, model_name)`. |
 | `SesgoSample` | Per-prompt record: color-by axes + `non_thinking` + `thinking`. |
-| `SesgoLabelDistribution` | 3-way role distribution with `predicted_label`, `entropy`, `as_tuple`. |
+| `SesgoNonThinking` | Per-option vectors (`prob`/`logprob`/`logit`/`normalized_logit`/`inv_ppl`) + `entropy`/`diversity`/`predicted`; `from_ternary(choice, position_labels)`. |
+| `SesgoThinking` | Per-role `mean`/`std` + `sample_size` + `predicted`; `summarize_labels(labels)`. |
 | `parse_chosen_label` | Parse one generation into a chosen `SesgoLabel` (or `None`). |
 | `SesgoDataset` | `model` + `config` + `samples`; `save_as_json` / inherited `from_json`. |
 

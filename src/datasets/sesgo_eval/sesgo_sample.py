@@ -16,7 +16,8 @@ from dataclasses import dataclass
 
 from src.common import BaseSchema
 from src.datasets.sesgo import SesgoLabel
-from .sesgo_label_distribution import SesgoLabelDistribution
+from .sesgo_non_thinking import SesgoNonThinking
+from .sesgo_thinking import SesgoThinking
 
 
 @dataclass
@@ -32,22 +33,22 @@ class SesgoSample(BaseSchema):
     label_style: str
     gold_label: SesgoLabel
     prompt_text: str
-    non_thinking: SesgoLabelDistribution | None = None
-    thinking: SesgoLabelDistribution | None = None
+    non_thinking: SesgoNonThinking | None = None
+    thinking: SesgoThinking | None = None
     # Heavy/private: raw generations are excluded from identity and to_dict.
     _thinking_completions: list[str] | None = None
 
     @property
     def predicted_non_thinking(self) -> SesgoLabel | None:
         """Argmax role from the teacher-forced readout, if present."""
-        return self.non_thinking.predicted_label if self.non_thinking else None
+        return self.non_thinking.predicted if self.non_thinking else None
 
     @property
     def predicted_thinking(self) -> SesgoLabel | None:
         """Argmax role over the parsed draws; None when no draw parsed (n == 0)."""
-        if self.thinking is None or self.thinking.n == 0:
+        if self.thinking is None or self.thinking.sample_size == 0:
             return None
-        return self.thinking.predicted_label
+        return self.thinking.predicted
 
     @property
     def correct_non_thinking(self) -> bool:
