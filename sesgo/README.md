@@ -151,6 +151,18 @@ uv run python sesgo/baseline/visualize_baseline_cross_model.py   # accuracy vs m
 ```
 Scans every `out/sesgo/baseline/<model>/` and plots the size trend per family.
 
+## 2b. Cross-model DISTRIBUTION comparisons (6 figures)
+```bash
+uv run python sesgo/baseline/visualize_cross_model_distributions.py
+```
+Scans the same `out/sesgo/baseline/<model>/` dirs and renders six size-ordered
+distributional comparisons to `out/sesgo/baseline/cross_model/plots/`: outcome
+(role) mass `outcome_distribution.png`, abstention spread `abstention_spread.png`,
+per-bias-category abstention `category_abstention_heatmap.png`, the target-vs-other
+bias gap `target_other_gap.png`, three-readout agreement `readout_agreement.png`,
+and disambiguated soft-accuracy `disambig_accuracy_spread.png`. Partial runs are
+flagged (`*` + `n=`); models whose 3-opt readout collapsed to uniform are skipped.
+
 ## 3. Run the sweep on the cloud (Vast.ai, parallel, one right-sized GPU/model)
 ```bash
 FLEET_CONFIRM=1 bash cloud/fleet_launch.sh                 # create all boxes concurrently

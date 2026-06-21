@@ -421,3 +421,20 @@ Okabe-Ito, Wilson CIs + n. NO cloud. Do NOT touch paper/.
 
 ## Verify: uv run driver; VIEW each PNG; iterate if cramped.
 ## Commit: branch, fetch+rebase origin/main, stage ONLY new viz files; NOT paper/.
+
+## Review (DONE 2026-06-21)
+- 6 figures -> out/sesgo/baseline/cross_model/plots/: outcome_distribution,
+  abstention_spread, category_abstention_heatmap, target_other_gap,
+  readout_agreement, disambig_accuracy_spread. All viewed + iterated (rotated
+  x-labels fixed overlap; disambig switched from Bernoulli 0/1 to soft p(gold)).
+- 4 new modules + 1 driver (all <=147 lines, unique multi-word names, BaseSchema,
+  Okabe-Ito, Wilson CIs + n, top-level imports, ruff clean). sesgo/README.md updated.
+- DATA FINDING: gemma-2-27b-it baseline is a BROKEN run (3-opt probs all uniform
+  [.33,.33,.33], greedy 100% unparseable) -> auto-detected + SKIPPED (not plotted).
+  12 healthy models plotted; Qwen3-32B (1376) flagged partial `*`.
+- HEADLINE: UNKNOWN (abstention) mass rises with scale (Qwen 0.72->0.94; gemma
+  0.83->0.89; Mistral 0.51->0.96) but NON-monotonically — small Llamas barely
+  abstain (1B 0.27). The bias gap (target-other acc) is large & signed on small
+  models (Llama-1B +0.40, Qwen-1.7B -0.23, Qwen-4B/-32B ~-0.18) and shrinks toward
+  0 for most big models. 3-opt vs greedy abstention mostly agree but diverge
+  sharply on Mistral-24B (3-opt 0.98 vs greedy 0.67); 2-opt is structurally 0.
