@@ -1,14 +1,15 @@
 """Capture residual-stream geometry while answering SESGO prompts.
 
 Run-by-path driver for the SESGO GEOMETRY half. For every prompt it (1) runs the
-normal SesgoQuerier readout (non-thinking 3-way + thinking draws) and (2)
-teacher-forces the answer sequence and snapshots the FULL per-layer residual
-stream ([n_layers, d_model]) at four structural token positions:
+normal SesgoQuerier readout (non-thinking 3-way + thinking draws) and (2) follows
+the model's GREEDY NON-THINKING answer path (greedy decode past an empty
+<think></think> block) and snapshots the FULL per-layer residual stream
+([n_layers, d_model]) at four structural token positions:
 
     turn         - the last <|im_start|> (the assistant turn boundary)
     think_open   - the <think> token of the skip-thinking prefix
     think_close  - the </think> token
-    answer       - the option-marker token the model is forced to emit
+    answer       - the first greedily-generated answer token
 
 Each snapshot is torch.save'd under out/sesgo/geometry/<MODEL>/activations/ and
 referenced (by relative path only) from a GeometrySample, so the samples.json
@@ -55,6 +56,10 @@ from src.ternary_choice import TernaryChoiceRunner  # noqa: E402
 # Structural positions we look for, in capture order. think_* exist only for
 # reasoning models (skip-thinking prefix); missing ones are logged and skipped.
 _POSITION_TYPES = ("turn", "think_open", "think_close", "answer")
+
+# Tokens to greedily decode for the non-thinking answer path. We only need the
+# answer token (the first generated token); a few extra give a stable sequence.
+_GREEDY_TOKENS = 24
 
 
 def load_prompt_dataset(path: Path, subsample: float) -> SesgoPromptDataset:
@@ -163,35 +168,37 @@ def find_positions(
 def capture_activations(
     runner: TernaryChoiceRunner,
     prompt: SesgoPromptSample,
-    non_thinking,
     layers: list[int],
     sample_dir: Path,
     rel_root: Path,
 ) -> tuple[list[GeometryActivation], list[str]]:
-    """Teacher-force the answer, snapshot residuals at the structural positions.
+    """Snapshot residuals along the model's GREEDY NON-THINKING answer path.
 
-    The forced sequence contains the target tokens: chat-templated prompt +
-    skip-thinking prefix + choice prefix + the answer marker. We pick the answer
-    marker from the non-thinking greedy/argmax option (the role the model would
-    emit), falling back to position 0 when that's unavailable. Returns the
-    captured GeometryActivations plus the list of position types NOT found.
+    Rather than teacher-forcing a chosen marker, we let the model produce its own
+    answer: greedily decode (temperature 0) past the empty <think></think> block
+    (skip-thinking prefill), then run one forward pass over that realized sequence
+    (chat-templated prompt + skip-thinking prefix + choice prefix + greedy answer)
+    and snapshot the per-layer residual stream at the structural positions. The
+    "answer" position is the first generated token. Returns the captured
+    GeometryActivations plus the position types NOT found.
     """
-    # Which displayed option is the "answer": prefer the non-thinking argmax
-    # role, mapped back to its displayed position; else fall back to position 0.
-    answer_pos = 0
-    if non_thinking is not None and non_thinking.predicted in prompt.position_labels:
-        answer_pos = prompt.position_labels.index(non_thinking.predicted)
-    answer_marker = prompt.option_labels[answer_pos]
-
     prefix = prompt.choice_prefix or "Answer: "
     templated = runner.apply_chat_template(prompt.text)
     head = templated + runner.skip_thinking_prefix + prefix
-    forced = head + answer_marker
+    # The model's own greedy non-thinking continuation (new tokens after the
+    # skip-thinking + choice prefix). Deterministic, so it matches the querier's
+    # non-thinking greedy decode.
+    greedy = runner.generate(
+        prompt.text,
+        max_new_tokens=_GREEDY_TOKENS,
+        temperature=0.0,
+        prefilling=runner.skip_thinking_prefix + prefix,
+    )
+    forced = head + greedy
     ids = runner.encode_ids(forced, add_special_tokens=True)
-    # The answer-marker token is the FIRST index where the forced sequence
-    # diverges from the prefix-only sequence (same divergence trick choose3
-    # uses). This is robust to leading-space BPE merges that re-tokenize the
-    # prefix's last token once the marker is appended (" a" != "a").
+    # The answer token is the FIRST generated token = the first index where the
+    # full sequence diverges from the prefix-only one (divergence trick choose3
+    # uses; robust to leading-space BPE merges, " a" != "a").
     head_ids = runner.encode_ids(head, add_special_tokens=True)
     answer_start = next(
         (i for i in range(min(len(head_ids), len(ids))) if head_ids[i] != ids[i]),
@@ -293,7 +300,7 @@ def main() -> None:
     for i, prompt in enumerate(prompt_dataset.samples):
         sesgo = querier.query_sample(prompt, runner)
         activations, missing = capture_activations(
-            runner, prompt, sesgo.non_thinking, layers, act_dir, out_root
+            runner, prompt, layers, act_dir, out_root
         )
         for a in activations:
             found_counter[a.position_type] += 1
