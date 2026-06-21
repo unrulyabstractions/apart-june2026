@@ -49,13 +49,28 @@ def _gpu_for(params_b: float) -> tuple[str, float]:
     return "H100_PCIE", 3.20
 
 
-# The default SESGO fleet. Small instruct models -> one 4090 box each. Edit shards
-# upward for a slow/large model to split its grid across several boxes.
+# The SESGO baseline size-sweep fleet: size ladders per family so we can read the
+# size trend. _gpu_for right-sizes each (<=8B->4090, <=16B->A100, else H100). All
+# single-shard (a 32B fits one H100 80GB); bump shards for a slow model if needed.
 _DEFAULT_MODELS: list[tuple[str, float, int]] = [
-    ("meta-llama/Llama-3.2-1B-Instruct", 1.2, 1),
-    ("google/gemma-2-2b-it", 2.6, 1),
-    ("mistralai/Mistral-7B-Instruct-v0.3", 7.2, 1),
+    # Qwen3 dense ladder
     ("Qwen/Qwen3-0.6B", 0.6, 1),
+    ("Qwen/Qwen3-1.7B", 1.7, 1),
+    ("Qwen/Qwen3-4B", 4.0, 1),
+    ("Qwen/Qwen3-8B", 8.0, 1),
+    ("Qwen/Qwen3-14B", 14.0, 1),
+    ("Qwen/Qwen3-32B", 32.0, 1),
+    # Llama 3.x
+    ("meta-llama/Llama-3.2-1B-Instruct", 1.2, 1),
+    ("meta-llama/Llama-3.2-3B-Instruct", 3.2, 1),
+    ("meta-llama/Llama-3.1-8B-Instruct", 8.0, 1),
+    # Gemma 2
+    ("google/gemma-2-2b-it", 2.6, 1),
+    ("google/gemma-2-9b-it", 9.2, 1),
+    ("google/gemma-2-27b-it", 27.0, 1),
+    # Mistral
+    ("mistralai/Mistral-7B-Instruct-v0.3", 7.2, 1),
+    ("mistralai/Mistral-Small-24B-Instruct-2501", 24.0, 1),
 ]
 
 
