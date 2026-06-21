@@ -50,6 +50,22 @@ choice.entropy       # Shannon entropy (nats) of the distribution
 `BaseSchema`: it holds only `labels` and the three `logprobs`, so it
 serializes and round-trips (`to_dict` / `from_dict`) cheaply.
 
+### Batched: `choose3_batch`
+
+```python
+choices = runner.choose3_batch(
+    prompts,                 # N prompts
+    choice_prefixes,         # per-prompt prefix (lists, length N)
+    labels_list,             # per-prompt (l0, l1, l2) triples
+)  # -> list[TernaryChoice], one per prompt
+```
+
+Expands the N prompts into `3·N` forced continuations and runs a **single**
+batched forward pass, then slices the result into N consecutive triples scored
+exactly as `choose3` does. Per-prompt result is identical to the unbatched call
+within fp tolerance — just amortized across the batch. Used by the SESGO
+`--batch-size` path.
+
 ## Labels
 
 Labels should be **single-token-distinct** — e.g. `"0"/"1"/"2"` or

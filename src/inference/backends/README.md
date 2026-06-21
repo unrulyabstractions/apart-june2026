@@ -7,7 +7,8 @@ Unified interface for model inference across different platforms and APIs.
 | Backend | Type | Use Case |
 |---------|------|----------|
 | **MLX** | Local | Apple Silicon (fastest) |
-| **HuggingFace** | Local | CPU/GPU (most compatible) |
+| **HuggingFace** | Local | CPU/GPU (most compatible); honors an attention mask for padded batches + `generate_batch` |
+| **vLLM** | Local (CUDA only) | Cloud GPU fast path: continuous-batching `generate_batch` + teacher-forced `score_options_batch`. Not on Apple Silicon. |
 | **OpenAI** | API | GPT-4o, remote inference with logprobs |
 | **Anthropic** | API | Claude models, remote inference (no logprobs) |
 

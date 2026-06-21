@@ -37,8 +37,6 @@ import sys
 from collections import Counter
 from pathlib import Path
 
-import torch
-
 # Bootstrap the repo root onto sys.path so `from src... import ...` resolves
 # regardless of cwd. From <repo>/sesgo/geometry/x.py, parents[2] is the root.
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[2]))
@@ -51,7 +49,6 @@ from src.datasets.prompt import (  # noqa: E402
     SesgoPromptSample,
 )
 from src.datasets.sesgo_eval import (  # noqa: E402
-    GeometryActivation,
     GeometryDataset,
     GeometrySample,
     SesgoQuerier,

@@ -104,4 +104,35 @@ Batched within-box generation (vLLM CUDA fast path, HF batched verified locally)
 - [ ] VERIFY locally on Qwen3-0.6B: batched==single + faster. Cost/wall-clock table.
 
 ## Review (batching)
-(filled in at end)
+
+### What shipped
+- Within-box batching: `batched_padding_helpers.py` (left-pad + mask + offsets),
+  HF backend mask-aware `forward`/`run_with_cache` + `generate_batch`, runner
+  `generate_batch`/`compute_trajectories_batch`/`run_with_cache_batch`,
+  `choose3_batch`, `query_chunk`, `--batch-size` on all 5 collects. Geometry
+  batched capture (shared `geometry_capture_helpers.py`); `--n-thinking 0`
+  short-circuits thinking (verified).
+- vLLM CUDA backend (`vllm_batched_backend.py` + `vllm_option_scoring.py`),
+  `ModelBackend.VLLM`, `_init_vllm`, `cloud` extra in pyproject. Import-guarded;
+  raises off-CUDA. NOT run on the Mac (per constraint).
+- Parallel fleet: `fleet_sizing.py` (sizing map + shard plan), `fleet_launch.sh`
+  (concurrent create), `fleet_run.sh` (concurrent drive + self-destruct),
+  `fleet_model_run.sh`, `fleet_destroy.sh`. Sharding: `shard_slicing.py` +
+  `shard_output_paths.py` + `--shard-index/--shard-count` on all collects.
+  Concurrent-safe sync-back: `SYNC_SUBDIR` per-box quarantine, merge strips the
+  box prefix; `--ignore-existing`/no-`--delete` preserved.
+- Custom image: `cloud/Dockerfile` (torch+vLLM+deps+weights) +
+  `prefetch_model_weights.py`. Implement+document only; not built/pushed.
+
+### Local verification (Qwen3-0.6B, MPS)
+- baseline bs1 vs bs8: max|prob|=1.2e-4, max|logit|=4.7e-2, 0 greedy-label
+  mismatches (10/10 same answer).
+- selection bs1 vs bs8 (thinking): max|prob|=4.4e-5, 0 prediction mismatches,
+  42.8s -> 17.0s (2.5x).
+- geometry bs1 vs bs8 (--n-thinking 0): 0 position/token mismatches, mean
+  cos-sim >= 0.999996 across all 4 structural positions, 19.1s -> 12.6s (1.5x);
+  80 activation files both paths.
+- shard tiling: 3-way exact/disjoint/complete; sharded baseline loaded 5/10,
+  wrote shard_0_of_2/.
+- Full test suite passes (432 tests; only unrelated mental_risk fixture-missing
+  failures). ruff clean on all touched files.
