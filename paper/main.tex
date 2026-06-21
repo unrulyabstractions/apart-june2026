@@ -168,8 +168,9 @@ baseline abstention is already high ($0.95$) but only moderately stable across
 surface variants ($\bar{C}{=}0.54$), the selected
 $s^\star = \texttt{intent\_and\_register\_respect}$ is the only condition to
 abstain perfectly under both readouts, and a candidate scaffold leaves its
-largest residual-stream footprint at the answer position. Full-grid runs across
-a broader model suite are future work.
+largest residual-stream footprint at the answer position. The harness is
+model-agnostic---verified to run end-to-end on Llama, Gemma, and Mistral as
+well---and full-grid cross-model comparison is future work.
 \end{abstract}
 
 \bigskip
@@ -501,8 +502,11 @@ $12$ items $\times\,36$ surface variants $=432$ samples, selection $n{=}26$ item
 split across the five scaffold conditions, divergence $n{=}16$ scored items
 (hot-sampled, $T{=}1.0$), geometry $n{=}25$ items across two conditions---so we
 read these as a directional pilot, not as definitive large-$n$ effect estimates.
-Full-grid runs across the model suite (Llama, Gemma, Mistral) and the
-\textsc{MentalRiskES} probe are future work (see \Cref{sec:limitations}).}
+The same harness runs unchanged on \texttt{Llama-3.2-1B-Instruct},
+\texttt{gemma-2-2b-it}, and \texttt{Mistral-7B-Instruct} (verified end-to-end via
+per-family chat-template and reasoning-marker handling); full-grid
+\emph{cross-model comparison} and the \textsc{MentalRiskES} probe are future work
+(see \Cref{sec:limitations}).}
 
 \begin{figure}[t]\centering
   \begin{subfigure}{0.49\linewidth}\centering
