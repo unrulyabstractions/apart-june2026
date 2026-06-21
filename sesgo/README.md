@@ -56,12 +56,19 @@ captured mid->last layer (plus a `mean` layer-averaged cell), so depth is never
 collapsed. Alongside the per-cell projections it writes a top-level
 `layer_axis_silhouette` table — silhouette separability per (layer x colour-axis)
 at a representative late position — so one can see at what depth each axis becomes
-separable. `visualize_geometry_samples.py` renders, at the deepest captured layer:
-a `pca_by_<axis>.png` per axis from the shared `geometry_color_axes` registry
+separable. `visualize_geometry_samples.py` renders the 2D PCA scatters
+(`pca_scatter_<position>.png`, `pca_by_<axis>.png`, `pca_axes_grid.png`) at an
+ADAPTIVE feature layer chosen per model — the captured mid->last layer that
+MAXIMISES the scaffold silhouette at the answer-`label` position (where the
+structure is clearest), with a deeper-layer tie-break (within ε=0.01 of the max)
+and a last-layer fallback (see `geometry_feature_layer.py`). The title carries that
+layer + its model-relative depth (e.g. `layer 14/28 (0.50 depth)`), so the chosen
+depth is comparable ACROSS model sizes by structure rather than absolute index.
+The per-axis panels come from the shared `geometry_color_axes` registry
 (categorical axes -> discrete legend; the continuous answer-distribution signals —
 top-choice prob/logit, entropy, diversity, inverse perplexity -> sequential
-colormap + colorbar), the small-multiples `pca_axes_grid.png`, and two layer-aware
-depth views: `silhouette_by_layer_axis.png` (the layer x axis heatmap) and
+colormap + colorbar). Two layer-aware depth views intentionally show ALL depths:
+`silhouette_by_layer_axis.png` (the layer x axis heatmap) and
 `silhouette_layer_sweep.png` (silhouette-vs-layer for the key axes accuracy /
 context_condition / selected_role / scaffold). To add a colour-by axis, add ONE
 `ColorAxis` row to `sesgo/geometry/geometry_color_axes.py` — analysis separation

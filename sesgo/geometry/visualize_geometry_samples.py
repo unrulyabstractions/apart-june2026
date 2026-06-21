@@ -16,9 +16,12 @@ BEHAVIOURAL (read directly from response_samples.json):
 
 GEOMETRY (from analysis/projections.json; run analyze_geometry.py first):
   pca_scatter_<position>.png : PC1-PC2 scatter coloured by scaffold, centroids +
-    baseline->interpretive shift arrow, at every structural position (at the
-    deepest captured / representative late layer).
-  pca_by_<axis>.png / pca_axes_grid.png : the SAME late-layer answer projection
+    baseline->interpretive shift arrow, at every structural position, rendered at
+    the ADAPTIVE feature layer (the captured mid->last layer that maximises the
+    scaffold silhouette at the answer-label position — where the structure is
+    clearest). The title carries that layer + its model-relative depth (e.g.
+    "layer 31/36 (0.86 depth)") so the chosen depth is comparable across sizes.
+  pca_by_<axis>.png / pca_axes_grid.png : the SAME feature-layer answer projection
     recoloured by EVERY axis in the shared geometry_color_axes registry —
     CATEGORICAL axes (scaffold, origin, language, bias category, question polarity,
     context condition, accuracy, selected/gold role, readout, identities, gold,
@@ -65,6 +68,10 @@ from sesgo.geometry.geometry_color_axes import (  # noqa: E402
     COLOR_AXES,
     KEY_SWEEP_AXIS_KEYS,
     SCAFFOLD_AXIS_KEY,
+)
+from sesgo.geometry.geometry_feature_layer import (  # noqa: E402
+    FeatureLayer,
+    select_feature_layer,
 )
 from sesgo.geometry.geometry_layer_plot_helpers import (  # noqa: E402
     draw_continuous_scatter,
@@ -125,19 +132,21 @@ def _ordered_scaffolds(labels: set[str]) -> list[str]:
     return ([BASELINE] if BASELINE in labels else []) + rest
 
 
-def _representative_layer(results: dict) -> str:
-    """The deepest captured INTEGER layer (a late-layer view) for the scatters.
+def _resolve_feature_layer(results: dict) -> FeatureLayer:
+    """Adaptively pick the scatter layer = where the scaffold structure is clearest.
 
-    Answer/task representations crystallise late, so the per-axis recolour panels
-    use the deepest captured layer rather than a layer-mean cloud. Falls back to
-    "mean", then the first available layer key, when no integer layer is present.
+    Delegates to the shared ``select_feature_layer`` helper (DRY), which reads the
+    precomputed per-(layer, position) silhouettes at the answer-``_AXIS_PANEL_POSITION``
+    and returns the captured layer maximising scaffold separability (deeper on a
+    near-tie; deepest captured layer if separations are missing). When no integer
+    layer exists at all, degrades to the "mean" cloud (then the first key) so the
+    scatters still render with a sensible (non-depth) title.
     """
-    int_layers = sorted((L for L in results if L.lstrip("-").isdigit()), key=int)
-    if int_layers:
-        return int_layers[-1]
-    if "mean" in results:
-        return "mean"
-    return next(iter(results))
+    feat = select_feature_layer(results, _AXIS_PANEL_POSITION)
+    if feat is not None:
+        return feat
+    fallback_key = "mean" if "mean" in results else next(iter(results))
+    return FeatureLayer(fallback_key, -1, 0, 0.0, None, by_silhouette=False)
 
 
 # ── PCA scatter (coloured by scaffold, with shift arrow) ──────────────────────
@@ -171,7 +180,7 @@ def _draw_centroid_shift(ax, stats: dict, ordered: list[str]) -> None:
                               alpha=0.85), zorder=7)
 
 
-def plot_pca_scatter(block: dict, ptype: str, layer: str, model: str, out_path: Path) -> Path:
+def plot_pca_scatter(block: dict, ptype: str, feat: FeatureLayer, model: str, out_path: Path) -> Path:
     """PC1-PC2 scatter coloured by scaffold, with centroids + shift arrow."""
     coords = np.asarray([s["coord2d"] for s in block["samples"]], dtype=float)
     labels = [s["scaffold_id"] or BASELINE for s in block["samples"]]
@@ -207,7 +216,7 @@ def plot_pca_scatter(block: dict, ptype: str, layer: str, model: str, out_path: 
     ax.set_ylabel(f"PC2  ({evr[1]:.0%} explained variance)" if len(evr) > 1 else "PC2")
 
     sil = stats.get("silhouette")
-    subtitle = f"layer={layer}, n={block['n_samples']}"
+    subtitle = f"{feat.title_suffix()}, n={block['n_samples']}"
     if sil is not None:
         lo, hi = stats.get("silhouette_ci_low"), stats.get("silhouette_ci_high")
         subtitle += f", scaffold silhouette={sil:.2f}"
@@ -259,7 +268,7 @@ def _draw_one_axis(ax, block: dict, axis, evr: list[float]):
     return None, draw_axis_scatter(ax, coords, vals, evr)
 
 
-def plot_pca_by_axis(block: dict, axis, layer: str, model: str, out_path: Path) -> Path:
+def plot_pca_by_axis(block: dict, axis, feat: FeatureLayer, model: str, out_path: Path) -> Path:
     """Standalone PC1-PC2 scatter of the answer projection coloured by one axis."""
     evr = block["explained_variance_ratio"]
     fig, ax = plt.subplots(figsize=(8, 6.5))
@@ -268,7 +277,7 @@ def plot_pca_by_axis(block: dict, axis, layer: str, model: str, out_path: Path) 
         ax.text(0.99, 0.01, f"{n_off} outlier point(s) off-view",
                 transform=ax.transAxes, ha="right", va="bottom", fontsize=8,
                 color="#777777", style="italic")
-    subtitle = f"@ {_AXIS_PANEL_POSITION}, layer={layer}, n={block['n_samples']}"
+    subtitle = f"@ {_AXIS_PANEL_POSITION}, {feat.title_suffix()}, n={block['n_samples']}"
     if mappable is not None:
         fig.colorbar(mappable, ax=ax, fraction=0.046, pad=0.02, label=axis.pretty)
     else:
@@ -285,7 +294,7 @@ def plot_pca_by_axis(block: dict, axis, layer: str, model: str, out_path: Path) 
     return finish(fig, out_path)
 
 
-def plot_axes_grid(block: dict, layer: str, model: str, out_path: Path) -> Path:
+def plot_axes_grid(block: dict, feat: FeatureLayer, model: str, out_path: Path) -> Path:
     """Small-multiples grid: the answer projection recoloured by EVERY axis."""
     evr = block["explained_variance_ratio"]
     n = len(_AXES)
@@ -307,7 +316,7 @@ def plot_axes_grid(block: dict, layer: str, model: str, out_path: Path) -> Path:
     for ax in flat[n:]:
         ax.axis("off")
     fig.suptitle(wrapped(f"SESGO answer-position geometry by every axis  ({model}, "
-                         f"layer={layer}, n={block['n_samples']})", 78),
+                         f"{feat.title_suffix()}, n={block['n_samples']})", 78),
                  fontsize=13, fontweight="bold")
     return finish(fig, out_path)
 
@@ -362,8 +371,9 @@ def plot_centroid_shift_bars(results: dict, model: str, out_path: Path) -> Path:
     return finish(fig, out_path)
 
 
-def plot_silhouette_separability(results: dict, layer: str, model: str, out_path: Path) -> Path:
-    """Per-axis silhouette separability at the representative layer/position."""
+def plot_silhouette_separability(results: dict, feat: FeatureLayer, model: str, out_path: Path) -> Path:
+    """Per-axis silhouette separability at the feature layer / answer position."""
+    layer = feat.layer_key
     block = results[layer].get(_AXIS_PANEL_POSITION) or next(
         (results[layer][p] for p in _POSITIONS if p in results[layer]), None)
     if block is None:
@@ -393,14 +403,15 @@ def plot_silhouette_separability(results: dict, layer: str, model: str, out_path
     ax.set_xticklabels([p[0].replace("_", "\n") for p in pairs], fontsize=8.5)
     ax.set_ylabel("silhouette separability\n(full PCA space)")
     ax.set_title(wrapped(f"Which axis separates the representation @ "
-                         f"{_AXIS_PANEL_POSITION}, layer={layer}  "
+                         f"{_AXIS_PANEL_POSITION}, {feat.title_suffix()}  "
                          f"({model}, n={block['n_samples']})", 64)
                  + "\nscaffold axis shows bootstrap 95% CI")
     return finish(fig, out_path)
 
 
-def plot_explained_variance(results: dict, layer: str, model: str, out_path: Path) -> Path:
-    """Grouped bars of EV%(PC1..3) per position at the representative layer."""
+def plot_explained_variance(results: dict, feat: FeatureLayer, model: str, out_path: Path) -> Path:
+    """Grouped bars of EV%(PC1..3) per position at the feature layer."""
+    layer = feat.layer_key
     cells = results[layer]
     positions = [p for p in _POSITIONS if p in cells]
     n_pc = 3
@@ -423,7 +434,7 @@ def plot_explained_variance(results: dict, layer: str, model: str, out_path: Pat
     ax.set_xlabel("structural position")
     ax.set_ylabel("explained variance ratio")
     cum_note = ",  ".join(f"{p} {c:.0%}" for p, c in zip(positions, cum3))
-    ax.set_title(wrapped(f"PCA explained variance (PC1-3) @ layer={layer}  ({model})", 64)
+    ax.set_title(wrapped(f"PCA explained variance (PC1-3) @ {feat.title_suffix()}  ({model})", 64)
                  + "\n" + wrapped(f"cumulative PC1-3:  {cum_note}", 70), fontsize=11.5)
     ax.legend(title="component", frameon=True)
     return finish(fig, out_path)
@@ -463,17 +474,17 @@ def _behavioral_plots(dataset: GeometryDataset, plots_dir: Path) -> list[Path]:
     ]
 
 
-def _per_axis_plots(cells: dict, layer: str, model: str, plots_dir: Path) -> list[Path]:
-    """Recolour the late-layer answer projection by EVERY registry axis."""
+def _per_axis_plots(cells: dict, feat: FeatureLayer, model: str, plots_dir: Path) -> list[Path]:
+    """Recolour the feature-layer answer projection by EVERY registry axis."""
     panel = cells.get(_AXIS_PANEL_POSITION) or next(
         (cells[p] for p in _POSITIONS if p in cells), None)
     if panel is None:
         log("[viz] no projection cell available; skipping per-axis panels")
         return []
-    written = [plot_pca_by_axis(panel, axis, layer, model,
+    written = [plot_pca_by_axis(panel, axis, feat, model,
                                 plots_dir / f"pca_by_{axis.key}.png")
                for axis in _AXES]
-    written.append(plot_axes_grid(panel, layer, model, plots_dir / "pca_axes_grid.png"))
+    written.append(plot_axes_grid(panel, feat, model, plots_dir / "pca_axes_grid.png"))
     return written
 
 
@@ -492,23 +503,27 @@ def _geometry_plots(payload: dict, model: str, plots_dir: Path) -> list[Path]:
     """PCA scatters, per-axis panels, centroid-shift, silhouette, EV%, depth views."""
     results = payload["results"]
     written: list[Path] = []
-    layer = _representative_layer(results)
-    cells = results[layer]
+    # Adaptive scatter depth: the captured layer where the scaffold structure is
+    # clearest (comparable RELATIVE depth across model sizes), not a fixed index.
+    feat = _resolve_feature_layer(results)
+    log(f"[viz] feature layer (scatters) = {feat.title_suffix()} "
+        f"silhouette={feat.silhouette}")
+    cells = results[feat.layer_key]
     for ptype in _POSITIONS:
         block = cells.get(ptype)
         if block is None:
             log(f"[viz] no projection for position '{ptype}'; skipping its scatter")
             continue
-        written.append(plot_pca_scatter(block, ptype, layer, model,
+        written.append(plot_pca_scatter(block, ptype, feat, model,
                                         plots_dir / f"pca_scatter_{ptype}.png"))
-    written += _per_axis_plots(cells, layer, model, plots_dir)
+    written += _per_axis_plots(cells, feat, model, plots_dir)
     written += _layer_separability_plots(payload.get("layer_axis_silhouette", {}),
                                          model, plots_dir)
     written.append(plot_centroid_shift_bars(results, model,
                                             plots_dir / "centroid_shift_by_position.png"))
-    written.append(plot_silhouette_separability(results, layer, model,
+    written.append(plot_silhouette_separability(results, feat, model,
                                                 plots_dir / "silhouette_separability.png"))
-    written.append(plot_explained_variance(results, layer, model,
+    written.append(plot_explained_variance(results, feat, model,
                                             plots_dir / "explained_variance.png"))
     return written
 
