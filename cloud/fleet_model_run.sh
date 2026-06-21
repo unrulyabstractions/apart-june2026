@@ -31,8 +31,17 @@ STUDIES="${STUDIES:-baseline divergence}"
 BATCH_SIZE="${BATCH_SIZE:-32}"
 N_THINKING="${N_THINKING:-8}"
 MAX_NEW_TOKENS="${MAX_NEW_TOKENS:-512}"
+# SUBSAMPLE: fraction (0-1) of the grid to query per box. UNSET == full grid
+# (backward-compatible no-op). When set, each box subsamples the SAME strided
+# slice (deterministic) before taking its shard, so the K shards still tile one
+# subsampled grid. Only the thinking studies (divergence/selection/geometry)
+# accept --subsample; baseline/stability ignore it.
+SUBSAMPLE="${SUBSAMPLE:-}"
+# Build the optional --subsample flag once so each study case stays one line.
+SUBSAMPLE_ARG=""
+[ -n "$SUBSAMPLE" ] && SUBSAMPLE_ARG="--subsample $SUBSAMPLE"
 
-echo "[fleet_model_run] model=$MODEL shard=$SHARD_INDEX/$SHARD_COUNT studies='$STUDIES' batch=$BATCH_SIZE"
+echo "[fleet_model_run] model=$MODEL shard=$SHARD_INDEX/$SHARD_COUNT studies='$STUDIES' batch=$BATCH_SIZE subsample='${SUBSAMPLE:-full}'"
 
 # Regenerate the prompt datasets on the box (full grid; reads the synced xlsx).
 echo "[fleet_model_run] generate prompt datasets"
@@ -63,18 +72,18 @@ run_study() {
     selection)
       "$PY" sesgo/selection/collect_selection_samples.py \
         --model "$MODEL" --out-dir out --batch-size "$BATCH_SIZE" \
-        --n-thinking "$N_THINKING" --max-new-tokens "$MAX_NEW_TOKENS" $SHARD_ARGS ;;
+        --n-thinking "$N_THINKING" --max-new-tokens "$MAX_NEW_TOKENS" $SUBSAMPLE_ARG $SHARD_ARGS ;;
     divergence)
       "$PY" sesgo/divergence/collect_divergence_samples.py \
         --model "$MODEL" --out-dir out --batch-size "$BATCH_SIZE" \
-        --n-thinking "$N_THINKING" --max-new-tokens "$MAX_NEW_TOKENS" $SHARD_ARGS ;;
+        --n-thinking "$N_THINKING" --max-new-tokens "$MAX_NEW_TOKENS" $SUBSAMPLE_ARG $SHARD_ARGS ;;
     stability)
       "$PY" sesgo/stability/collect_stability_samples.py \
         --model "$MODEL" --out-dir out $SHARD_ARGS ;;
     geometry)
       "$PY" sesgo/geometry/collect_geometry_samples.py \
         --model "$MODEL" --out-dir out --batch-size "$BATCH_SIZE" \
-        --n-thinking "$N_THINKING" $SHARD_ARGS ;;
+        --n-thinking "$N_THINKING" $SUBSAMPLE_ARG $SHARD_ARGS ;;
     *) echo "[fleet_model_run] unknown study: $study" >&2; return 1 ;;
   esac
 }

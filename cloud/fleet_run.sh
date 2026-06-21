@@ -28,21 +28,47 @@ FLEET_DIR="${FLEET_DIR:-$HERE/.fleet}"
 STUDIES="${STUDIES:-baseline divergence}"   # which collects each box runs
 BATCH_SIZE="${BATCH_SIZE:-32}"              # vLLM continuous-batching width
 N_THINKING="${N_THINKING:-8}"
+# SUBSAMPLE / MAX_NEW_TOKENS pass straight through to fleet_model_run.sh on the
+# box. Both default EMPTY here so an unset value lets fleet_model_run.sh apply its
+# own default (full grid / 512 tokens) — backward-compatible no-op.
+SUBSAMPLE="${SUBSAMPLE:-}"
+MAX_NEW_TOKENS="${MAX_NEW_TOKENS:-}"
 
 [ -d "$FLEET_DIR" ] || { echo "No fleet. Run cloud/fleet_launch.sh first." >&2; exit 1; }
+
+# One instance's status, looked up across ALL pages of the account's instances.
+# The v1 instances endpoint PAGINATES (25/page); a single `--raw` page only shows
+# the first 25, so when the account already holds >25 instances (many concurrent
+# fleets), a box on a later page reads as "missing" forever and wait_running times
+# out. We therefore walk every page via next_token until the id is found.
+instance_status() {
+  INSTANCE_ID="$1" python3 -c '
+import json, os, subprocess, sys
+iid = int(os.environ["INSTANCE_ID"])
+token = None
+for _ in range(40):  # hard page cap so a runaway token loop can never hang
+    cmd = ["vastai", "show", "instances-v1", "--raw"]
+    if token:
+        cmd += ["--next-token", token]
+    try:
+        d = json.loads(subprocess.run(cmd, capture_output=True, text=True).stdout)
+    except Exception:
+        print("missing"); sys.exit()
+    rows = d if isinstance(d, list) else d.get("instances", d.get("results", []))
+    for r in rows:
+        if r.get("id") == iid:
+            print(r.get("actual_status") or r.get("cur_state") or "unknown"); sys.exit()
+    token = d.get("next_token") if isinstance(d, dict) else None
+    if not token or not rows:
+        break
+print("missing")'
+}
 
 # Wait (bounded) for a single instance to report 'running'.
 wait_running() {
   local iid="$1" i st
   for i in $(seq 1 80); do
-    st="$(vastai show instances-v1 --raw 2>/dev/null | INSTANCE_ID="$iid" python3 -c '
-import sys,json,os
-iid=int(os.environ["INSTANCE_ID"])
-d=json.load(sys.stdin)
-rows=d if isinstance(d,list) else d.get("instances", d.get("results", []))
-for r in rows:
-    if r.get("id")==iid: print(r.get("actual_status") or r.get("cur_state") or "unknown"); break
-else: print("missing")')"
+    st="$(instance_status "$iid")"
     [ "$st" = "running" ] && return 0
     sleep 15
   done
@@ -122,7 +148,7 @@ run_one() {
     INSTANCE="$iid" MODEL="$model" SHARD_INDEX="$sidx" SHARD_COUNT="$scount" \
       STUDIES="$STUDIES" BATCH_SIZE="$BATCH_SIZE" N_THINKING="$N_THINKING" \
       bash "$HERE/at_vast.sh" \
-      "HF_TOKEN='$HF_TOKEN' HF_DEVICE_MAP='$hf_device_map' MODEL='$model' SHARD_INDEX=$sidx SHARD_COUNT=$scount STUDIES='$STUDIES' BATCH_SIZE=$BATCH_SIZE N_THINKING=$N_THINKING bash cloud/fleet_model_run.sh"
+      "HF_TOKEN='$HF_TOKEN' HF_DEVICE_MAP='$hf_device_map' MODEL='$model' SHARD_INDEX=$sidx SHARD_COUNT=$scount STUDIES='$STUDIES' BATCH_SIZE=$BATCH_SIZE N_THINKING=$N_THINKING SUBSAMPLE='$SUBSAMPLE' MAX_NEW_TOKENS='$MAX_NEW_TOKENS' bash cloud/fleet_model_run.sh"
 
     # Step 5: pull THIS box's results into ITS OWN sync/box-<tag>/ quarantine.
     INSTANCE="$iid" SYNC_SUBDIR="box-$tag" bash "$HERE/sync_back.sh"
@@ -134,8 +160,8 @@ run_one() {
   echo "[$tag] finished (log: $log)"
 }
 
-export -f run_one wait_running wait_ssh sync_and_setup
-export FLEET_DIR STUDIES BATCH_SIZE N_THINKING HERE HF_TOKEN
+export -f run_one wait_running instance_status wait_ssh sync_and_setup
+export FLEET_DIR STUDIES BATCH_SIZE N_THINKING SUBSAMPLE MAX_NEW_TOKENS HERE HF_TOKEN
 
 echo ">> Driving all boxes concurrently (studies: $STUDIES, batch_size: $BATCH_SIZE)..."
 for idf in "$FLEET_DIR"/*.id; do

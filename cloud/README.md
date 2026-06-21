@@ -112,8 +112,8 @@ wall-clock ≈ the slowest single (model, shard) box, not the sum.
 |---------------------------|------------|--------------|
 | `fleet_sizing.py`         | local      | Single source of truth: model→GPU sizing map (`<=8B`→1× RTX 4090, `<=16B`→1× A100, `<=40B`→1× H100 80GB, else 2× H100 SXM) + shard plan. `python cloud/fleet_sizing.py plan` emits one TSV row per `(model, shard)` box; the trailing `num_gpus` column drives multi-GPU boxes (e.g. Llama-3.1-70B on 2× H100). |
 | `fleet_launch.sh`         | local      | Fires every `vast create` **in parallel** (background), polls concurrently. Records ids under `cloud/.fleet/<tag>.id`. **Spends money.** |
-| `fleet_run.sh`            | local      | Drives all boxes **concurrently**: per box → `sync_up` → `at_setup` → run its model+shard pipeline → safe sync-back to its own quarantine → **self-destruct**. Per-box log at `cloud/.fleet/<tag>.log`. |
-| `fleet_model_run.sh`      | **remote** | On-box per-`(model, shard)` driver: runs the batched, sharded studies (`--batch-size` drives vLLM continuous batching). |
+| `fleet_run.sh`            | local      | Drives all boxes **concurrently**: per box → `sync_up` → `at_setup` → run its model+shard pipeline → safe sync-back to its own quarantine → **self-destruct**. Per-box log at `cloud/.fleet/<tag>.log`. Passes `STUDIES`/`BATCH_SIZE`/`N_THINKING`/`SUBSAMPLE`/`MAX_NEW_TOKENS` through to the on-box driver. |
+| `fleet_model_run.sh`      | **remote** | On-box per-`(model, shard)` driver: runs the batched, sharded studies (`--batch-size` drives vLLM continuous batching). `SUBSAMPLE` (0-1, unset == full grid) threads `--subsample` into the thinking studies (divergence/selection/geometry) so a run queries a strided fraction of the grid; every shard subsamples the SAME slice before taking its shard, so the K shards still tile one subsampled grid. |
 | `fleet_destroy.sh`        | local      | Concurrent backstop teardown (in case a box hung). Needs `--yes-i-am-really-sure`. |
 
 ```bash
@@ -128,10 +128,25 @@ bash   cloud/fleet_destroy.sh --yes-i-am-really-sure   # backstop (usually a no-
 
 ### Optional dataset sharding (one model across K boxes)
 
-For the largest/slowest model, set its `shards` in `fleet_sizing.py` to K. The
-grid is split into **K disjoint, contiguous slices** (`shard_slicing.py`); box k
-runs only shard k and writes to `out/sesgo/<study>/<model>/shard_<k>_of_<K>/`.
-Default is **1 shard** (full grid, plain path) for small models.
+For the largest/slowest model, set its `shards` in `fleet_sizing.py` to K (or
+`FLEET_SHARDS=K`). The grid is split into **K disjoint, contiguous slices**
+(`shard_slicing.py`); box k runs only shard k and writes to
+`out/sesgo/<study>/<model>/shard_<k>_of_<K>/`. Default is **1 shard** (full grid,
+plain path) for small models.
+
+Each shard's `response_samples.json` is a **disjoint** slice of the same
+(optionally subsampled) grid, so they must be recombined identity-aware, NOT via
+`merge_sync.sh` (which `--ignore-existing` would keep only the first shard).
+`sesgo/geometry/combine_geometry_shards.py` does this for geometry (concatenate +
+copy activation `.pt`s); `sesgo/divergence/combine_divergence_shards.py` is the
+divergence analogue — pure sample-level, no tensors — concatenating the per-shard
+`SesgoSample`s de-duped by `sample_identity`:
+
+```bash
+uv run python sesgo/divergence/combine_divergence_shards.py Qwen3-32B
+uv run python sesgo/divergence/visualize_divergence_samples.py \
+    out/sesgo/divergence/Qwen3-32B/response_samples.json
+```
 
 ### Safe concurrent sync-back — NEVER overwrite blindly (the guarantee, under concurrency)
 
