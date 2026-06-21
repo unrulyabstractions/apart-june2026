@@ -32,6 +32,14 @@ fi
 echo "[at_setup] uv sync"
 uv sync
 
+# uv sync pulls the LATEST torch wheel (currently a +cu130 build) which fails CUDA
+# init on Vast hosts whose driver predates CUDA 13 (the fleet draws hosts on
+# 12.2..13). A CUDA 11.8 build is forward-compatible with ANY driver >= 11.8, so
+# reinstall it -- this is what makes the GPU actually usable on every box.
+echo "[at_setup] pinning torch 2.6.0+cu118 (forward-compatible across all hosts)"
+uv pip install --reinstall "torch==2.6.0" "torchvision==0.21.0" \
+  --index-url https://download.pytorch.org/whl/cu118
+
 # ── 3. Propagate HF_TOKEN into the env if the caller exported it ───────
 if [ -n "${HF_TOKEN:-}" ]; then
   echo "[at_setup] HF_TOKEN is set; huggingface-hub will pick it up from env."
@@ -42,17 +50,17 @@ fi
 # ── 4. Device sanity check ─────────────────────────────────────────────
 echo "[at_setup] device check"
 uv run python - <<'PY'
+import sys
 import platform
 import torch
 print("torch:   ", torch.__version__)
 print("platform:", platform.platform())
-print("cuda:    ", torch.cuda.is_available(),
-      "(", torch.cuda.get_device_name(0) if torch.cuda.is_available() else "none", ")")
-try:
-    import mlx.core  # noqa: F401
-    print("mlx:      installed (UNEXPECTED on a Linux GPU box)")
-except ImportError:
-    print("mlx:      not installed (expected) -> HuggingFace/CUDA backend")
+ok = torch.cuda.is_available()
+print("cuda:    ", ok, "(", torch.cuda.get_device_name(0) if ok else "NONE", ")")
+if not ok:
+    print("[at_setup] FATAL: CUDA unavailable after the cu118 pin -- aborting so "
+          "this box never runs the model on CPU.")
+    sys.exit(1)
 PY
 
 echo "[at_setup] done."
