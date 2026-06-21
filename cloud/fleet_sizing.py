@@ -16,16 +16,15 @@ single big model parallelizes across K boxes; default 1 (small models).
 
 from __future__ import annotations
 
-import sys
 from dataclasses import dataclass
 
-sys.path.insert(0, __file__.rsplit("/cloud/", 1)[0])
-
-from src.common.base_schema import BaseSchema  # noqa: E402
+# NOTE: plain dataclasses (NOT BaseSchema) on purpose — this planning helper runs
+# under the SYSTEM python in fleet_launch.sh, and importing anything from src/
+# triggers src/__init__.py's auto-export, which pulls in torch (absent there).
 
 
 @dataclass
-class FleetMember(BaseSchema):
+class FleetMember:
     """One model in the fleet: its repo id, GPU class, price ceiling, shard count."""
 
     model: str  # HF repo id, e.g. meta-llama/Llama-3.2-1B-Instruct
@@ -92,7 +91,7 @@ def default_fleet() -> list[FleetMember]:
 
 
 @dataclass
-class FleetBox(BaseSchema):
+class FleetBox:
     """One concrete BOX = one (model, shard) unit of work the fleet launches."""
 
     model: str
