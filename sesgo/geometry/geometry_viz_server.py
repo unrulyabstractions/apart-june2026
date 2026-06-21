@@ -541,8 +541,11 @@ table.shifts td.val { text-align:right; font-variant-numeric:tabular-nums; font-
 
 _JS = r"""
 // ── Categorical palette (cohesive, repeated cyclically) ──────────────────────
-const PALETTE = ["#7aa2ff","#9b7dff","#48d597","#ffb454","#ff6b8a","#43c6e8",
-                 "#f78fb3","#a0e57a","#c792ea","#ffd166","#5fd3bc","#ff8a5c"];
+// Okabe-Ito colorblind-safe qualitative palette, ordered so the FIRST colors are
+// maximally distinct -- the common 2-class case (e.g. scaffold vs none) must NOT
+// collide, so sky-blue vs orange rather than two near-identical blues.
+const PALETTE = ["#56b4e9","#e69f00","#009e73","#cc79a7","#f0e442","#d55e00",
+                 "#0072b2","#bcbd22","#e377c2","#17becf","#aec7e8","#98df8a"];
 const BASELINE = "(baseline)";
 const SCAFFOLD_KEY = "scaffold_id";  // None == no-scaffold baseline (special-cased)
 
