@@ -508,9 +508,12 @@ table.shifts td.val { text-align:right; font-variant-numeric:tabular-nums; font-
 .role-name { width:54px; font-size:11px; color:var(--muted); text-transform:capitalize; }
 .role-track { flex:1; height:8px; background:rgba(120,140,200,.14); border-radius:5px; overflow:hidden; }
 .role-fill { height:100%; border-radius:5px; }
-.role-fill.target { background:linear-gradient(90deg,var(--bad),#ff9eb3); }
-.role-fill.other { background:linear-gradient(90deg,var(--warn),#ffd28a); }
-.role-fill.unknown { background:linear-gradient(90deg,var(--good),#86f0c2); }
+/* Role bar colors MATCH the scatter selected_role/gold_role legend (ROLE_COLORS
+   in JS) so target/other/unknown read the SAME hue in the plot and here -- and
+   the three are mutually distinct (orange / sky-blue / green, Okabe-Ito). */
+.role-fill.target { background:linear-gradient(90deg,#e69f00,#ffce5c); }
+.role-fill.other { background:linear-gradient(90deg,#56b4e9,#a7d8f5); }
+.role-fill.unknown { background:linear-gradient(90deg,#009e73,#5fd9b3); }
 .role-val { width:48px; text-align:right; font-size:11px; font-variant-numeric:tabular-nums; color:var(--muted); }
 .greedy-box {
   font-family:ui-monospace,SFMono-Regular,Menlo,monospace; font-size:11px; line-height:1.5;
@@ -540,13 +543,42 @@ table.shifts td.val { text-align:right; font-variant-numeric:tabular-nums; font-
 # ── Static JS (client-side slicing + Plotly rendering) ────────────────────────
 
 _JS = r"""
-// ── Categorical palette (cohesive, repeated cyclically) ──────────────────────
-// Okabe-Ito colorblind-safe qualitative palette, ordered so the FIRST colors are
-// maximally distinct -- the common 2-class case (e.g. scaffold vs none) must NOT
-// collide, so sky-blue vs orange rather than two near-identical blues.
-const PALETTE = ["#56b4e9","#e69f00","#009e73","#cc79a7","#f0e442","#d55e00",
-                 "#0072b2","#bcbd22","#e377c2","#17becf","#aec7e8","#98df8a"];
+// ── Categorical palette ──────────────────────────────────────────────────────
+// First 8 = Okabe-Ito colorblind-safe qualitative palette, ordered so the FIRST
+// colors are maximally distinct -- the common 2-class case (e.g. scaffold vs
+// none) must NOT collide, so sky-blue vs orange rather than two near-identical
+// blues. The colorblind-safe Okabe-Ito order is preserved for the first ~8
+// categories; beyond that we fall through to a perceptually-spaced HSL sweep
+// (see categoryColor) so no two legend entries collide on a high-cardinality
+// axis. Categorical axes with > MAX_CATEGORIES classes are folded to the top-K
+// by sample count + an "(other)" bucket (see groupTraces) so the legend stays
+// legible; this base array therefore only ever needs ~9 distinct entries.
+// Okabe-Ito's 8th color is BLACK, which is invisible on this dark theme, so the
+// final slot is swapped for a vivid violet (#a35cff) that stays colorblind-
+// distinct from the other 7 yet reads clearly against the background.
+const OKABE_ITO = ["#56b4e9","#e69f00","#009e73","#cc79a7","#f0e442","#d55e00",
+                   "#0072b2","#a35cff"];
+// Above 8 categories, sweep hue by the golden angle (137.5°) at fixed high
+// saturation/lightness so adjacent indices are maximally far apart on the wheel
+// AND every swatch stays bright enough to read on the dark theme.
+function hslSweepColor(i){
+  const hue = (i * 137.508) % 360;
+  const sat = 68, light = 62;   // vivid + light enough for the dark background
+  return `hsl(${hue.toFixed(1)}, ${sat}%, ${light}%)`;
+}
+// Color for the i-th category overall: Okabe-Ito for the first 8 (colorblind
+// safe), then the HSL sweep. Used for BOTH the on-plot markers and the legend
+// swatch (same call site) so swatch color == marker color exactly.
+function categoryColor(i){ return i < OKABE_ITO.length ? OKABE_ITO[i] : hslSweepColor(i); }
+// Canonical, name-stable colors for the 3 SESGO roles so the scatter legend, the
+// scatter markers, AND the per-sample detail role bars all agree (target/other/
+// unknown read the SAME color everywhere -- no more orange-means-target here but
+// orange-means-other there). Distinct from each other and drawn from Okabe-Ito.
+const ROLE_COLORS = { target:"#e69f00", other:"#56b4e9", unknown:"#009e73" };
 const BASELINE = "(baseline)";
+const OTHER_BUCKET = "(other)";       // fold-bucket label for high-cardinality axes
+const MAX_CATEGORIES = 8;             // > this many classes -> fold to top-K + (other)
+const ROLE_AXES = new Set(["selected_role", "gold_role"]);
 const SCAFFOLD_KEY = "scaffold_id";  // None == no-scaffold baseline (special-cased)
 
 let PROJ = null;        // selected model's full projections.json
@@ -673,7 +705,6 @@ function axisLabel(s, axis){
   if(axis === SCAFFOLD_KEY) return s.scaffold_id == null ? BASELINE : String(s.scaffold_id);
   return String(s[axis]);
 }
-function colorFor(i){ return PALETTE[i % PALETTE.length]; }
 
 // ── Render ───────────────────────────────────────────────────────────────────
 function render(){
@@ -688,6 +719,9 @@ function render(){
 }
 
 // Group samples into one trace per category so the legend toggles categories.
+// HIGH-CARDINALITY axes (e.g. target_identity, ~150 raw classes) are folded to
+// the top-MAX_CATEGORIES classes by sample count + a single "(other)" bucket, so
+// the legend stays legible (~9 entries) and no two markers share a cycled color.
 function groupTraces(block){
   const groups = new Map();
   block.samples.forEach(s=>{
@@ -695,11 +729,39 @@ function groupTraces(block){
     if(!groups.has(lab)) groups.set(lab, []);
     groups.get(lab).push(s);
   });
+  if(groups.size > MAX_CATEGORIES) return foldToTopK(groups);
   // Stable order: baseline first (if present), then alphabetical.
   const labels = [...groups.keys()].sort((a,b)=>{
     if(a===BASELINE) return -1; if(b===BASELINE) return 1; return a.localeCompare(b);
   });
-  return { groups, labels };
+  return { groups, labels, color: (lab,i)=>colorOf(lab,i) };
+}
+
+// Fold a >MAX_CATEGORIES grouping to the top-K most populous classes plus one
+// "(other)" bucket that absorbs every remaining class. Keeps the legend at
+// MAX_CATEGORIES+1 entries so each gets a distinct, separated color.
+function foldToTopK(groups){
+  const ranked = [...groups.entries()].sort((a,b)=>b[1].length - a[1].length);
+  const top = ranked.slice(0, MAX_CATEGORIES);
+  const rest = ranked.slice(MAX_CATEGORIES);
+  const folded = new Map(top);
+  if(rest.length){
+    const bucket = [];
+    rest.forEach(([,ss])=>bucket.push(...ss));
+    folded.set(OTHER_BUCKET, bucket);
+  }
+  // Top classes first (descending count); the "(other)" bucket always last and
+  // drawn in a muted grey so it never competes with a real category's color.
+  const labels = [...folded.keys()];
+  return { groups: folded, labels, color: (lab,i)=> lab===OTHER_BUCKET ? "#6b7699" : categoryColor(i) };
+}
+
+// Resolve a category label to its marker/legend color. Role axes use the
+// name-stable ROLE_COLORS so target/other/unknown match the detail panel; every
+// other categorical axis uses its position in the (sorted) legend.
+function colorOf(lab, i){
+  if(ROLE_AXES.has(state.color) && ROLE_COLORS[lab]) return ROLE_COLORS[lab];
+  return categoryColor(i);
 }
 
 function hoverText(s){
@@ -725,7 +787,7 @@ function render2d(block){
 // Categorical 2D: one trace per category (discrete legend toggles categories),
 // plus the scaffold-centroid rings when colouring by scaffold.
 function categoricalTraces2d(block){
-  const { groups, labels } = groupTraces(block);
+  const { groups, labels, color } = groupTraces(block);
   const traces = labels.map((lab,i)=>{
     const ss = groups.get(lab);
     return {
@@ -733,7 +795,7 @@ function categoricalTraces2d(block){
       x:ss.map(s=>s.coord2d[0]), y:ss.map(s=>s.coord2d[1]),
       customdata:ss.map(s=>s.sample_idx),
       text:ss.map(hoverText), hovertemplate:"%{text}",
-      marker:{ size:8, color:colorFor(i), line:{width:.8, color:"rgba(255,255,255,.35)"}, opacity:.9 },
+      marker:{ size:8, color:color(lab,i), line:{width:.8, color:"rgba(255,255,255,.35)"}, opacity:.9 },
     };
   });
   if(state.color === SCAFFOLD_KEY){
@@ -765,13 +827,17 @@ function continuousTraces2d(block){
   }];
 }
 
-// Shared continuous marker: Viridis colorscale over the scalar + a labelled colorbar.
+// Shared continuous marker: Viridis colorscale over the scalar + a labelled
+// colorbar. Title/ticks use the bright body text (#e8edff) not the muted grey so
+// they stay legible on the dark theme, and a faint outline + frame separates the
+// bar from the panel background.
 function continuousMarker(ss, size){
   return {
     size, opacity:.92, line:{width:.5, color:"rgba(255,255,255,.25)"},
     color:ss.map(s=>s[state.color]), colorscale:"Viridis", showscale:true,
-    colorbar:{ title:{text:prettyAxis(state.color), font:{size:11, color:"#94a0c4"}},
-               tickfont:{size:10, color:"#94a0c4"}, outlinewidth:0, thickness:14, len:.85 },
+    colorbar:{ title:{text:prettyAxis(state.color), font:{size:11.5, color:"#e8edff"}, side:"right"},
+               tickfont:{size:10.5, color:"#e8edff"}, tickcolor:"rgba(232,237,255,.55)",
+               outlinecolor:"rgba(120,140,200,.45)", outlinewidth:1, thickness:14, len:.85 },
   };
 }
 
@@ -785,7 +851,7 @@ function render3d(block){
 
 // Categorical 3D: one trace per category + scaffold-centroid rings.
 function categoricalTraces3d(block){
-  const { groups, labels } = groupTraces(block);
+  const { groups, labels, color } = groupTraces(block);
   const traces = labels.map((lab,i)=>{
     const ss = groups.get(lab);
     return {
@@ -793,7 +859,7 @@ function categoricalTraces3d(block){
       x:ss.map(s=>s.coord3d[0]), y:ss.map(s=>s.coord3d[1]), z:ss.map(s=>s.coord3d[2]),
       customdata:ss.map(s=>s.sample_idx),
       text:ss.map(hoverText), hovertemplate:"%{text}",
-      marker:{ size:4.5, color:colorFor(i), opacity:.88, line:{width:.5,color:"rgba(255,255,255,.25)"} },
+      marker:{ size:4.5, color:color(lab,i), opacity:.88, line:{width:.5,color:"rgba(255,255,255,.25)"} },
     };
   });
   if(state.color === SCAFFOLD_KEY){
