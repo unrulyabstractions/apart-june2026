@@ -11,15 +11,15 @@ On ambiguous SESGO items the gold answer is always UNKNOWN, so "accuracy" is the
 fraction of non-thinking predictions that abstain (predict UNKNOWN) rather than pick
 a group. Here we log a one-line overall non-thinking abstention summary as a sanity
 check; the full slice-by-axis breakdown lives in
-visualize_non_thinking_baseline_samples.py.
+visualize_baseline_samples.py.
 
-Output lands at out/sesgo/non_thinking_baseline/<MODEL>/samples.json (MODEL == bare
+Output lands at out/sesgo/baseline/<MODEL>/samples.json (MODEL == bare
 name).
 
 Usage:
-  uv run python sesgo/non_thinking_baseline/collect_non_thinking_baseline_samples.py
-  uv run python sesgo/non_thinking_baseline/collect_non_thinking_baseline_samples.py \
-      out/sesgo/non_thinking_baseline/prompt_dataset.json --model Qwen/Qwen3-0.6B \
+  uv run python sesgo/baseline/collect_baseline_samples.py
+  uv run python sesgo/baseline/collect_baseline_samples.py \
+      out/sesgo/baseline/prompt_dataset.json --model Qwen/Qwen3-0.6B \
       --subsample 0.2
 """
 
@@ -32,7 +32,7 @@ import sys
 from pathlib import Path
 
 # Bootstrap the repo root onto sys.path so `from src... import ...` resolves
-# regardless of cwd. From <repo>/sesgo/non_thinking_baseline/x.py, parents[2] is
+# regardless of cwd. From <repo>/sesgo/baseline/x.py, parents[2] is
 # the root.
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[2]))
 
@@ -86,8 +86,8 @@ def parse_args() -> argparse.Namespace:
         "prompt_dataset",
         type=Path,
         nargs="?",
-        default=Path("out/sesgo/non_thinking_baseline/prompt_dataset.json"),
-        help="Path to the baseline prompt_dataset.json (default: out/sesgo/non_thinking_baseline/...)",
+        default=Path("out/sesgo/baseline/prompt_dataset.json"),
+        help="Path to the baseline prompt_dataset.json (default: out/sesgo/baseline/...)",
     )
     parser.add_argument(
         "--model",
@@ -104,7 +104,7 @@ def parse_args() -> argparse.Namespace:
         "--out-dir",
         type=Path,
         default=Path("out"),
-        help="Base output dir; samples land at <out-dir>/sesgo/non_thinking_baseline/<MODEL>/",
+        help="Base output dir; samples land at <out-dir>/sesgo/baseline/<MODEL>/",
     )
     return parser.parse_args()
 
@@ -150,8 +150,8 @@ def main() -> None:
 
     log_summary(dataset)
 
-    # out/sesgo/non_thinking_baseline/<MODEL>/samples.json, keyed by bare name.
-    out_dir = args.out_dir / "sesgo" / "non_thinking_baseline" / dataset.model_name
+    # out/sesgo/baseline/<MODEL>/samples.json, keyed by bare name.
+    out_dir = args.out_dir / "sesgo" / "baseline" / dataset.model_name
     out_dir.mkdir(parents=True, exist_ok=True)
     out_path = out_dir / "samples.json"
     dataset.save_as_json(out_path)

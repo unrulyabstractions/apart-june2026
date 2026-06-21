@@ -1,7 +1,7 @@
 """Compute and plot ALL NON_THINKING_BASELINE statistics for a SesgoDataset.
 
 Run-by-path driver for the NON_THINKING_BASELINE study. Loads a samples.json
-produced by collect_non_thinking_baseline_samples.py (a SesgoDataset) and answers
+produced by collect_baseline_samples.py (a SesgoDataset) and answers
 one question: at the NON-THINKING level, on the single un-varied, un-scaffolded
 rendering of each item, how often does the model ABSTAIN (predict UNKNOWN, the
 ambiguous gold), and where does its 3-way mass sit across roles?
@@ -14,13 +14,13 @@ over per item. We therefore slice the population instead:
   - mean non-thinking role-prob vector [TARGET, OTHER, UNKNOWN] overall and BY
     bias_category — where the un-abstained mass leaks (target vs other group).
 
-Plots land at out/sesgo/non_thinking_baseline/<MODEL>/plots/. A stats table is
+Plots land at out/sesgo/baseline/<MODEL>/plots/. A stats table is
 logged. Robust to subsampled data — a slice may hold only a few items.
 
 Usage:
-  uv run python sesgo/non_thinking_baseline/visualize_non_thinking_baseline_samples.py \
-      out/sesgo/non_thinking_baseline/Qwen3-0.6B/samples.json
-  uv run python sesgo/non_thinking_baseline/visualize_non_thinking_baseline_samples.py \
+  uv run python sesgo/baseline/visualize_baseline_samples.py \
+      out/sesgo/baseline/Qwen3-0.6B/samples.json
+  uv run python sesgo/baseline/visualize_baseline_samples.py \
       SAMPLES.json --out-dir out
 """
 
@@ -40,7 +40,7 @@ import numpy as np  # noqa: E402
 import seaborn as sns  # noqa: E402
 
 # Bootstrap the repo root onto sys.path so `from src... import ...` resolves
-# regardless of cwd. From <repo>/sesgo/non_thinking_baseline/x.py, parents[2] is
+# regardless of cwd. From <repo>/sesgo/baseline/x.py, parents[2] is
 # the root.
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[2]))
 
@@ -62,13 +62,13 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "samples",
         type=Path,
-        help="Path to samples.json (a SesgoDataset) from collect_non_thinking_baseline_samples.py",
+        help="Path to samples.json (a SesgoDataset) from collect_baseline_samples.py",
     )
     parser.add_argument(
         "--out-dir",
         type=Path,
         default=Path("out"),
-        help="Base output dir; plots land at <out-dir>/sesgo/non_thinking_baseline/<MODEL>/plots/",
+        help="Base output dir; plots land at <out-dir>/sesgo/baseline/<MODEL>/plots/",
     )
     return parser.parse_args()
 
@@ -244,7 +244,7 @@ def main() -> None:
     log("  NOTE: ambiguous gold is always UNKNOWN, so abstention == accuracy.")
 
     # ----- plots ---------------------------------------------------------- #
-    plots_dir = args.out_dir / "sesgo" / "non_thinking_baseline" / dataset.model_name / "plots"
+    plots_dir = args.out_dir / "sesgo" / "baseline" / dataset.model_name / "plots"
     plots_dir.mkdir(parents=True, exist_ok=True)
     sns.set_theme(style="whitegrid")
 

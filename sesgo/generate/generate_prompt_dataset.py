@@ -29,7 +29,7 @@ stay orthogonal:
 
 By default it generates EVERYTHING (all categories, both languages); --limit /
 --categories / --languages are optional caps for quick runs. Outputs:
-  out/sesgo/non_thinking_baseline/prompt_dataset.json
+  out/sesgo/baseline/prompt_dataset.json
   out/sesgo/stability/prompt_dataset.json
   out/sesgo/selection/prompt_dataset.json
   out/sesgo/divergence/prompt_dataset.json
@@ -219,7 +219,7 @@ def main() -> None:
     # scaffold (generate(items, []) leaves only the no-scaffold condition).
     build_and_save(
         make_config(
-            "non_thinking_baseline",
+            "baseline",
             all_permutations=False,
             label_styles=[_CANONICAL_LABEL_STYLE],
         ),

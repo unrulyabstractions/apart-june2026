@@ -113,3 +113,6 @@ tensorboard/
 
 # Logs
 *.log
+
+# Manual git worktrees for do-in-workstream parallel side projects.
+worktree/
