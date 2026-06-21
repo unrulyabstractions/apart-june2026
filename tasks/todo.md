@@ -1,3 +1,24 @@
+# RUN: Full-scale forking-paths on Qwen/Qwen3-32B (cloud H100) — 2026-06-21
+
+- [x] Stage SESGO prompt xlsx into datasets/SESGO/prompts/ (gitignored)
+- [x] Confirm H100_SXM offers available (~$2/hr, rel>=0.99)
+- [x] Launch H100_SXM box id=41959804 ($2.127/hr, ssh4.vast.ai:39804, NVIDIA H100 80GB)
+- [x] sync_up.sh -> at_setup.sh (torch 2.6.0+cu124, CUDA OK)
+- [x] FIX: micro-batch chunking in HF generate_batch (HF_GEN_MICRO_BATCH=48) so the
+      32B forking batch fits 80GB (fp16 weights ~66GB + bounded KV cache)
+- [x] STAGE 0 done: selected item idx=3 (q=a7964df08c51), outcomes target/other/unknown/unparseable
+- [~] STAGE 1-3 collect RUNNING (PID 2714): --max-positions 0 --n-samples 40
+      --n-prior 300 --max-new-tokens 512; GPU 99%, ~68GB. Background poller bzmy20wnt
+      watches for STATUS=DONE.
+- [ ] STAGE 4 analyze, STAGE 5 plot
+- [ ] sync_back.sh (quarantine) -> merge_sync.sh -> out/sesgo/forking/Qwen3-32B/
+- [ ] vast_destroy.sh --yes-i-am-really-sure
+- [ ] Report wall-clock / cost / N-per-position / total generations / results path
+
+RUN START (UTC): 2026-06-21T14:26:47Z  | box launched ~14:18Z
+
+---
+
 # Forking-Paths Dynamics Pipeline (sesgo/forking/ + src/dynamics/forking_paths/)
 
 Branch: forking-paths-dynamics. ONE ambiguous SESGO item; track per-token outcome

@@ -2,12 +2,29 @@
 
 from __future__ import annotations
 
+import os
 from typing import Any, Optional, Sequence
 
 import torch
 
 from .model_backend import Backend
 from ..interventions import Intervention
+
+# A single padded ``model.generate`` over an arbitrarily long prompt list would
+# allocate KV cache for EVERY sequence at once and OOM on large models (a 32B at
+# 512 new tokens over tens of thousands of forking branches dwarfs 80 GB). We
+# instead decode in fixed-size micro-batches: each micro-batch is large enough to
+# saturate the GPU's batched matmuls, but bounded so the KV cache fits. Override
+# the size per box via HF_GEN_MICRO_BATCH (bigger = more throughput until OOM).
+_DEFAULT_GEN_MICRO_BATCH = 64
+
+
+def _gen_micro_batch_size() -> int:
+    """Resolve the generation micro-batch cap (env-overridable, >= 1)."""
+    raw = os.environ.get("HF_GEN_MICRO_BATCH", "")
+    if raw.strip().isdigit() and int(raw) >= 1:
+        return int(raw)
+    return _DEFAULT_GEN_MICRO_BATCH
 
 
 class HuggingFaceBackend(Backend):
@@ -241,16 +258,36 @@ class HuggingFaceBackend(Backend):
         max_new_tokens: int,
         temperature: float,
     ) -> list[str]:
-        """Decode many prompts in ONE padded ``model.generate`` call.
+        """Decode many prompts, in GPU-saturating but memory-bounded micro-batches.
 
-        Left-pads the prompts (so every sequence ends at the same column and the
-        decoder starts from a shared position) and passes the attention mask so
-        pad tokens never enter attention. Greedy (temperature 0) is bit-for-bit
-        the per-prompt path; sampling differs only by RNG draw, as expected.
-        Returns the generated continuation for each prompt, padding stripped.
+        A single padded ``model.generate`` over the whole list would OOM large
+        models (its KV cache scales with batch*seq); we instead split into
+        fixed-size micro-batches (``HF_GEN_MICRO_BATCH``) and concatenate the
+        continuations IN ORDER, so the result is identical to one call but the
+        peak memory is bounded. Each micro-batch is left-padded so pad tokens
+        never enter attention. Greedy (temperature 0) is bit-for-bit the
+        per-prompt path; sampling differs only by RNG draw, as expected.
         """
         if not prompts:
             return []
+        prompts = list(prompts)
+        step = _gen_micro_batch_size()
+        out: list[str] = []
+        for start in range(0, len(prompts), step):
+            out.extend(
+                self._generate_micro_batch(
+                    prompts[start : start + step], max_new_tokens, temperature
+                )
+            )
+        return out
+
+    def _generate_micro_batch(
+        self,
+        prompts: list[str],
+        max_new_tokens: int,
+        temperature: float,
+    ) -> list[str]:
+        """Decode ONE left-padded micro-batch through ``model.generate``."""
         tok = self._tokenizer
         # Left padding keeps the real prompt flush-right; restore afterwards so a
         # single-sample generate elsewhere is unaffected.
@@ -260,7 +297,7 @@ class HuggingFaceBackend(Backend):
         tok.padding_side = "left"
         try:
             enc = tok(
-                list(prompts), return_tensors="pt", padding=True, add_special_tokens=True
+                prompts, return_tensors="pt", padding=True, add_special_tokens=True
             )
         finally:
             tok.padding_side = prev_side
@@ -283,8 +320,10 @@ class HuggingFaceBackend(Backend):
                 input_ids, attention_mask=attention_mask, **gen_kwargs
             )
         # Every row shares prompt_len (left padding), so the continuation is the
-        # tail after prompt_len for each sample.
-        return [self.decode(row[prompt_len:]) for row in output_ids]
+        # tail after prompt_len for each sample. Free the batch before the next.
+        result = [self.decode(row[prompt_len:]) for row in output_ids]
+        del input_ids, attention_mask, output_ids
+        return result
 
     def get_next_token_probs(
         self, prompt: str, target_tokens: Sequence[str], past_kv_cache: Any = None
