@@ -50,11 +50,31 @@ to reproduce). Writes `out/sesgo/steer/<MODEL>/steering_test.json`.
   norm), so very large alpha eventually over-steers off the residual manifold.
 - `--limit N` caps the held-out items (for a quick pilot).
 
+On the held-out TEST **ambiguous** items the sweep runs, plus the SAME sweep on
+the in-sample TRAIN items (saved as `train_sweep`) so the figure can show
+generalization. Writes `out/sesgo/steer/<MODEL>/steering_test.json`.
+
+## 3. Plot the steering test (cross-model figure)
+```bash
+uv run python sesgo/steer/plot_steering_test.py \
+    out/sesgo/steer/Qwen3-0.6B/steering_test.json \
+    out/sesgo/steer/Qwen3-1.7B/steering_test.json \
+    out/sesgo/steer/Qwen3-4B/steering_test.json \
+    [--metric abstain_rate|mean_unknown_prob \
+     --out out/sesgo/steer/figures/abstention_vs_alpha.png]
+```
+One row of per-model panels: held-out **TEST** abstention vs alpha (the causal
+claim) overlaid with the in-sample **TRAIN** curve, marking the alpha=0 unsteered
+baseline, the negative-alpha control region, and the real-scaffold reference.
+With no args it defaults to the three Qwen3 bundles. Writes
+`out/sesgo/steer/figures/abstention_vs_alpha.png`.
+
 ## Reading the output
-`steering_test.json` carries the alpha `sweep` (each point: `mean_unknown_prob`,
-`abstain_rate`, `delta_unknown_prob` vs the alpha=0 baseline) and the
-`scaffold_reference`. The causal claim holds when `delta_unknown_prob` /
-`abstain_rate` rise with positive alpha and the negative control drops them — on
-items the vector was never trained on.
+`steering_test.json` carries the alpha `sweep` (TEST split) and `train_sweep`
+(TRAIN split) — each point: `mean_unknown_prob`, `abstain_rate`,
+`delta_unknown_prob` vs the alpha=0 baseline — plus the `scaffold_reference`. The
+causal claim holds when `delta_unknown_prob` / `abstain_rate` rise with positive
+alpha and the negative control drops them — on items the vector was never trained
+on.
 
 See [EXPLANATION.md](./EXPLANATION.md) for the full pipeline / module map.

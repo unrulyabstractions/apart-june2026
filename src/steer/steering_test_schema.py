@@ -5,8 +5,11 @@ unsteered baseline and a negative control) on the held-out TEST ambiguous items
 WITHOUT a scaffold in the prompt, measuring how much abstention (UNKNOWN mass)
 the +v hook induces. One ``SweepPoint`` per alpha aggregates the per-item
 metrics; the ``ScaffoldReference`` is the same readout on the ACTUAL scaffold
-prompt (the behaviour +v is trying to reproduce). Everything is flat per
-CLAUDE.md: lists of scalar-only BaseSchema rows, no nested structures.
+prompt (the behaviour +v is trying to reproduce). ``train_sweep`` is the SAME
+alpha sweep on the TRAIN-split ambiguous items (the items the vector was fit on);
+plotting it alongside ``sweep`` (the held-out TEST split) shows generalization.
+Everything is flat per CLAUDE.md: lists of scalar-only BaseSchema rows, no nested
+structures.
 """
 
 from __future__ import annotations
@@ -48,4 +51,5 @@ class SteeringTestResult(BaseSchema):
     n_ambiguous_test_items: int
     alphas: list[float] = field(default_factory=list)
     sweep: list[SweepPoint] = field(default_factory=list)
+    train_sweep: list[SweepPoint] = field(default_factory=list)  # same alphas, TRAIN split
     scaffold_reference: ScaffoldReference = field(default_factory=ScaffoldReference)

@@ -51,7 +51,9 @@ capture (same hook point, opposite operation).
 | `steering_intervention_runner.py` | build the `steering(...)` intervention per alpha; sweep + aggregate abstention |
 | `steering_test_schema.py` | `SteeringTestResult` / `SweepPoint` / `ScaffoldReference` — BaseSchema, flat |
 | `calculate_steering_vectors.py` | **driver**: fit + split + save the bundle |
-| `run_steering_test.py` | **driver**: held-out alpha sweep + scaffold reference -> `steering_test.json` |
+| `run_steering_test.py` | **driver**: held-out (TEST) + in-sample (TRAIN) alpha sweep + scaffold reference -> `steering_test.json` |
+| `steering_plot_styles.py` | presentation-only: palette + per-model abstention-vs-alpha panel drawer |
+| `plot_steering_test.py` | **driver**: cross-model figure (TEST vs TRAIN curves, baseline/control/scaffold marks) -> `figures/abstention_vs_alpha.png` |
 
 ## Reuse (no re-implementation)
 
@@ -73,26 +75,43 @@ teacher-forced abstention readout reads. `normalize=True` makes alpha the absolu
 magnitude of a unit steer; the default (`normalize=False`) scales the raw captured
 diff vector, whose norm grows with depth, so large alpha eventually over-steers.
 
-## Pilot result (Qwen3-0.6B, 16 held-out ambiguous items, raw-scale v, layer 14)
+## Result — held-out (TEST) abstention vs alpha, raw-scale v
+
+Figure: `out/sesgo/steer/figures/abstention_vs_alpha.png` (one panel per model;
+TEST = held-out causal curve, TRAIN = in-sample echo; alpha=0 baseline, control
+region, and real-scaffold reference all marked). Numbers are the TEST split
+(items the vector was NEVER fit on); the TRAIN curve tracks it closely.
+
+**Qwen3-0.6B** (24 held-out ambiguous items, layer 14):
 
 | alpha | mean UNKNOWN prob | abstain rate | Δ vs baseline |
 |------:|------------------:|-------------:|--------------:|
-| -2 (control) | 0.068 | 0.000 | -0.315 |
-| 0 (baseline) | 0.383 | 0.500 | — |
-| +0.5 | 0.454 | 0.562 | +0.072 |
-| +1 | 0.496 | 0.625 | +0.113 |
-| +2 | 0.509 | 0.625 | +0.127 |
-| +4 | 0.380 | 0.500 | -0.003 |
-| scaffold ref | 0.991 | 1.000 | (target) |
+| -2 (control) | 0.175 | 0.167 | -0.317 |
+| 0 (baseline) | 0.492 | 0.542 | — |
+| +0.5 | 0.558 | 0.625 | +0.066 |
+| +1 | 0.601 | 0.708 | +0.109 |
+| +2 | 0.617 | 0.750 | +0.125 |
+| +4 | 0.481 | 0.542 | -0.011 |
+| scaffold ref | 0.994 | 1.000 | (target) |
 
-`+v` monotonically raises abstention through alpha=+2; the negative control collapses
-it; `+4` over-steers off-manifold (raw vector). The hook provably changes the raw
-divergent-token logits. The causal claim holds on items the vector never saw.
+**Qwen3-1.7B** (12 held-out items, layer 14): abstain 0.667 (a=0) -> 0.917 (a=+2)
+-> **1.000 (a=+4)**, hitting the scaffold's 1.0; control (a=-2) drops to 0.417.
+
+**Qwen3-4B** (12 held-out items, layer 23): **null** — baseline already 0.75 and
+the chosen layer-23 direction is flat (Δ ≈ 0 across +alpha). A single linear add
+at this layer does not move abstention; the effect is model- and layer-specific.
+
+`+v` monotonically raises held-out abstention through alpha=+2 on 0.6B/1.7B; the
+negative control collapses it; raw-`v` `+4` over-steers off-manifold on 0.6B (but
+on 1.7B reaches the scaffold). The causal claim holds on items the vector never
+saw, for 2 of 3 models; Qwen3-4B (layer 23) is an honest null.
 
 ## Limitations / dual-use
 
-- A single linear add at one layer does **not** reproduce the scaffold's near-total
-  abstention (0.99) — the scaffold is a richer, multi-layer effect.
+- A single linear add at one layer reaches the scaffold's near-total abstention on
+  Qwen3-1.7B (1.0 at a=+4) but only ~75% of it on Qwen3-0.6B and **nothing** on
+  Qwen3-4B (layer 23) — the effect is model- and layer-specific, and the richer
+  multi-layer scaffold is not always reproducible by one direction.
 - Steering toward abstention is a *safety* lever (avoid biased commitments) but the
   same hook with `-alpha` **suppresses** abstention, i.e. pushes the model to commit
   to a (possibly biased) group — a dual-use direction to handle carefully.

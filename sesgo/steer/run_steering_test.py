@@ -70,12 +70,12 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
-def _held_out_pairs(samples, test_ids: set[str]):
-    """The TEST contrastive pairs whose context is ambiguous (UNKNOWN is gold)."""
+def _ambiguous_pairs_in_split(samples, split_ids: set[str]):
+    """Contrastive pairs in ``split_ids`` whose context is ambiguous (UNKNOWN gold)."""
     return [
         p
         for p in build_pairs(samples)
-        if p.question_id in test_ids and p.context_condition == _AMBIG
+        if p.question_id in split_ids and p.context_condition == _AMBIG
     ]
 
 
@@ -95,14 +95,18 @@ def main() -> None:
     )
 
     test_ids = set(bundle.test_question_ids)
-    pairs = _held_out_pairs(dataset.samples, test_ids)
+    train_ids = set(bundle.train_question_ids)
+    pairs = _ambiguous_pairs_in_split(dataset.samples, test_ids)
+    train_pairs = _ambiguous_pairs_in_split(dataset.samples, train_ids)
     if args.limit:
         pairs = pairs[: args.limit]
+        train_pairs = train_pairs[: args.limit]
     # No-scaffold prompts drive the sweep; the scaffold prompts are the reference.
     no_scaf = [build_readout(p.no_scaffold) for p in pairs]
     scaf = [build_readout(p.scaffold) for p in pairs]
+    train_no_scaf = [build_readout(p.no_scaffold) for p in train_pairs]
     log(f"[test] model={bundle.model} layer={layer} normalize={args.normalize} "
-        f"held-out ambiguous items={len(pairs)}")
+        f"held-out(test) ambiguous items={len(pairs)} train items={len(train_pairs)}")
 
     # HuggingFace backend is forced for these local SESGO models (the only backend
     # the geometry/intervention path supports); SesgoQuerier pins it the same way.
@@ -114,8 +118,15 @@ def main() -> None:
     log(f"[test] scaffold reference: unknown_prob={reference.mean_unknown_prob:.3f} "
         f"abstain_rate={reference.abstain_rate:.3f}")
 
+    log("[test] --- TEST split (held-out) ---")
     sweep = run_alpha_sweep(
         runner, no_scaf, layer, direction, list(alphas), args.normalize, log_fn=log
+    )
+    # TRAIN split: the in-sample reference curve (the items the vector was fit on),
+    # plotted alongside TEST to show generalization of the causal effect.
+    log("[test] --- TRAIN split (in-sample) ---")
+    train_sweep = run_alpha_sweep(
+        runner, train_no_scaf, layer, direction, list(alphas), args.normalize, log_fn=log
     )
 
     result = SteeringTestResult(
@@ -127,6 +138,7 @@ def main() -> None:
         n_ambiguous_test_items=len(pairs),
         alphas=[float(a) for a in sorted(alphas)],
         sweep=sweep,
+        train_sweep=train_sweep,
         scaffold_reference=reference,
     )
 

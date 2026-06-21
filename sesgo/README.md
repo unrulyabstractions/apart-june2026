@@ -108,6 +108,29 @@ and the headline `forking_dynamics.png`. The cloud run is the SAME commands with
 vLLM continuous batching on CUDA, and the HF backend micro-batches the forking
 set (`HF_GEN_MICRO_BATCH`, default 64) so a 32B model fits an 80 GB GPU.
 
+### steer — causal abstention test (invert the geometry into an add-mode hook)
+The geometry study shows *where* the debiasing scaffold moves the residual stream;
+this study adds that movement back in with the existing add-mode `resid_post`
+intervention (`src/inference/interventions/`; nothing here re-implements hooks) and
+asks whether `+alpha * v[L]` **causes** abstention (UNKNOWN mass) on **held-out**
+ambiguous items the vector never saw. The direction is the diff-of-means
+`v[L] = mean(resid_scaffold - resid_noscaffold)` over a seeded TRAIN split of the
+231 scaffold-vs-none contrastive pairs. Requires the geometry artifact
+(`out/sesgo/geometry/<MODEL>/`); see `sesgo/steer/README.md` for the full method.
+```bash
+# 1. fit per-layer diff-of-means vectors + persist the seeded 70/30 pair split
+uv run python sesgo/steer/calculate_steering_vectors.py out/sesgo/geometry/<MODEL>/response_samples.json   [--seed 42 --train-fraction 0.7]
+# 2. alpha sweep on held-out TEST ambiguous items (incl. alpha=0 + negative control)
+uv run python sesgo/steer/run_steering_test.py out/sesgo/steer/<MODEL>/steering_vectors.json out/sesgo/geometry/<MODEL>/response_samples.json   [--layer 14 --alphas="-2,0,0.5,1,2,4" --normalize --limit 0]
+# 3. cross-model figure: held-out TEST vs in-sample TRAIN abstention vs alpha
+uv run python sesgo/steer/plot_steering_test.py out/sesgo/steer/Qwen3-0.6B/steering_test.json out/sesgo/steer/Qwen3-1.7B/steering_test.json out/sesgo/steer/Qwen3-4B/steering_test.json   [--metric abstain_rate --out out/sesgo/steer/figures/abstention_vs_alpha.png]
+```
+Writes `steering_vectors.json` (vectors + split), `steering_test.json` (the alpha
+`sweep` on TEST + `train_sweep` + `scaffold_reference`), and the headline
+`abstention_vs_alpha.png`. The causal claim holds when abstention rises with
+positive alpha and the negative control drops it — on items `v` was never fit on.
+Forces the HuggingFace backend (the only backend the intervention path supports).
+
 ## 2. Cross-model size sweep (headline figure)
 ```bash
 uv run python sesgo/baseline/visualize_baseline_cross_model.py   # accuracy vs model size

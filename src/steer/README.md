@@ -9,7 +9,7 @@ readout under that hook on held-out items.
 | File | Exports | Purpose |
 |------|---------|---------|
 | `steering_vector_schema.py` | `LayerSteeringVector`, `SteeringVectorBundle` | per-layer vectors + the seeded split (BaseSchema, flat) |
-| `steering_test_schema.py` | `SteeringTestResult`, `SweepPoint`, `ScaffoldReference` | alpha-sweep + scaffold-reference result (BaseSchema, flat) |
+| `steering_test_schema.py` | `SteeringTestResult`, `SweepPoint`, `ScaffoldReference` | TEST + TRAIN alpha-sweeps + scaffold-reference result (BaseSchema, flat) |
 | `seeded_pair_split.py` | `split_question_ids` | seeded, reproducible 70/30 split over question_ids |
 | `contrastive_pair_index.py` | `ContrastivePair`, `build_pairs` | group GeometrySamples into scaffold/no-scaffold pairs by `question_id` |
 | `geometry_residual_loader.py` | `load_residual` | load one `[d_model]` residual (`root / a.path`, canonical) |
