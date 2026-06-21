@@ -1,0 +1,115 @@
+%% Shared preamble: packages + macros (\input from main.tex).
+% --- Page geometry ---
+\usepackage[letterpaper,margin=1in]{geometry}
+
+% --- Encoding ---
+\usepackage[T1]{fontenc}
+\usepackage[utf8]{inputenc}
+
+% --- Math (amsmath must load before the newtx fonts) ---
+\usepackage{amsmath,mathtools}
+
+% --- Fonts: Times-like serif to match the official template.
+%     newtxmath supplies the AMS/blackboard symbols, so amssymb is not loaded
+%     separately (doing so clashes on \Bbbk). ---
+\usepackage{newtxtext}
+\usepackage{newtxmath}
+
+% --- Graphics, color, tables ---
+\usepackage{graphicx}
+%% Search images/ first, then the live results tree produced by the cloud run
+%% (../out/sesgo/<study>/Qwen3-0.6B/plots/). Guarded \IfFileExists includes
+%% (see \plotfig below) mean an absent plot never breaks the build and a
+%% generated plot auto-appears on the next compile -- no manual edits needed.
+\graphicspath{%
+  {images/}%
+  {figures/}%
+  {../out/sesgo/baseline/Qwen3-0.6B/plots/}%
+  {../out/sesgo/full_data/Qwen3-0.6B/plots/}%
+  {../out/sesgo/baseline/cross_model/plots/}%
+  {../out/sesgo/stability/Qwen3-0.6B/plots/}%
+  {../out/sesgo/selection/Qwen3-0.6B/plots/}%
+  {../out/sesgo/divergence/Qwen3-0.6B/plots/}%
+  {../out/sesgo/geometry/Qwen3-0.6B/plots/}%
+  {../out/sesgo/forking/Qwen3-0.6B/plots/}%
+  {../out/sesgo/stability/}%
+  {../out/sesgo/steer/figures/}%
+  {../out/sesgo/Qwen3-0.6B/plots/}%
+}
+\usepackage{xcolor}
+\usepackage{booktabs}
+\usepackage{array}
+\usepackage{multirow}
+
+% --- Captions / floats ---
+\usepackage{caption}
+\usepackage{subcaption}
+\usepackage{float}
+
+%% Float-placement tuning: let a page mix text and floats freely instead of
+%% promoting tall figures to near-empty dedicated float pages. This packs the
+%% document tighter (reclaims whitespace) without changing any content.
+\renewcommand{\topfraction}{0.92}
+\renewcommand{\bottomfraction}{0.85}
+\renewcommand{\textfraction}{0.07}
+\renewcommand{\floatpagefraction}{0.80}
+\setcounter{topnumber}{3}
+\setcounter{bottomnumber}{2}
+\setcounter{totalnumber}{5}
+
+% --- Lists ---
+\usepackage{enumitem}
+
+% --- Info box (deletable guidance box) ---
+\usepackage[most]{tcolorbox}
+
+% --- Typography ---
+\usepackage{microtype}
+
+% --- Section headings: "1. Introduction" (period after the number) ---
+\usepackage{titlesec}
+\titlelabel{\thetitle.\quad}
+
+% --- Bibliography ---
+\usepackage[numbers,sort&compress]{natbib}
+
+% --- Hyperlinks (load late) ---
+\usepackage{url}
+\usepackage[colorlinks=true,allcolors=blue!55!black]{hyperref}
+\usepackage[capitalize,noabbrev]{cleveref}
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%% Helper: \guide{...} marks replaceable guidance text (gray italic).
+%% Delete every \guide{...} block before submitting.
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+\definecolor{guidecolor}{RGB}{95,95,95}
+\newcommand{\guide}[1]{\par{\color{guidecolor}\itshape #1}\par\medskip}
+
+%% --- Notation helpers ---
+\newcommand{\LLM}{\mathrm{LLM}}
+\newcommand{\given}{\,\vert\,}
+\DeclareMathOperator*{\argmax}{arg\,max}
+\newcommand{\TODO}[1]{\textcolor{red}{[\textbf{TODO:} #1]}}
+
+%% --- Guarded plot include -------------------------------------------------
+%% \plotfig{<full ../out path to .png>}{<bare filename for graphicspath>}
+%%         {<width>}{<caption>}{<label>}
+%% If the PNG exists it is included; otherwise a gray placeholder box is shown,
+%% so the build stays green before the cloud run lands and the figure appears
+%% automatically once the plot is generated.
+\newcommand{\plotplaceholder}[1]{%
+  \fbox{\parbox[c][0.18\textheight][c]{0.78\linewidth}{\centering
+    \color{guidecolor}\itshape Plot pending --- will render automatically once
+    \detokenize{#1} is produced by the run.}}}
+\newcommand{\plotfig}[5]{%
+  \begin{figure}[htbp]\centering
+    \IfFileExists{#1}{\includegraphics[width=#3]{#2}}{\plotplaceholder{#2}}%
+    \caption{#4}\label{#5}
+  \end{figure}}
+%% \plotsub{<full ../out path>}{<bare filename>}{<width>} -- a guarded include
+%% for use as one panel inside a multi-panel figure (no own caption/float).
+\newcommand{\plotsub}[3]{%
+  \IfFileExists{#1}{\includegraphics[width=#3]{#2}}{\plotsubplaceholder{#2}}}
+\newcommand{\plotsubplaceholder}[1]{%
+  \fbox{\parbox[c][0.15\textheight][c]{0.86\linewidth}{\centering
+    \color{guidecolor}\itshape Plot pending: \detokenize{#1}}}}

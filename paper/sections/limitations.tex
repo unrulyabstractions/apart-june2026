@@ -1,0 +1,95 @@
+\section{Limitations and Dual-Use Considerations}
+\label{sec:limitations}
+
+\paragraph{Limitations.}
+\begin{itemize}[leftmargin=*,topsep=2pt,itemsep=1pt]
+  \item \textbf{Single primary model.} The baseline, stability, selection,
+    divergence, and geometry studies all run on one small model
+    (\texttt{Qwen3-0.6B}); only the cross-model sweep spans five models (each
+    family contributing two sizes), so the per-condition and geometric findings are
+    not yet shown to generalize across models or scales.
+  \item \textbf{Small per-cell $n$ on the pilot studies.} The stability and
+    divergence studies use small item pools (stability $n{=}8/16$ items per
+    condition; divergence $43$ scored items), so per-item Wilson CIs are wide and the
+    slice-level rates (e.g.\ per-category abstention) should be read as pilot
+    estimates rather than precise measurements. The selection / full-data run
+    (\Cref{app:fulldata}) is the exception---$1347$ ambiguous items per scaffold.
+  \item \textbf{Per-scaffold comparison on one model.} The full-data run
+    (\Cref{app:fulldata}) scores all four \Cref{tab:scaffolds} scaffolds on $1347$
+    ambiguous items each and selects $s^\star{=}$\texttt{interpretive\_direction}
+    behaviorally ($99.9\%$ vs.\ $85.6\%$ baseline), corroborated by the
+    representational ($+0.48$ silhouette, \Cref{app:geometry}) and causal
+    (\Cref{app:steer}) findings; but this per-scaffold ranking is established only on
+    \texttt{Qwen3-0.6B} and is not yet shown to hold across models or scales.
+  \item \textbf{Spanish-only scope.} Coverage is Spanish (with matched English
+    scaffold text) and four bias categories (racism, xenophobia, classism, gender);
+    the \textbf{genero} category is underpowered ($n{=}18$ total; $n{=}6$ per
+    disambiguated slice), and findings may not transfer to other languages or
+    social-bias taxonomies.
+  \item \textbf{Correlational geometry.} The geometry study measures which item
+    labels separate the answer representation; it is correlational, not causal, and
+    does not establish that the scaffold axis \emph{drives} abstention behavior.
+  \item \textbf{Parser dependence.} The greedy- and sampled-thinking readouts depend
+    on a parser that can drop free-form draws ($4$ of $47$ divergence prompts yielded
+    no parsable thinking draw), which biases the parsed count $M$ and the thinking
+    distribution $p^{\mathrm{th}}$.
+  \item \textbf{Symmetry assumptions.} The position$\to$role remap and bilingual
+    rendering assume the model treats display positions and the two languages
+    symmetrically; residual position or language bias would leak into the reported
+    rates.
+\end{itemize}
+
+\paragraph{Dual-use and misuse risks.}
+\begin{itemize}[leftmargin=*,topsep=2pt,itemsep=1pt]
+  \item The debiasing scaffold is invertible: the one-sentence preamble that pushes
+    the model toward ``unknown'' can be rewritten into a bias-amplifying preamble
+    that pushes it toward the stereotyped target group.
+  \item Small models substitute confident stereotyped guessing for abstention, so a
+    deployer choosing the cheapest model inherits the most biased behavior.
+  \item Abstention can be gamed by answering ``unknown'' indiscriminately; the
+    per-condition design scores indiscriminate abstention at $0$ on disambiguated
+    items.
+\end{itemize}
+
+\paragraph{Suggestions for future improvements.}
+\begin{itemize}[leftmargin=*,topsep=2pt,itemsep=1pt]
+  \item Replicate the full-data per-scaffold ranking
+    (\Cref{app:fulldata}: $s^\star{=}$\texttt{interpretive\_direction}, with
+    \texttt{intent\_and\_register\_respect} below the no-scaffold baseline) across the
+    cross-model sweep, to test whether the same scaffold wins at other scales.
+  \item Extend the per-condition and geometry studies across the cross-model sweep's
+    models and sizes to test whether the findings generalize beyond \texttt{Qwen3-0.6B}.
+  \item Extend the causal steering of \Cref{app:steer}---which already turns the
+    correlational scaffold axis into an additive intervention that raises abstention
+    on held-out items---across more models, layers, and the disambiguated condition.
+  \item Broaden coverage beyond Spanish and the four bias categories, and add items
+    to the underpowered \textbf{genero} slice.
+\end{itemize}
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+\section*{Code and Data}
+\begin{itemize}[label=\textendash,leftmargin=*,topsep=2pt]
+  \item \textbf{Code repository:} the evaluation harness (three-/two-option
+    choice runners, greedy- and sampled-thinking readouts, scaffolds, and the
+    geometry analysis) will be released with the final version.
+  \item \textbf{Data/Datasets:} \textsc{SESGO}~\citep{robles2025sesgo}, used under
+    its original license.
+  \item \textbf{Models:} \texttt{Qwen3-0.6B} / \texttt{Qwen3-4B},
+    \texttt{Llama-3.2-1B} / \texttt{-3B}, and \texttt{Mistral-7B-Instruct-v0.3},
+    run locally.
+\end{itemize}
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%% REFERENCES -- add entries to references.bib and cite with \citep{key}.
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+\bibliographystyle{plainnat}
+\bibliography{references}
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%% APPENDICES -- one per pipeline. Each appendix is, in order:
+%%   (a) \paragraph{Methods.} -- pipeline-specific methodology
+%%   (b) \paragraph{Results.} -- terse bulleted factual results
+%%   (c) the figures for that pipeline (guarded \plotfig / \plotsub includes)
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%

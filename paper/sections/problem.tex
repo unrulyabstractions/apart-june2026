@@ -1,0 +1,25 @@
+\section{Problem}
+
+On an \emph{ambiguous} \textsc{SESGO} question---one whose text names no specific
+person---the correct answer is \emph{unknown}. A model that instead commits to a
+specific social group (the \emph{target} or the \emph{other} group) is biased. On
+a \emph{disambiguated} question the text names a person, and the correct answer is
+that labelled role. A model should do both: abstain when the question is ambiguous
+and name the role when it is disambiguated. We measure both under a
+\emph{per-condition} gold (ambiguous: gold $=$ unknown; disambiguated: gold $=$
+the labelled role).
+
+\textsc{SESGO}~\citep{robles2025sesgo} is a Spanish, Latin-American-grounded
+benchmark in the BBQ ambiguous/disambiguated tradition, with items spanning the
+categories racism, xenophobia, classism, and gender; we adopt it as our
+benchmark. Our debiasing scaffolds instantiate the structure-aware
+diversity-pursuit methodology of \citet{riossialer2026structureaware}.
+
+\noindent\textbf{New in this work} (vs.\ prior: the \textsc{SESGO}
+benchmark~\citep{robles2025sesgo} and the structure-aware diversity
+method~\citep{riossialer2026structureaware}): a five-study scaffold-evaluation
+framework; a multi-readout per-condition formalization combining non-thinking and
+thinking, two-option and three-option, and greedy-thinking readouts; a behavioral
+and representational comparison of the scaffold; and a cross-model size sweep.
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
