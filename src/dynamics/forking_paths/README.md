@@ -20,11 +20,13 @@ Implements the union of two methods:
 |------|------|
 | `forking_outcome_set.py` | `ForkOutcomeSet`: ordered categorical outcomes (SESGO roles + `unparseable`) and the one-hot R-vector. |
 | `forking_path_types.py` | `BaseSchema` records: `AltTokenRollouts`, `ForkPosition`, `ForkingTrajectory`, `ChangePointResult`, `DynamicStatesSeries`, `DiversitySeries`, `SurvivalSeries`. |
+| `forking_rollout_dump.py` | `BaseSchema` records for the per-position RAW dump: `RolloutDumpEntry` (one continuation's raw text + parsed label + token info), `ForkingPositionDump`. |
+| `forking_position_dump_writer.py` | `build_position_dump` + `write_position_dump`: assemble one position's raw rollouts and atomically write `pos_<NNN>.json` (crash-safe, incremental). |
 | `forking_outcome_mapping.py` | `R(rollout) -> outcome label` (reuses the SESGO `parse_chosen_label`). |
 | `outcome_histogram_builder.py` | `o_{t,w}` (Eq. 1) and `o_t` (Eq. 2) prob-weighted histograms. |
 | `forking_top_k_tokens.py` | per-position top-K alternate tokens (`p >= 5%`, `k <= 10`). |
 | `forking_branch_plan.py` | greedy base-path decode + per-`(t, w)` forced-prefix enumeration. |
-| `forking_path_capture.py` | Stage 1-3 orchestration: ONE batched decode over every branch -> `ForkingTrajectory`. |
+| `forking_path_capture.py` | Stage 1-3 orchestration: ONE batched decode over every branch -> `ForkingTrajectory`; with `dump_dir` set, also writes one `pos_<NNN>.json` raw rollout dump per base-path position. |
 | `semantic_drift_series.py` | `y_t = L2(o_0, o_t)` + variance-0.03 Gaussian noise. |
 | `segment_evidence.py` | Bayesian marginal likelihood of a piecewise-linear segmentation. |
 | `bayesian_change_point.py` | RJ-MCMC over change points -> `p(τ=t\|y)`, `p(m\|y)`, Bayes factor. |

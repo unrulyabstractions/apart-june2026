@@ -163,6 +163,21 @@ bias gap `target_other_gap.png`, three-readout agreement `readout_agreement.png`
 and disambiguated soft-accuracy `disambig_accuracy_spread.png`. Partial runs are
 flagged (`*` + `n=`); models whose 3-opt readout collapsed to uniform are skipped.
 
+## 2c. Bias-alignment vs accuracy (two-panel figure)
+```bash
+.venv/bin/python -m sesgo.baseline.run_baseline_bias_alignment    # one segment per MODEL
+.venv/bin/python -m sesgo.baseline.run_selection_bias_alignment   # one segment per SCAFFOLD
+```
+Two panels (Ambiguous | Disambiguated). y = accuracy (ambiguous abstention /
+disambiguated correctness); x = "Bias Alignment" in `[-1, +1]`, the mean signed
+lean `(P(target) - P(other)) / max(P(target)+P(other), eps)` over the non-thinking
+readout. Each group is a horizontal segment at its accuracy spanning its
+neutral-vs-negative wording bias range, labelled with the pooled signed bias and n
+(Wilson 95% CI whisker at the pooled point). Baseline colours by family
+(size-ordered, `out/sesgo/baseline/cross_model/plots/bias_alignment_accuracy.png`);
+selection splits the full-data `Qwen3-0.6B` run by scaffold for power
+(`out/sesgo/full_data/Qwen3-0.6B/plots/bias_alignment_accuracy.png`).
+
 ## 3. Run the sweep on the cloud (Vast.ai, parallel, one right-sized GPU/model)
 ```bash
 FLEET_CONFIRM=1 bash cloud/fleet_launch.sh                 # create all boxes concurrently

@@ -61,6 +61,12 @@ def main() -> None:
     log(f"[collect] item idx={sample.sample_idx} q={sample.question_id[:12]} "
         f"outcomes={outcome_set.labels}")
 
+    # Per-position RAW rollout dump: one pos_<NNN>.json per base-path token,
+    # recording every alternate's raw continuation text + parsed label + token
+    # info (written incrementally, crash-safe) so each entry maps back to its
+    # forking_trajectory position for unparseable / outcome audits.
+    dump_dir = out_dir / "forking_positions"
+
     runner = TernaryChoiceRunner(model_name=args.model, backend=ModelBackend.HUGGINGFACE)
     with P("capture_forking_trajectory"):
         traj = capture_forking_trajectory(
@@ -70,6 +76,7 @@ def main() -> None:
             near_window=args.near_window,
             base_max_new_tokens=args.base_max_new_tokens,
             max_positions=args.max_positions,
+            dump_dir=dump_dir,
         )
 
     log(f"[collect] base path: {len(traj.positions)} tokens, "
@@ -80,6 +87,7 @@ def main() -> None:
     out_path = out_dir / "forking_trajectory.json"
     save_json_atomic(traj.to_dict(), out_path)
     log(f"[collect] wrote {out_path}")
+    log(f"[collect] wrote {len(traj.positions)} per-position raw dumps to {dump_dir}")
 
 
 if __name__ == "__main__":

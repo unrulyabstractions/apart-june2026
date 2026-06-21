@@ -15,6 +15,8 @@ N-sample full-resample batch from the bare prompt.
 
 from __future__ import annotations
 
+from pathlib import Path
+
 from src.datasets.prompt import SesgoPromptSample
 from src.inference import ModelRunner
 
@@ -22,6 +24,7 @@ from .forking_branch_plan import BranchPlan, build_branch_plan
 from .forking_outcome_set import ForkOutcomeSet
 from .forking_path_types import AltTokenRollouts, ForkingTrajectory, ForkPosition
 from .forking_outcome_mapping import rollout_to_outcome_label
+from .forking_position_dump_writer import build_position_dump, write_position_dump
 from .outcome_histogram_builder import conditional_histogram, position_histogram
 
 
@@ -79,6 +82,7 @@ def capture_forking_trajectory(
     near_window: int = 0,
     base_max_new_tokens: int = 256,
     max_positions: int = 0,
+    dump_dir: Path | None = None,
 ) -> ForkingTrajectory:
     """Capture the full {O_t} series for one prompt (greedy base path + branches).
 
@@ -86,6 +90,9 @@ def capture_forking_trajectory(
     the positions nearest the highest-entropy base token (more samples near
     suspected change points, per the paper). ``max_positions`` (0 == all) caps how
     many leading base-path tokens are branched (the local-pilot cost knob).
+    When ``dump_dir`` is given, EVERY position's RAW rollout texts (+ parsed label
+    and token info) are written incrementally to ``dump_dir/pos_<NNN>.json`` so a
+    crash mid-run keeps every completed position auditable.
     Returns a serializable ForkingTrajectory the analysis driver consumes.
     """
     outcome_set = outcome_set or ForkOutcomeSet()
@@ -105,13 +112,17 @@ def capture_forking_trajectory(
     )
 
     # Slice the flat rollouts back into per-(t, w) groups and build histograms.
+    # The RAW per-alternate texts are kept alongside the labels so a dump can map
+    # each rollout back to its (position, alternate, sample) for unparseable audits.
     positions: list[ForkPosition] = []
     cursor = 0
     for t, pos_rows in enumerate(plan.rows_per_position):
+        per_alt_texts: list[list[str]] = []
         per_alt_labels: list[list[str]] = []
         for _alt, _prefix, n in pos_rows:
             chunk = flat_rollouts[cursor : cursor + n]
             cursor += n
+            per_alt_texts.append(list(chunk))
             per_alt_labels.append([rollout_to_outcome_label(r, sample) for r in chunk])
         alt_records, o_t = _branch_position(pos_rows, per_alt_labels, outcome_set)
         positions.append(
@@ -123,6 +134,15 @@ def capture_forking_trajectory(
                 outcome_histogram=o_t,
             )
         )
+        # Crash-safe: persist this position's raw dump the moment it's assembled.
+        if dump_dir is not None:
+            write_position_dump(
+                dump_dir,
+                build_position_dump(
+                    t, plan.base_token_ids[t], plan.base_token_texts[t],
+                    pos_rows, per_alt_texts, per_alt_labels,
+                ),
+            )
 
     prior = _resample_prior(
         runner, sample, outcome_set, n_prior, max_new_tokens, temperature

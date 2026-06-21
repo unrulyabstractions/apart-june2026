@@ -30,7 +30,11 @@ uv run python sesgo/forking/plot_forking_dynamics.py --model Qwen/Qwen3-0.6B
 
 Outputs land under `out/sesgo/forking/<MODEL>/`:
 `selected_item.json`, `forking_trajectory.json`, `forking_analysis.json`,
-`forking_dynamics.png`, `forking_branching_tree.png`.
+`forking_dynamics.png`, `forking_branching_tree.png`, and a
+`forking_positions/` directory with one `pos_<NNN>.json` per base-path token
+position (the per-position RAW rollout dump — every sampled alternate's raw
+continuation text + parsed outcome label + token info, written incrementally so a
+crash keeps every completed position; use it to audit `unparseable` draws).
 
 The **branching tree** (`forking_branching_tree.png`) renders the fork the way the
 paper's Fig. 11 does: a left-to-right `root → trunk → branches` tree whose NODES
@@ -48,6 +52,7 @@ alternate continuations, each carrying its own `o_{t,w}`. The same renderer
 | `collect_forking_rollouts.py` | Stages 1-3: capture `{O_t}` for the selected item, ONE batched decode over every branch. |
 | `analyze_forking_dynamics.py` | Stage 4: change-point + dynamic-state + diversity + survival analysis. |
 | `plot_forking_dynamics.py` | Stage 5: the stacked-area figure + companion panels + the branching tree. |
+| `plot_forking_commit_dynamics.py` | Paper F6: a clean two-panel figure — stacked-area `O_t` over the full token index (top) + a single answer-diversity curve `H(O_t)` of the live answers on its own y-axis (bottom). Legends sit OUTSIDE the axes; reads only `forking_trajectory.json`, scales to any reasoning length. |
 | `render_branching_tree.py` | Shared left-to-right branching-tree renderer (Fig. 11 style); reused by the divergence study. |
 | `forking_plot_styles.py` | shared palette / token-strip / saver (presentation only). |
 | `forking_item_io.py` | serialize/reload the selected `SesgoPromptSample` between drivers. |

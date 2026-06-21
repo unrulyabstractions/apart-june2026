@@ -1,11 +1,11 @@
-"""Clean TWO-PANEL forking figure: where the answer is decided in the reasoning.
+"""Clean TWO-PANEL forking figure: how the answer narrows as reasoning unfolds.
 
-Narrative key figure (forking-paths, arXiv:2601.06116). TOP: stacked-area outcome
-distribution O_t over the chain-of-thought token index (one band per answer in
-plain ROLE_LABEL words). BOTTOM: the change-point posterior p(tau=t) over the same
-index, marking + naming the token where the trajectory commits. Reads the
-trajectory + analysis JSONs and writes ONE PNG; companion to the 5-panel
-plot_forking_dynamics.py.  Render: .venv/bin/python <this file>.
+Narrative key figure (forking-paths, arXiv:2601.06116; the paper's F6). TOP:
+stacked-area outcome distribution O_t over the FULL chain-of-thought token index
+(one band per answer in plain ROLE_LABEL words; scales to any reasoning length).
+BOTTOM: a SINGLE diversity curve = Shannon entropy H(O_t) of the live answers --
+high when many answers are still in play, low once the model has committed. Reads
+ONLY the trajectory JSON and writes ONE PNG. Render: .venv/bin/python <this file>.
 """
 
 from __future__ import annotations
@@ -22,9 +22,9 @@ import numpy as np  # noqa: E402
 from sesgo.common.plain_language_labels import CATEGORY_LABEL, ROLE_LABEL  # noqa: E402
 from sesgo.shard_output_paths import shard_out_dir  # noqa: E402
 from src.common.file_io import load_json  # noqa: E402
+from src.common.math import probs_to_logprobs, shannon_entropy  # noqa: E402
 from src.common.math.confidence_intervals import wilson_err  # noqa: E402
 from src.dynamics.forking_paths import ForkingTrajectory  # noqa: E402
-from src.dynamics.forking_paths.forking_analysis_result import ForkingAnalysis  # noqa: E402
 
 from sesgo.forking.forking_plot_styles import OUTCOME_COLORS, save_fig  # noqa: E402
 
@@ -46,9 +46,17 @@ def _rollouts_at(traj: ForkingTrajectory, t: int) -> int:
     return sum(len(a.rollout_labels) for a in traj.positions[t].alternates)
 
 
-def _outcome_panel(ax, traj: ForkingTrajectory) -> None:
-    """Stacked-area O_t over token index; Wilson 95% CI on the leading-answer share."""
-    o_series = np.array([p.outcome_histogram for p in traj.positions])  # [T, dim]
+def _outcome_matrix(traj: ForkingTrajectory) -> np.ndarray:
+    """[T, dim] array of the per-position outcome distributions O_t."""
+    return np.array([p.outcome_histogram for p in traj.positions])
+
+
+def _outcome_panel(ax, traj: ForkingTrajectory) -> int:
+    """Stacked-area O_t over token index; Wilson 95% CI on the leading-answer share.
+
+    Returns the median rollout count behind a position (the figure-wide Wilson n).
+    """
+    o_series = _outcome_matrix(traj)  # [T, dim]
     xs = np.arange(o_series.shape[0])
     labels = traj.outcome_set.labels
     ax.stackplot(xs, o_series.T, alpha=0.92, edgecolor="white", linewidth=0.4,
@@ -64,65 +72,66 @@ def _outcome_panel(ax, traj: ForkingTrajectory) -> None:
                 elinewidth=0.9, capsize=2.2, alpha=0.55)
     n_med = int(np.median([n for n in ns if n > 0]) or 0)
     ax.set_ylim(0, 1.02)
-    ax.set_xlim(-0.5, max(xs[-1], 1) + 0.5)
+    ax.set_xlim(-0.5, max(int(xs[-1]), 1) + 0.5)
     ax.set_ylabel("Share of answers the model\nwould give here")
-    ax.legend(loc="lower left", fontsize=8.5, ncol=2, framealpha=0.9, title_fontsize=8.0,
-              title=f"Possible answers (~{n_med} rollouts/token; whisker = Wilson 95% CI on the leading share)")
+    # Legend OUTSIDE the axes (to the right) so it never sits on top of the bands.
+    ax.legend(loc="center left", bbox_to_anchor=(1.01, 0.5), fontsize=8.5,
+              framealpha=0.95, title_fontsize=8.0,
+              title=f"Possible answers\n(~{n_med} rollouts/token;\nwhisker = Wilson 95% CI\non the leading share)")
     ax.set_title("The model's likely answer shifts as its reasoning unfolds",
                  fontsize=13, fontweight="bold", pad=26)
     ax.text(0.5, 1.012,
             "How to read: each colour is one possible answer; a tall band means the model would mostly give that answer at this point in its reasoning.",
             transform=ax.transAxes, ha="center", va="bottom", fontsize=8.6,
             color="#555555", style="italic")
+    return n_med
 
 
-def _commit_token(traj: ForkingTrajectory, t: int) -> str:
-    """Readable base-path token text at index t (spaces/newlines made visible)."""
-    tok = traj.base_token_texts[t].replace("\n", "\\n").strip()
-    return tok or "(space)"
+def _entropy_series(traj: ForkingTrajectory) -> np.ndarray:
+    """Per-position answer diversity H(O_t) in nats (0 = committed, high = open)."""
+    o_series = _outcome_matrix(traj)
+    return np.array([float(shannon_entropy(probs_to_logprobs(row.tolist())))
+                     for row in o_series])
 
 
-def _commit_panel(ax, traj: ForkingTrajectory, analysis: ForkingAnalysis) -> None:
-    """Change-point posterior p(tau=t) over token index; deciding token highlighted."""
-    cp = analysis.change_points
-    tau = np.array(cp.tau_posterior)
-    ax.bar(np.arange(len(tau)), tau, color="#CC79A7", width=0.85,
-           label="Chance the answer is decided at this token")
-    detected = 0 <= cp.forking_token_index < len(traj.base_token_texts)
-    peak = cp.forking_token_index if detected else (int(np.argmax(tau)) if tau.size else -1)
-    if peak >= 0:
-        col = "#D55E00" if detected else "#0072B2"
-        ax.bar([peak], [tau[peak]], color=col, width=0.85,
-               label=("Deciding token" if detected else "Most-likely deciding token (not yet significant)"))
-        ax.annotate(
-            f'{"commits" if detected else "leans"} here -> "{_commit_token(traj, peak)}"',
-            xy=(peak, tau[peak]), xytext=(0.5, 0.82), textcoords="axes fraction",
-            ha="center", fontsize=11, fontweight="bold", color=col,
-            arrowprops=dict(arrowstyle="->", color=col, lw=1.6))
-    ax.set_ylim(0, max(float(tau.max()) * 1.3, 0.04))
-    ax.set_xlim(-0.5, max(len(tau) - 1, 1) + 0.5)
+def _diversity_panel(ax, traj: ForkingTrajectory) -> None:
+    """Single diversity curve: Shannon entropy H(O_t) of the live answers.
+
+    Plotted on its OWN y-axis (nats). The dashed line is the maximum possible
+    diversity (a perfectly even split over all answer categories); the curve
+    falling toward 0 is the model committing to one answer.
+    """
+    h = _entropy_series(traj)
+    xs = np.arange(len(h))
+    h_max = float(np.log(max(traj.outcome_set.dim, 2)))  # even split over categories
+    ax.fill_between(xs, 0, h, color="#009E73", alpha=0.18)  # Okabe-Ito bluish-green
+    ax.plot(xs, h, "-", color="#009E73", lw=2.0,
+            label="Answer diversity H(O_t)")
+    ax.axhline(h_max, ls="--", lw=1.2, color="#555555",
+               label=f"All answers equally likely (max = ln {traj.outcome_set.dim} = {h_max:.2f})")
+    ax.set_ylim(0, h_max * 1.08)
+    ax.set_xlim(-0.5, max(len(xs) - 1, 1) + 0.5)
     ax.set_xlabel("Reasoning token index (order the model writes its chain of thought)")
-    ax.set_ylabel("How likely the answer\nis decided here")
-    ax.legend(loc="upper right", fontsize=8.5, framealpha=0.9)
-    if detected:
-        title = "One token decides the final answer"
-        sub = "How to read: the tall spike is the single reasoning token where the model's answer locks in."
-    else:
-        title = "The answer builds up gradually -- no single deciding token"
-        sub = "How to read: probability is spread thinly across tokens; here no one token reaches the deciding threshold."
-    ax.set_title(title, fontsize=13, fontweight="bold", pad=24)
-    ax.text(0.5, 1.012, sub, transform=ax.transAxes, ha="center", va="bottom",
-            fontsize=8.6, color="#555555", style="italic")
+    ax.set_ylabel("Answer diversity\n(entropy of live answers)")
+    # Legend OUTSIDE the axes (to the right), matching the top panel.
+    ax.legend(loc="center left", bbox_to_anchor=(1.01, 0.5), fontsize=8.5,
+              framealpha=0.95)
+    ax.set_title("How many answers are still in play as the model reasons",
+                 fontsize=13, fontweight="bold", pad=24)
+    ax.text(0.5, 1.012,
+            "How to read: a high line means many answers are still possible here; the line dropping toward zero means the model has committed to one answer.",
+            transform=ax.transAxes, ha="center", va="bottom", fontsize=8.6,
+            color="#555555", style="italic")
 
 
-def build_figure(traj: ForkingTrajectory, analysis: ForkingAnalysis, bias_axis: str):
-    """Assemble the two stacked panels sharing the token-index x-axis."""
+def build_figure(traj: ForkingTrajectory, bias_axis: str):
+    """Assemble the two stacked panels sharing the full token-index x-axis."""
     fig, (ax_top, ax_bot) = plt.subplots(
-        2, 1, figsize=(11.5, 8.2), sharex=True,
-        gridspec_kw=dict(height_ratios=[2.4, 1.0], hspace=0.42),
+        2, 1, figsize=(12.5, 8.4), sharex=True,
+        gridspec_kw=dict(height_ratios=[2.2, 1.1], hspace=0.42),
     )
     _outcome_panel(ax_top, traj)
-    _commit_panel(ax_bot, traj, analysis)
+    _diversity_panel(ax_bot, traj)
     for ax in (ax_top, ax_bot):
         ax.grid(axis="y", alpha=0.2)
         ax.spines[["top", "right"]].set_visible(False)
@@ -130,15 +139,16 @@ def build_figure(traj: ForkingTrajectory, analysis: ForkingAnalysis, bias_axis: 
         f"Tracking where {traj.model.split('/')[-1]} decides its answer to an ambiguous {bias_axis} question",
         fontsize=11, color="#333333", fontweight="bold", y=0.998,
     )
+    # Leave room on the right for the outside legends.
+    fig.subplots_adjust(right=0.78)
     return fig
 
 
 def main() -> None:
-    """Load the trajectory + analysis and render the two-panel commit figure."""
+    """Load the trajectory and render the two-panel commit/diversity figure."""
     out_dir = shard_out_dir(Path("out"), "forking", "Qwen3-0.6B", 0, 1)
     traj = ForkingTrajectory.from_json(out_dir / "forking_trajectory.json")
-    analysis = ForkingAnalysis.from_json(out_dir / "forking_analysis.json")
-    fig = build_figure(traj, analysis, _bias_axis(out_dir))
+    fig = build_figure(traj, _bias_axis(out_dir))
     plots_dir = out_dir / "plots"
     plots_dir.mkdir(parents=True, exist_ok=True)
     out_path = save_fig(fig, plots_dir / "forking_commit_dynamics.png")
