@@ -84,11 +84,21 @@ fork the same way the paper does.
 
 ## Verification status
 
-The full five-stage pipeline was run end-to-end on a TINY local pilot (Qwen3-0.6B,
-MPS, 6 branched positions, `S = 4`, `N = 4`): selection found a genuine
-high-entropy item (1.099 nats), capture produced `o_0 = [0, .25, .25, .5]` →
-`o_T = [0, 1, 0, 0]` (a clear outcome collapse onto OTHER), analysis ran the CPD +
-all series, and plotting produced `forking_dynamics.png`. With so few positions the
-CPD correctly finds no *significant* change point; the `most_forking` index still
-localizes the largest barycenter jump. The cloud run is the identical commands at
-paper scale.
+The full pipeline was run end-to-end LOCALLY on Qwen3-0.6B (MPS, HuggingFace) at a
+real scale: 60 branched base-path positions, `S = 40` continuations per `(t, w)`,
+`N = 60`-sample prior, 384-token rollouts — ~60 min, 92 total branches. Selection
+chose a gender gossip-stereotype item (entropy 0.703); capture produced
+`o_0 = [0, .32, .13, .55]` evolving to `o_T = [.03, .65, .30, .03]` with a clear
+"target" excursion around t=40 and a swing to "unknown" near t=50.
+
+On this tiny model the per-token `o_t` is noisy, so the Bayesian CPD correctly
+returns **no significant single change point** (Bayes factor 0.02, `p(m=0)=0.98`):
+the drift series is genuinely jittery rather than a clean piecewise step. That is an
+honest negative — we do NOT fabricate a change point. The branching tree therefore
+sits on the **most-divergent-branch** position (`most_divergent_branch_index`), the
+model-agnostic forking signature: the token where re-sampling a different next token
+most diverts the outcome. For this item that is `t = 42` (the token `","`), whose
+base continuation leans `[target .45, other .15, unknown .35]` while the alternate
+`" and"` (p = 0.12) swings to `[target .12, other .82]` — a real fork. The cloud run
+is the identical commands with `--max-positions 0` (all tokens) at paper sample
+counts, where the larger model's cleaner `o_t` is expected to clear the CPD's BF>9.

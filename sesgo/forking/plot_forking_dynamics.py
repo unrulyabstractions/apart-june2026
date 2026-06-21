@@ -27,7 +27,11 @@ import numpy as np  # noqa: E402
 
 from sesgo.shard_output_paths import shard_out_dir  # noqa: E402
 from src.common.logging import log, log_header  # noqa: E402
-from src.dynamics.forking_paths import ForkingTrajectory, build_branching_tree  # noqa: E402
+from src.dynamics.forking_paths import (  # noqa: E402
+    ForkingTrajectory,
+    build_branching_tree,
+    most_divergent_branch_index,
+)
 from src.dynamics.forking_paths.forking_analysis_result import ForkingAnalysis  # noqa: E402
 
 from sesgo.forking.forking_plot_styles import (  # noqa: E402
@@ -120,16 +124,18 @@ def _figure(traj: ForkingTrajectory, analysis: ForkingAnalysis):
 
 
 def _trunk_index(traj: ForkingTrajectory, analysis: ForkingAnalysis) -> int:
-    """Decision-token position for the branching tree: the detected forking token.
+    """Decision-token position for the branching tree: the forking token.
 
-    Prefers the change-point argmax (the localized forking token); falls back to
-    the most-forking Δ_t position when no change point is significant, so the tree
-    always sits on the trajectory's strongest branch point.
+    Prefers the SIGNIFICANT change-point argmax when the CPD localizes one; else
+    falls back to the position whose alternate continuations diverge most in
+    outcome (``most_divergent_branch_index``) — the model-agnostic forking
+    signature — so the tree always sits on a position that genuinely branches
+    (never the degenerate single-alternate boilerplate the noisy Δ_t can pick).
     """
     cp = analysis.change_points
-    if 0 <= cp.forking_token_index < len(traj.positions):
+    if cp.significant and 0 <= cp.forking_token_index < len(traj.positions):
         return cp.forking_token_index
-    return max(0, analysis.dynamic_states.most_forking_index)
+    return max(0, most_divergent_branch_index(traj))
 
 
 def _branching_tree_figure(traj: ForkingTrajectory, analysis: ForkingAnalysis, path) -> str:

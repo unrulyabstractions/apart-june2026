@@ -2,14 +2,20 @@
 
 Pure logic (no I/O, no matplotlib): given the captured {O_t} and the trunk
 (decision-token) position, assemble the root -> trunk -> branch nodes the
-branching-tree plot renders. The trunk is the forking token (the change point, or
-the most-forking Δ_t position as a fallback); its top alternate continuations
-become the branches, each carrying its own conditional outcome distribution
-o_{t,w} (Eq. 1) and incoming-edge probability mass p(x_t = w). The root is an
-earlier base-path position (or the prior o_0), the shared conditioning frame.
+branching-tree plot renders. The trunk is the forking token; its top alternate
+continuations become the branches, each carrying its own conditional outcome
+distribution o_{t,w} (Eq. 1) and incoming-edge probability mass p(x_t = w). The
+root is an earlier base-path position (or the prior o_0), the shared frame.
+
+The forking token is, by definition, the position where re-sampling a DIFFERENT
+next token would divert the outcome — i.e. where the alternates' o_{t,w} diverge
+most. ``most_divergent_branch_index`` localizes exactly that, which is the right
+trunk for a tree: a position whose alternates all agree makes a degenerate tree.
 """
 
 from __future__ import annotations
+
+from src.common.math import l2_distance
 
 from .forking_path_types import AltTokenRollouts, ForkingTrajectory
 from .forking_tree_model import (
@@ -24,6 +30,32 @@ from .forking_tree_model import (
 def _clean_token(text: str) -> str:
     """Render a token for a node/edge label: visible newline, non-empty fallback."""
     return text.replace("\n", "\\n").strip() or "·"
+
+
+def _branch_divergence(position) -> float:
+    """Max pairwise L2 between a position's supported alternates' outcomes o_{t,w}.
+
+    Zero when the position has fewer than two supported alternates or they all
+    agree (no fork); large when re-sampling a different token genuinely diverts the
+    outcome — the forking-paths signature of a decision token.
+    """
+    supported = [a.conditional_histogram for a in position.alternates if a.rollout_labels]
+    return max(
+        (l2_distance(x, y) for i, x in enumerate(supported) for y in supported[i + 1 :]),
+        default=0.0,
+    )
+
+
+def most_divergent_branch_index(traj: ForkingTrajectory) -> int:
+    """Position whose alternate continuations diverge most in outcome — the fork token.
+
+    This is the model-agnostic, noise-robust trunk for the branching tree: unlike
+    the consecutive-barycenter Δ_t (which a tiny model's per-token jitter dominates
+    at t=0), it directly measures where a re-sampled token flips the answer.
+    """
+    if not traj.positions:
+        return -1
+    return max(range(len(traj.positions)), key=lambda i: _branch_divergence(traj.positions[i]))
 
 
 def _ranked_branches(alternates: list[AltTokenRollouts], max_branches: int) -> list[AltTokenRollouts]:
