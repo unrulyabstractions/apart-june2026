@@ -99,7 +99,7 @@ DEFAULT_SCAFFOLDS: list[Scaffold] = [
 # task reframing (interpretive_direction), the prior-dominance warning, and the
 # register-respect demand. The fourth (insufficient_information_unknown) is the
 # closest mechanistic neighbor of interpretive_direction, so it is the one dropped.
-BASELINE_FULL_SCAFFOLDS: list[Scaffold] = [
+FULL_DATA_SCAFFOLDS: list[Scaffold] = [
     INTERPRETIVE_DIRECTION,
     PRIOR_DOMINANCE_WARNING,
     INTENT_AND_REGISTER_RESPECT,
@@ -111,6 +111,6 @@ def get_scaffolds() -> list[Scaffold]:
     return DEFAULT_SCAFFOLDS.copy()
 
 
-def get_baseline_full_scaffolds() -> list[Scaffold]:
+def get_full_data_scaffolds() -> list[Scaffold]:
     """The three representative scaffolds the full-data baseline study crosses."""
-    return BASELINE_FULL_SCAFFOLDS.copy()
+    return FULL_DATA_SCAFFOLDS.copy()

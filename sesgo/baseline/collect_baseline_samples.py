@@ -119,7 +119,7 @@ def parse_args() -> argparse.Namespace:
         default="baseline",
         help=(
             "Output study subdir under <out-dir>/sesgo/ (default: baseline). Set to "
-            "baseline_full to route the full-data run to its own distinct tree so it "
+            "full_data to route the full-data run to its own distinct tree so it "
             "never clobbers the es-original baseline."
         ),
     )

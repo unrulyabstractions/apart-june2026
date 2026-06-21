@@ -36,11 +36,11 @@ optional caps for quick runs. Outputs:
   out/sesgo/divergence/prompt_dataset.json
   out/sesgo/geometry/prompt_dataset.json
 
-OPT-IN full-data study: set GENERATE_ALL_DATA=1 to ALSO render a baseline_full grid
+OPT-IN full-data study: set GENERATE_ALL_DATA=1 to ALSO render a full_data grid
 crossing ALL languages (es+en) x ALL origins (original+bbq-adapted) x {no-scaffold +
 3 representative scaffolds} into a DISTINCT location, so it never clobbers the
 es-original runs above:
-  out/sesgo/baseline_full/prompt_dataset.json
+  out/sesgo/full_data/prompt_dataset.json
 
 Usage:
   uv run python sesgo/generate/generate_prompt_dataset.py
@@ -63,7 +63,7 @@ from pathlib import Path
 # <repo>/sesgo/generate/x.py, parents[2] is the repo root.
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[2]))
 
-from sesgo.scaffolds import get_baseline_full_scaffolds, get_scaffolds  # noqa: E402
+from sesgo.scaffolds import get_full_data_scaffolds, get_scaffolds  # noqa: E402
 from src.common.file_io import ensure_dir  # noqa: E402
 from src.common.logging import log, log_header, log_section  # noqa: E402
 from src.common.profiler import P  # noqa: E402
@@ -93,13 +93,13 @@ _CANONICAL_LABEL_STYLE: tuple[str, str, str] = ("a)", "b)", "c)")
 # The one scaffold GEOMETRY isolates from the full set.
 _GEOMETRY_SCAFFOLD_ID = "interpretive_direction"
 
-# OPT-IN full-data axes for the BASELINE_FULL study (env GENERATE_ALL_DATA=1). The
+# OPT-IN full-data axes for the FULL_DATA study (env GENERATE_ALL_DATA=1). The
 # default five studies stay es-original so the running es-original runs are never
 # disturbed; this extra study crosses BOTH languages x BOTH origins x {no-scaffold
-# + the three representative scaffolds}, written to a DISTINCT out/sesgo/baseline_full/.
+# + the three representative scaffolds}, written to a DISTINCT out/sesgo/full_data/.
 _FULL_LANGUAGES: tuple[str, ...] = ("es", "en")
 _FULL_ORIGINS: tuple[str, ...] = ("original", "bbq-adapted")
-_BASELINE_FULL_NAME = "baseline_full"
+_FULL_DATA_NAME = "full_data"
 
 
 def parse_args() -> argparse.Namespace:
@@ -200,16 +200,16 @@ def build_and_save(
     log(f"[generate] wrote {path}")
 
 
-def build_baseline_full(args: argparse.Namespace) -> None:
-    """OPT-IN: render the FULL-DATA baseline_full grid to a DISTINCT location.
+def build_full_data(args: argparse.Namespace) -> None:
+    """OPT-IN: render the FULL-DATA grid to a DISTINCT location.
 
     All languages (es+en) x all origins (original+bbq-adapted) x {no-scaffold + the
     three representative scaffolds}, one rendering per item (canonical perm, one
     label style) — the same cheap non-thinking baseline shape, just over the whole
-    SESGO grid. Lands at out/sesgo/baseline_full/prompt_dataset.json so it never
+    SESGO grid. Lands at out/sesgo/full_data/prompt_dataset.json so it never
     clobbers the es-original out/sesgo/baseline/ the running studies read.
     """
-    log_section("baseline_full: loading FULL grid (all languages x all origins)")
+    log_section("full_data: loading FULL grid (all languages x all origins)")
     with P("load_items_full"):
         items = load_items(
             args.sesgo_dir,
@@ -219,11 +219,11 @@ def build_baseline_full(args: argparse.Namespace) -> None:
             origins=_FULL_ORIGINS,
         )
     log(
-        f"[generate] baseline_full loaded {len(items)} items "
+        f"[generate] full_data loaded {len(items)} items "
         f"(languages={list(_FULL_LANGUAGES)}, origins={list(_FULL_ORIGINS)})"
     )
     config = SesgoPromptConfig(
-        name=_BASELINE_FULL_NAME,
+        name=_FULL_DATA_NAME,
         all_permutations=False,
         label_styles=[_CANONICAL_LABEL_STYLE],
         include_no_scaffold=True,
@@ -234,7 +234,7 @@ def build_baseline_full(args: argparse.Namespace) -> None:
     build_and_save(
         config,
         items,
-        get_baseline_full_scaffolds(),
+        get_full_data_scaffolds(),
         args.out_dir,
         "FULL grid (all langs x all origins), no-scaffold + 3 representative scaffolds",
     )
@@ -243,7 +243,7 @@ def build_baseline_full(args: argparse.Namespace) -> None:
 def main() -> None:
     """Load items once, render all five prompt grids, and persist each.
 
-    When GENERATE_ALL_DATA=1 is set, ALSO render the opt-in baseline_full grid
+    When GENERATE_ALL_DATA=1 is set, ALSO render the opt-in full_data grid
     (all languages x all origins x {none + 3 scaffolds}) into a distinct location.
     """
     args = parse_args()
@@ -252,7 +252,7 @@ def main() -> None:
     # OPT-IN full-data study runs first (own load) so a failure there never leaves
     # the es-original studies half-written. Default behavior (env unset) is a no-op.
     if os.environ.get("GENERATE_ALL_DATA", "") not in ("", "0", "false", "False"):
-        build_baseline_full(args)
+        build_full_data(args)
 
     categories = resolve_categories(args.categories)
     languages = resolve_languages(args.languages)

@@ -1,6 +1,6 @@
 """Slice the full-data baseline samples by the NEW axes (language/origin/scaffold).
 
-The es-original baseline figure slices by bias_category; the full-data baseline_full
+The es-original baseline figure slices by bias_category; the full-data full_data
 study widens the grid to BOTH languages (es/en), BOTH origins (original/BBQ-adapted),
 and the scaffold axis (no-scaffold + the three representative debiasing scaffolds).
 This module collapses one model's samples into binomial accuracy cells keyed by

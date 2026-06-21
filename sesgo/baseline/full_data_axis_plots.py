@@ -15,7 +15,7 @@ import matplotlib.pyplot as plt
 from src.common.math import wilson_err
 
 from sesgo.baseline.baseline_accuracy_slices import AccuracyCell
-from sesgo.baseline.baseline_full_axis_slices import AXES
+from sesgo.baseline.full_data_axis_slices import AXES
 from sesgo.baseline.cross_model_aggregation import COND_TITLES, CONDITIONS
 
 # Okabe–Ito palette, one hue per axis so the three columns read as distinct facets.

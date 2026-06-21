@@ -1,4 +1,4 @@
-# RUN: baseline_full (ALL SESGO data) on Qwen3-0.6B — DONE 2026-06-21
+# RUN: full_data (ALL SESGO data) on Qwen3-0.6B — DONE 2026-06-21
 
 ## Result
 - Full grid = 6120 items x 4 scaffold conditions = 24480 prompts (all langs es+en x
@@ -8,8 +8,8 @@
   3060; the rest are partial checkpoints recovered after the fleet driver process was
   killed mid-run; shard7's box died at setup). All axes fully covered & balanced
   (4041/scaffold; es 12684 / en 3480; original 10320 / bbq 5844).
-- Combined -> out/sesgo/baseline_full/Qwen3-0.6B/response_samples.json (16164).
-- Figure -> out/sesgo/baseline_full/Qwen3-0.6B/plots/abstention_by_axis.png.
+- Combined -> out/sesgo/full_data/Qwen3-0.6B/response_samples.json (16164).
+- Figure -> out/sesgo/full_data/Qwen3-0.6B/plots/abstention_by_axis.png.
 
 ## Headline numbers (3-opt teacher-forced abstention on ambiguous, n=5388)
 - language: en 96.2% (n=1160) vs es 86.4% (n=4228)
@@ -25,11 +25,11 @@
 - ALL 40 boxes across all attempts DESTROYED (verified: 0 of our instances live).
 
 ## Code shipped (committed + pushed)
-- load_items `origins` opt-in; get_baseline_full_scaffolds(); GENERATE_ALL_DATA
-  generator opt-in -> out/sesgo/baseline_full/; collect `--study` flag;
+- load_items `origins` opt-in; get_full_data_scaffolds(); GENERATE_ALL_DATA
+  generator opt-in -> out/sesgo/full_data/; collect `--study` flag;
   HF_FORWARD_MICRO_BATCH (OOM-resilient teacher-forced forward);
-  combine_baseline_full_shards.py; baseline_full_axis_{slices,plots}.py +
-  visualize_baseline_full_samples.py; fleet threading; docs + lessons.
+  combine_full_data_shards.py; full_data_axis_{slices,plots}.py +
+  visualize_full_data_samples.py; fleet threading; docs + lessons.
 
 ## Lessons (see tasks/lessons.md)
 - 4090 teacher-forced batch=64 OOMs on long scaffolded prompts -> batch<=16.
@@ -340,7 +340,7 @@ gpu_util>0 on a few is STALE (stopped boxes don't compute). None actively runnin
 ### 1. RECLAIM
 - Destroyed 27 boxes: 25 originally-stopped + 2 wedged (41989335, 41989340, never came up).
 - KEPT 7 actively-running boxes (419916xx) — a concurrent agent's fleet_run.sh is SSH-driving
-  them on MODEL=Qwen3-0.6B STUDIES=baseline_full SHARD_*of8 (GENERATE_ALL_DATA=1), rsync pulling
+  them on MODEL=Qwen3-0.6B STUDIES=full_data SHARD_*of8 (GENERATE_ALL_DATA=1), rsync pulling
   into sync/partial-box-Qwen3-0.6B__shard*of8/. (8 at start, 1 self-destructed on finish -> 7.)
 - Remaining RUNNING burn: $6.43/hr (the active grid). Stopped/idle burn eliminated.
 
@@ -393,3 +393,31 @@ gpu_util>0 on a few is STALE (stopped boxes don't compute). None actively runnin
 - Llama-3.2-1B geometry shard 1of4 (resume), then combine.
 - Qwen3-32B / gemma-2-27b baseline: still only partials; need a real full-2310 run.
 - Selection/divergence shard sets incomplete (only partial-box mirrors).
+
+---
+
+# Cross-model SESGO baseline DISTRIBUTION plots — 2026-06-21
+
+## Goal
+~6 cross-model DISTRIBUTIONAL comparison plots over the sweep
+(out/sesgo/baseline/<model>/response_samples.json, 13 models) ->
+out/sesgo/baseline/cross_model/plots/. House style, run-by-path, BaseSchema,
+Okabe-Ito, Wilson CIs + n. NO cloud. Do NOT touch paper/.
+
+## Plots
+- [ ] 1. Outcome-distribution: mean role mass (target/other/unknown) per model,
+      stacked bars ordered by size (does unknown mass grow with scale?).
+- [ ] 2. Abstention SPREAD: violin/box of per-item p_unknown (ambig) per model.
+- [ ] 3. Per-bias-category abstention heatmap (models x {clasismo,racismo,xenofobia,genero}).
+- [ ] 4. Target-vs-other gap (disambig target acc - other acc) diverging bars by size.
+- [ ] 5. Readout agreement: 3-opt vs 2-opt vs greedy-thinking abstention per model.
+- [ ] 6. Disambiguated-accuracy distribution per model (per-item p_correct box/violin).
+
+## Files (<=150 lines, globally-unique multi-word names)
+- [ ] cross_model_distribution_stats.py     (aggregation, BaseSchema)
+- [ ] cross_model_outcome_plots.py          (plots 1,4,5)
+- [ ] cross_model_spread_plots.py           (plots 2,3,6)
+- [ ] visualize_cross_model_distributions.py (run-by-path driver)
+
+## Verify: uv run driver; VIEW each PNG; iterate if cramped.
+## Commit: branch, fetch+rebase origin/main, stage ONLY new viz files; NOT paper/.

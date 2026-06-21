@@ -39,7 +39,7 @@ MAX_NEW_TOKENS="${MAX_NEW_TOKENS:-}"
 # backward-compatible no-op. Other studies ignore it.
 ITEMS="${ITEMS:-}"
 # GENERATE_ALL_DATA passes straight through to the generator in fleet_model_run.sh:
-# set to 1 (with STUDIES=baseline_full) to build + run the FULL-DATA baseline grid
+# set to 1 (with STUDIES=full_data) to build + run the FULL-DATA baseline grid
 # (all langs x all origins x {none+3 scaffolds}). Defaults EMPTY so an unset value
 # runs only the es-original studies — backward-compatible no-op.
 GENERATE_ALL_DATA="${GENERATE_ALL_DATA:-}"

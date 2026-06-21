@@ -1,25 +1,25 @@
-"""Combine per-shard baseline_full slices of ONE model into a single dataset.
+"""Combine per-shard full_data slices of ONE model into a single dataset.
 
 The cloud fleet runs the full-data baseline grid for a model split across K boxes;
 box k writes ONLY its disjoint contiguous shard under
-``sync/box-<tag>/sesgo/baseline_full/<model>/shard_<k>_of_<K>/response_samples.json``.
+``sync/box-<tag>/sesgo/full_data/<model>/shard_<k>_of_<K>/response_samples.json``.
 ``merge_sync.sh`` uses ``rsync --ignore-existing``, which is correct for disjoint
 MODELS but WRONG for SHARDS of the SAME model (it would keep only the FIRST shard
 and silently drop the rest). So shards need a dedicated, identity-aware combine —
-this is the baseline_full twin of combine_selection_shards.py.
+this is the full_data twin of combine_selection_shards.py.
 
 Why this is clobber-safe by construction: a sample's ``sample_idx`` is the GLOBAL
 grid index (0..N-1) and ``apply_shard`` PRESERVES it when slicing, so de-duping by
 ``sample_identity`` lets a shard re-run never double-count or overwrite (first
 occurrence wins). We concatenate every shard's samples and write a single combined
-``out/sesgo/baseline_full/<model>/response_samples.json``.
+``out/sesgo/full_data/<model>/response_samples.json``.
 
 Verification (hard-fails): all four scaffold conditions present (none + the 3
 representative scaffolds), and BOTH languages + BOTH origins survived the merge.
 
 Usage:
-  uv run python sesgo/baseline/combine_baseline_full_shards.py Qwen3-0.6B
-  uv run python sesgo/baseline/combine_baseline_full_shards.py Qwen3-0.6B \
+  uv run python sesgo/baseline/combine_full_data_shards.py Qwen3-0.6B
+  uv run python sesgo/baseline/combine_full_data_shards.py Qwen3-0.6B \
       --sync-dir sync --out-dir out
 """
 
@@ -41,7 +41,7 @@ from src.datasets.sesgo_eval.checkpoint_resume_helpers import (  # noqa: E402
     sample_identity,
 )
 
-_STUDY = "baseline_full"
+_STUDY = "full_data"
 
 
 def find_shard_files(sync_dir: Path, model: str) -> list[Path]:
@@ -123,9 +123,9 @@ def parse_args() -> argparse.Namespace:
 
 
 def main() -> None:
-    """Combine all shard slices of one model into out/sesgo/baseline_full/<model>/."""
+    """Combine all shard slices of one model into out/sesgo/full_data/<model>/."""
     args = parse_args()
-    log_header(f"COMBINE BASELINE_FULL SHARDS ({args.model})")
+    log_header(f"COMBINE FULL_DATA SHARDS ({args.model})")
 
     files = find_shard_files(args.sync_dir, args.model)
     if not files:

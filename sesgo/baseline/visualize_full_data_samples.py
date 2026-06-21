@@ -1,7 +1,7 @@
 """Visualize the FULL-DATA SESGO baseline sliced by the NEW axes.
 
-Run-by-path driver for the baseline_full study. Loads a ``response_samples.json``
-produced by ``collect_baseline_samples.py --study baseline_full`` (a SesgoDataset
+Run-by-path driver for the full_data study. Loads a ``response_samples.json``
+produced by ``collect_baseline_samples.py --study full_data`` (a SesgoDataset
 spanning BOTH languages, BOTH origins, and the no-scaffold + three-scaffold grid) and
 answers one question across the three axes the full-data study adds: how does the
 ambiguous ABSTENTION rate move with language (es vs en), origin (original vs
@@ -10,11 +10,11 @@ BBQ-adapted), and scaffold (none vs each debiasing scaffold)?
 The per-category baseline figure already covers bias_category; this driver is the
 complementary view that surfaces the language/origin/scaffold structure the widened
 grid unlocks. One grid figure (rows = the three readouts, columns = the three axes)
-lands at out/sesgo/baseline_full/<MODEL>/plots/abstention_by_axis.png.
+lands at out/sesgo/full_data/<MODEL>/plots/abstention_by_axis.png.
 
 Usage:
-  uv run python sesgo/baseline/visualize_baseline_full_samples.py \
-      out/sesgo/baseline_full/Qwen3-0.6B/response_samples.json
+  uv run python sesgo/baseline/visualize_full_data_samples.py \
+      out/sesgo/full_data/Qwen3-0.6B/response_samples.json
 """
 
 from __future__ import annotations
@@ -37,8 +37,8 @@ from src.common.logging import log, log_header, log_section  # noqa: E402
 from src.datasets.sesgo import SesgoLabel  # noqa: E402
 from src.datasets.sesgo_eval import SesgoDataset, SesgoSample  # noqa: E402
 
-from sesgo.baseline.baseline_full_axis_plots import plot_full_axes  # noqa: E402
-from sesgo.baseline.baseline_full_axis_slices import (  # noqa: E402
+from sesgo.baseline.full_data_axis_plots import plot_full_axes  # noqa: E402
+from sesgo.baseline.full_data_axis_slices import (  # noqa: E402
     AXES,
     abstention_cells,
     axis_values,
@@ -55,13 +55,13 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "samples",
         type=Path,
-        help="Path to response_samples.json (a SesgoDataset) from --study baseline_full",
+        help="Path to response_samples.json (a SesgoDataset) from --study full_data",
     )
     parser.add_argument(
         "--out-dir",
         type=Path,
         default=Path("out"),
-        help="Base output dir; plots land at <out-dir>/sesgo/baseline_full/<MODEL>/plots/",
+        help="Base output dir; plots land at <out-dir>/sesgo/full_data/<MODEL>/plots/",
     )
     return parser.parse_args()
 
@@ -103,7 +103,7 @@ def main() -> None:
     axis_vals = {axis: axis_values(ambig, axis) for axis in AXES}
     _log_axis_stats(cells_by_axis, axis_vals)
 
-    plots_dir = args.out_dir / "sesgo" / "baseline_full" / dataset.model_name / "plots"
+    plots_dir = args.out_dir / "sesgo" / "full_data" / dataset.model_name / "plots"
     plots_dir.mkdir(parents=True, exist_ok=True)
     sns.set_theme(style="whitegrid", font_scale=1.0)
     out_path = plot_full_axes(
