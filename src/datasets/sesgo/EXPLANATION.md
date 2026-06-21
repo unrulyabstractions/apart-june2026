@@ -28,8 +28,14 @@ prompts/prompts_<cat>_<lang>.xlsx ──(_find_prompt_file: case-insensitive glo
 ```
 
 `load_items` iterates the requested (category, language) pairs, locates each
-file case-insensitively, keeps only `context_condition == "ambig"`, and unpacks
+file case-insensitively, filters by the `origins` provenance axis, and unpacks
 `answer_info`. Missing files are logged and skipped rather than raising.
+
+The `languages` and `origins` arguments are opt-in axes. Both default to the
+es-original slice (`languages=("es",)`, `origins=("original",)`) so the running
+es-original studies are never disturbed; passing `languages=("es", "en")` and/or
+`origins=("original", "bbq-adapted")` widens to the full corpus grid (6120 items).
+`origins` codes are `"original"` (`bbq == False`) and `"bbq-adapted"` (`bbq == True`).
 
 ## The positional convention
 

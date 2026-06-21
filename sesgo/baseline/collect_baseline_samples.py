@@ -115,10 +115,19 @@ def parse_args() -> argparse.Namespace:
         "--shard-count", type=int, default=1, help="Total shards (1 == full grid)"
     )
     parser.add_argument(
+        "--study",
+        default="baseline",
+        help=(
+            "Output study subdir under <out-dir>/sesgo/ (default: baseline). Set to "
+            "baseline_full to route the full-data run to its own distinct tree so it "
+            "never clobbers the es-original baseline."
+        ),
+    )
+    parser.add_argument(
         "--out-dir",
         type=Path,
         default=Path("out"),
-        help="Base output dir; samples land at <out-dir>/sesgo/baseline/<MODEL>/",
+        help="Base output dir; samples land at <out-dir>/sesgo/<study>/<MODEL>/",
     )
     return parser.parse_args()
 
@@ -178,7 +187,7 @@ def main() -> None:
     # run resumes from. shard_out_dir needs the bare model name (no org prefix).
     bare_model = args.model.split("/")[-1]
     out_dir = shard_out_dir(
-        args.out_dir, "baseline", bare_model, args.shard_index, args.shard_count
+        args.out_dir, args.study, bare_model, args.shard_index, args.shard_count
     )
     out_dir.mkdir(parents=True, exist_ok=True)
     out_path = out_dir / "response_samples.json"

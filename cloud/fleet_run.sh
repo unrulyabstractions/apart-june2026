@@ -38,6 +38,11 @@ MAX_NEW_TOKENS="${MAX_NEW_TOKENS:-}"
 # stability slice). Defaults EMPTY so an unset value runs the full item grid —
 # backward-compatible no-op. Other studies ignore it.
 ITEMS="${ITEMS:-}"
+# GENERATE_ALL_DATA passes straight through to the generator in fleet_model_run.sh:
+# set to 1 (with STUDIES=baseline_full) to build + run the FULL-DATA baseline grid
+# (all langs x all origins x {none+3 scaffolds}). Defaults EMPTY so an unset value
+# runs only the es-original studies — backward-compatible no-op.
+GENERATE_ALL_DATA="${GENERATE_ALL_DATA:-}"
 
 [ -d "$FLEET_DIR" ] || { echo "No fleet. Run cloud/fleet_launch.sh first." >&2; exit 1; }
 
@@ -100,20 +105,25 @@ wait_ssh() {
   return 1
 }
 
-# Push code+prompts (sync_up) and build the env (at_setup), each RETRIED a few
-# times: a transient SSH hiccup mid-rsync must not silently leave a half-synced
-# box. Returns non-zero only if every attempt fails, so the caller can abort the
-# box instead of running it on an empty/partial tree.
+# Push code+prompts (sync_up) and build the env (at_setup), each RETRIED MANY
+# times with backoff: a transient SSH hiccup mid-rsync — OR a multi-minute vast
+# CONTROL-PLANE outage (console.vast.ai refusing connections, which makes the SSH
+# endpoint un-resolvable for every attempt) — must not silently leave a half-synced
+# box or, worse, destroy an otherwise-healthy booted box. The endpoint resolves
+# from the v1 API, so when the API flaps EVERY sync_up fails until it recovers; a
+# short 3-attempt window (≈45s) gave up far too early and wasted booted boxes.
+# SETUP_TRIES/SETUP_BACKOFF make the window generous (default 20×30s = 10 min) so a
+# box rides out an API outage. Returns non-zero only if every attempt fails.
 sync_and_setup() {
   local iid="$1" attempt
-  for attempt in 1 2 3; do
+  for attempt in $(seq 1 "${SETUP_TRIES:-20}"); do
     echo "[setup attempt $attempt] sync_up"
     if INSTANCE="$iid" bash "$HERE/sync_up.sh" && \
        INSTANCE="$iid" bash "$HERE/at_vast.sh" "bash cloud/at_setup.sh"; then
       return 0
     fi
-    echo "[setup attempt $attempt] FAILED; retrying after 15s"
-    sleep 15
+    echo "[setup attempt $attempt] FAILED; retrying after ${SETUP_BACKOFF:-30}s"
+    sleep "${SETUP_BACKOFF:-30}"
   done
   return 1
 }
@@ -156,7 +166,7 @@ run_one() {
     INSTANCE="$iid" MODEL="$model" SHARD_INDEX="$sidx" SHARD_COUNT="$scount" \
       STUDIES="$STUDIES" BATCH_SIZE="$BATCH_SIZE" N_THINKING="$N_THINKING" \
       bash "$HERE/at_vast.sh" \
-      "HF_TOKEN='$HF_TOKEN' HF_DEVICE_MAP='$hf_device_map' MODEL='$model' SHARD_INDEX=$sidx SHARD_COUNT=$scount STUDIES='$STUDIES' BATCH_SIZE=$BATCH_SIZE N_THINKING=$N_THINKING SUBSAMPLE='$SUBSAMPLE' MAX_NEW_TOKENS='$MAX_NEW_TOKENS' ITEMS='$ITEMS' bash cloud/fleet_model_run.sh"
+      "HF_TOKEN='$HF_TOKEN' HF_DEVICE_MAP='$hf_device_map' MODEL='$model' SHARD_INDEX=$sidx SHARD_COUNT=$scount STUDIES='$STUDIES' BATCH_SIZE=$BATCH_SIZE N_THINKING=$N_THINKING SUBSAMPLE='$SUBSAMPLE' MAX_NEW_TOKENS='$MAX_NEW_TOKENS' ITEMS='$ITEMS' GENERATE_ALL_DATA='$GENERATE_ALL_DATA' bash cloud/fleet_model_run.sh"
 
     # Step 5: pull THIS box's results into ITS OWN sync/box-<tag>/ quarantine.
     INSTANCE="$iid" SYNC_SUBDIR="box-$tag" bash "$HERE/sync_back.sh"
@@ -169,7 +179,7 @@ run_one() {
 }
 
 export -f run_one wait_running instance_status wait_ssh sync_and_setup
-export FLEET_DIR STUDIES BATCH_SIZE N_THINKING SUBSAMPLE MAX_NEW_TOKENS ITEMS HERE HF_TOKEN
+export FLEET_DIR STUDIES BATCH_SIZE N_THINKING SUBSAMPLE MAX_NEW_TOKENS ITEMS GENERATE_ALL_DATA HERE HF_TOKEN
 
 echo ">> Driving all boxes concurrently (studies: $STUDIES, batch_size: $BATCH_SIZE)..."
 for idf in "$FLEET_DIR"/*.id; do

@@ -15,12 +15,26 @@ uv run python sesgo/generate/generate_prompt_dataset.py
 ```
 Writes `out/sesgo/<study>/prompt_dataset.json` for all five studies.
 
+**Full-data opt-in** — set `GENERATE_ALL_DATA=1` to ALSO write a `baseline_full`
+prompt dataset crossing BOTH languages (es+en) × BOTH origins (original+BBQ-adapted)
+× {no-scaffold + 3 representative scaffolds} = **24480 prompts** (6120 items × 4) to
+a DISTINCT `out/sesgo/baseline_full/prompt_dataset.json`. The es-original studies
+above are unchanged:
+```bash
+GENERATE_ALL_DATA=1 uv run python sesgo/generate/generate_prompt_dataset.py
+```
+
 ## 1. Run a study  (collect → visualize)
 `<RS>` = `out/sesgo/<study>/<MODEL>/response_samples.json` (MODEL bare name, e.g. `Qwen3-0.6B`).
 ```bash
 # baseline — non-thinking + greedy-non-thinking + greedy-thinking + 2-option
 uv run python sesgo/baseline/collect_baseline_samples.py   [--subsample 0.05] [--batch-size 8]
 uv run python sesgo/baseline/visualize_baseline_samples.py <RS>
+
+# baseline_full — same readouts over the FULL grid; sliced by language/origin/scaffold
+uv run python sesgo/baseline/collect_baseline_samples.py out/sesgo/baseline_full/prompt_dataset.json \
+    --study baseline_full   [--subsample 0.05] [--batch-size 8]
+uv run python sesgo/baseline/visualize_baseline_full_samples.py out/sesgo/baseline_full/<MODEL>/response_samples.json
 
 # stability — consistency across surface variants (by-item subsample)
 uv run python sesgo/stability/collect_stability_samples.py --items 12

@@ -80,17 +80,36 @@ def _row_to_item(row: pd.Series, category: SesgoCategory, language: str) -> Sesg
     )
 
 
-def _load_file(path: Path, category: SesgoCategory, language: str, limit: int | None) -> list[SesgoItem]:
-    """Read one prompt file, keep ORIGINAL (bbq==False) rows, cap at `limit`.
+# Provenance axis codes accepted by `origins`. "original" keeps bbq==False rows,
+# "bbq-adapted" keeps bbq==True rows; both kept => the full provenance grid.
+_ORIGIN_BBQ: dict[str, bool] = {"original": False, "bbq-adapted": True}
 
-    Both context conditions (ambig + disambig) are retained; only the BBQ-adapted
-    provenance is filtered out so the loaded set is Spanish-original SESGO.
+
+def _origin_mask(df: pd.DataFrame, origins: tuple[str, ...]) -> pd.Series:
+    """Boolean row mask keeping only the requested provenance(s)."""
+    keep_bbq = {_ORIGIN_BBQ[o] for o in origins}
+    return df["bbq"].astype(bool).isin(keep_bbq)
+
+
+def _load_file(
+    path: Path,
+    category: SesgoCategory,
+    language: str,
+    limit: int | None,
+    origins: tuple[str, ...],
+) -> list[SesgoItem]:
+    """Read one prompt file, keep the requested provenance(s), cap at `limit`.
+
+    Both context conditions (ambig + disambig) are always retained. `origins`
+    selects the provenance axis: the default ("original",) keeps only bbq==False
+    rows (Spanish-original SESGO); adding "bbq-adapted" opts the BBQ-adapted rows
+    back in for the full-data grid.
     """
     df = pd.read_excel(path)
-    original = df[~df["bbq"].astype(bool)]
+    kept = df[_origin_mask(df, origins)]
     if limit is not None:
-        original = original.head(limit)
-    return [_row_to_item(row, category, language) for _, row in original.iterrows()]
+        kept = kept.head(limit)
+    return [_row_to_item(row, category, language) for _, row in kept.iterrows()]
 
 
 def load_items(
@@ -98,23 +117,31 @@ def load_items(
     categories: list[SesgoCategory] | None = None,
     languages: tuple[str, ...] = ("es",),
     limit: int | None = None,
+    origins: tuple[str, ...] = ("original",),
 ) -> list[SesgoItem]:
     """Load SESGO items (both context conditions) as typed SesgoItem objects.
 
-    Only ORIGINAL (bbq==False) rows are loaded; BBQ-adapted rows are dropped at
-    read time. The default language is Spanish only — English is disabled for now.
+    By DEFAULT only ORIGINAL (bbq==False) Spanish rows are loaded — the es-original
+    grid the running studies depend on. `languages` and `origins` are opt-in axes:
+    pass `languages=("es", "en")` and/or `origins=("original", "bbq-adapted")` to
+    widen to the full grid without changing the default behavior.
 
     Args:
         sesgo_dir: Root containing the `prompts/` directory of `.xlsx` files.
         categories: Subset of bias categories to load (default: all).
         languages: Language codes to load (default: Spanish only).
         limit: Cap on items per (category, language) — useful for smoke tests.
+        origins: Provenance axis to keep (default: original only); valid codes are
+            "original" and "bbq-adapted".
 
     Returns:
-        Flat list of SesgoItem across the requested categories/languages.
+        Flat list of SesgoItem across the requested categories/languages/origins.
     """
     sesgo_dir = Path(sesgo_dir)
     categories = categories or list(SesgoCategory)
+    unknown = [o for o in origins if o not in _ORIGIN_BBQ]
+    if unknown:
+        raise ValueError(f"Unknown origin(s) {unknown}; choose from {sorted(_ORIGIN_BBQ)}")
     items: list[SesgoItem] = []
     for category in categories:
         for language in languages:
@@ -122,5 +149,5 @@ def load_items(
             if path is None:
                 log(f"[sesgo] skipping missing prompt file: {category.value}/{language}")
                 continue
-            items.extend(_load_file(path, category, language, limit))
+            items.extend(_load_file(path, category, language, limit, origins))
     return items

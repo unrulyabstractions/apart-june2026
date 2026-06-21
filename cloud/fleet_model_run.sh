@@ -49,10 +49,17 @@ SUBSAMPLE_ARG=""
 ITEMS="${ITEMS:-}"
 ITEMS_ARG=""
 [ -n "$ITEMS" ] && ITEMS_ARG="--items $ITEMS"
+# GENERATE_ALL_DATA: opt-in pass-through to the generator. UNSET == es-original
+# studies only (backward-compatible no-op); set to 1 so the generator ALSO writes
+# out/sesgo/baseline_full/prompt_dataset.json (all langs x all origins x {none+3
+# scaffolds}) that the baseline_full study below consumes. Exported so the
+# generator subprocess inherits it.
+export GENERATE_ALL_DATA="${GENERATE_ALL_DATA:-}"
 
-echo "[fleet_model_run] model=$MODEL shard=$SHARD_INDEX/$SHARD_COUNT studies='$STUDIES' batch=$BATCH_SIZE subsample='${SUBSAMPLE:-full}' items='${ITEMS:-full}'"
+echo "[fleet_model_run] model=$MODEL shard=$SHARD_INDEX/$SHARD_COUNT studies='$STUDIES' batch=$BATCH_SIZE subsample='${SUBSAMPLE:-full}' items='${ITEMS:-full}' all_data='${GENERATE_ALL_DATA:-off}'"
 
-# Regenerate the prompt datasets on the box (full grid; reads the synced xlsx).
+# Regenerate the prompt datasets on the box (reads the synced xlsx). With
+# GENERATE_ALL_DATA=1 this also writes out/sesgo/baseline_full/prompt_dataset.json.
 echo "[fleet_model_run] generate prompt datasets"
 "$PY" sesgo/generate/generate_prompt_dataset.py
 
@@ -78,6 +85,14 @@ run_study() {
     baseline)
       "$PY" sesgo/baseline/collect_baseline_samples.py \
         --model "$MODEL" --out-dir out --batch-size "$BATCH_SIZE" $SHARD_ARGS ;;
+    baseline_full)
+      # Full-data baseline: read the full-grid prompt dataset (all langs x all
+      # origins x {none+3 scaffolds}) and route output to its OWN baseline_full tree
+      # so it never clobbers the es-original baseline. Same readouts as baseline.
+      "$PY" sesgo/baseline/collect_baseline_samples.py \
+        out/sesgo/baseline_full/prompt_dataset.json \
+        --model "$MODEL" --out-dir out --study baseline_full \
+        --batch-size "$BATCH_SIZE" $SHARD_ARGS ;;
     selection)
       "$PY" sesgo/selection/collect_selection_samples.py \
         --model "$MODEL" --out-dir out --batch-size "$BATCH_SIZE" \

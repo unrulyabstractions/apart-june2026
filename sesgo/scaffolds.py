@@ -94,7 +94,23 @@ DEFAULT_SCAFFOLDS: list[Scaffold] = [
     INTENT_AND_REGISTER_RESPECT,
 ]
 
+# Three REPRESENTATIVE scaffolds for the full-data baseline study — one per
+# distinct mechanism so the grid stays affordable while still spanning the space:
+# task reframing (interpretive_direction), the prior-dominance warning, and the
+# register-respect demand. The fourth (insufficient_information_unknown) is the
+# closest mechanistic neighbor of interpretive_direction, so it is the one dropped.
+BASELINE_FULL_SCAFFOLDS: list[Scaffold] = [
+    INTERPRETIVE_DIRECTION,
+    PRIOR_DOMINANCE_WARNING,
+    INTENT_AND_REGISTER_RESPECT,
+]
+
 
 def get_scaffolds() -> list[Scaffold]:
     """All concrete SESGO debiasing scaffolds, in canonical grid order."""
     return DEFAULT_SCAFFOLDS.copy()
+
+
+def get_baseline_full_scaffolds() -> list[Scaffold]:
+    """The three representative scaffolds the full-data baseline study crosses."""
+    return BASELINE_FULL_SCAFFOLDS.copy()
