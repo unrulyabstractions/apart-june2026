@@ -1,6 +1,7 @@
 # src/inference/
 
-Model inference with multi-backend support (HuggingFace, MLX, OpenAI, Anthropic).
+Model inference with multi-backend support (HuggingFace, MLX, OpenAI, Anthropic,
+vLLM).
 
 ## Quick Start
 
@@ -9,7 +10,29 @@ from src.inference import ModelRunner
 
 runner = ModelRunner("Qwen/Qwen3-0.6B")
 traj = runner.generate_trajectory_from_prompt("Write a story", max_new_tokens=100)
+
+# Batched (many prompts in one forward pass; HF or vLLM backend)
+texts = runner.generate_batch(["A", "B", "C"], max_new_tokens=64)
 ```
+
+## Batched inference
+
+For high throughput, the runner batches a chunk of prompts into a single forward
+pass instead of looping one at a time:
+
+- `generate_batch(prompts, ...)` — one batched decode (HF `model.generate` over a
+  left-padded batch, or vLLM continuous batching).
+- `compute_trajectories_batch(token_ids_batch)` — teacher-forced logprobs/logits
+  for many sequences in one pass; left-pads + attention-masks so padding never
+  leaks into attention, then slices each sample's real logits back out.
+- `run_with_cache_batch(token_ids_batch, names_filter)` — activations for many
+  sequences in one pass, each cache sliced back to its real length.
+
+`batched_padding_helpers.py` is the single source of truth for **left padding**
+(keeps the last real token at index `-1` and lets unpadded positions map by one
+additive offset) + the attention mask. Verified on Qwen3-0.6B to match the
+single-sample path within fp tolerance (probs ~1e-4, activations cos-sim
+≥0.999996), and faster.
 
 ## ModelRunner
 
@@ -78,11 +101,26 @@ sequence directly. Surfaced on the runner via `ModelRunner.structural_markers`.
 
 ## Backends Directory
 
-- `model_backend.py`: Base `Backend` abstract class
-- `backend_huggingface.py`: HuggingFace + transformers
+- `model_backend.py`: Base `Backend` abstract class. `forward` / `run_with_cache`
+  take an optional `attention_mask` (required for a padded multi-sample batch;
+  `None` is the single-sample fast path).
+- `backend_huggingface.py`: HuggingFace + transformers. Honors the attention mask;
+  adds `generate_batch` (one padded `model.generate`).
 - `backend_mlx.py`: MLX for Apple Silicon
 - `backend_openai.py`: OpenAI API
 - `backend_anthropic.py`: Anthropic API (no logprobs)
 - `backend_selection.py`: Hardware detection logic
+
+## vLLM backend (CUDA-only, cloud fast path)
+
+`vllm_batched_backend.py` (`ModelBackend.VLLM`) is the high-throughput cloud
+backend: continuous-batching `generate_batch` plus teacher-forced
+`score_options_batch` (option-token logprobs via `prompt_logprobs`, in
+`vllm_option_scoring.py`). Activations / interventions / raw-logit `forward` are
+unsupported by design and raise a clear message routing to HuggingFace (the SESGO
+geometry driver already forces HF). vLLM is **CUDA-only**: the import is guarded
+and construction raises an actionable error off a GPU box, so the module imports
+fine on Apple Silicon. Installed via the `cloud` extra (`pip install .[cloud]`),
+which is a no-op on Darwin.
 
 See [EXPLANATION.md](./EXPLANATION.md) for detailed architecture and API specifications.

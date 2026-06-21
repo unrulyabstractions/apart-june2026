@@ -37,9 +37,27 @@ fi
 
 REMOVE=""; [ $MOVE -eq 1 ] && REMOVE="--remove-source-files"
 
-echo "[merge_sync] sync/  ->  out/   (--ignore-existing, no --delete${MOVE:+, --remove-source-files})"
-# Mirror the whole sync/ tree into out/, adding only files out/ doesn't have.
-rsync -av $DRY --ignore-existing $REMOVE "$LOCAL_SYNC/" "$OUT/"
+# Promote one quarantine source tree into out/, adding only files out/ lacks.
+# --ignore-existing : an existing out/ slice is NEVER overwritten (a re-run, a
+# retry, or a parallel box can never clobber an existing result). NO --delete.
+promote() {
+  local src="$1"
+  echo "[merge_sync] $src  ->  out/   (--ignore-existing, no --delete${MOVE:+, --remove-source-files})"
+  rsync -av $DRY --ignore-existing $REMOVE "$src/" "$OUT/"
+}
+
+# The fleet lands each box under sync/box-<tag>/sesgo/...; merging each box's
+# subtree (NOT the box-<tag> prefix) keeps the canonical out/sesgo/<study>/<model>/
+# layout. A flat single-box sync/sesgo/... (no box-* dirs) is promoted as-is.
+shopt -s nullglob
+box_dirs=("$LOCAL_SYNC"/box-*/)
+if [ ${#box_dirs[@]} -gt 0 ]; then
+  for box in "${box_dirs[@]}"; do
+    promote "${box%/}"
+  done
+else
+  promote "$LOCAL_SYNC"
+fi
 
 if [ $MOVE -eq 1 ] && [ -z "$DRY" ]; then
   # --remove-source-files leaves empty dirs behind; prune them.

@@ -18,6 +18,7 @@ from src.datasets.prompt import SesgoPromptDataset, SesgoPromptSample
 from src.inference.backends import ModelBackend
 from src.inference.model_runner import is_cloud_api_name
 from src.ternary_choice import TernaryChoiceRunner
+from .sesgo_batched_query import query_chunk
 from .sesgo_dataset import SesgoDataset
 from .sesgo_non_thinking import SesgoNonThinking
 from .sesgo_query_config import SesgoQueryConfig
@@ -185,19 +186,22 @@ class SesgoQuerier:
     def query_dataset(
         self, prompt_dataset: SesgoPromptDataset, model_name: str
     ) -> SesgoDataset:
-        """Query every prompt in a dataset and collect a SesgoDataset."""
+        """Query every prompt in a dataset and collect a SesgoDataset.
+
+        With ``config.batch_size > 1`` the prompts are processed in chunks, each
+        chunk's choose3 / greedy / thinking draws collapsed into batched forward
+        passes (``sesgo_batched_query.query_chunk``). ``batch_size == 1`` keeps the
+        exact single-sample path.
+        """
         runner = self._load_model(model_name)
         samples = self._subsample(prompt_dataset.samples)
-        log(f"[sesgo] Querying {len(samples)} prompts with {runner.model_name}...")
+        bs = max(1, self.config.batch_size)
+        log(
+            f"[sesgo] Querying {len(samples)} prompts with {runner.model_name} "
+            f"(batch_size={bs})..."
+        )
 
-        tracker = ProgressTracker(total=len(samples), progress_every=10, memory_every=50)
-        results: list[SesgoSample] = []
-        for i, prompt_sample in enumerate(samples):
-            tracker.step(i)
-            results.append(self.query_sample(prompt_sample, runner))
-            if (i + 1) % _GPU_CLEAR_EVERY == 0:
-                clear_gpu_memory()
-        clear_gpu_memory()
+        results = self._collect_samples(samples, runner, bs)
 
         return SesgoDataset(
             prompt_dataset_id=prompt_dataset.dataset_id,
@@ -205,3 +209,21 @@ class SesgoQuerier:
             config=self.config,
             samples=results,
         )
+
+    def _collect_samples(
+        self, samples: list[SesgoPromptSample], runner: TernaryChoiceRunner, bs: int
+    ) -> list[SesgoSample]:
+        """Iterate the prompts in chunks of ``bs``, freeing memory periodically."""
+        tracker = ProgressTracker(total=len(samples), progress_every=10, memory_every=50)
+        results: list[SesgoSample] = []
+        for start in range(0, len(samples), bs):
+            tracker.step(start)
+            chunk = samples[start : start + bs]
+            if bs == 1:
+                results.append(self.query_sample(chunk[0], runner))
+            else:
+                results.extend(query_chunk(chunk, runner, self.config))
+            if (start // bs + 1) % _GPU_CLEAR_EVERY == 0:
+                clear_gpu_memory()
+        clear_gpu_memory()
+        return results

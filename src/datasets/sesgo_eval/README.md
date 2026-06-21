@@ -31,6 +31,24 @@ disambiguated → ground-truth role). `SesgoSample.correct_non_thinking` /
 returns `None` for ambiguous items (no UNKNOWN to score) and the forced-choice
 match for disambiguated items.
 
+## Batched querying (`SesgoQueryConfig.batch_size`)
+
+`batch_size == 1` is the exact single-sample path. With `batch_size > 1`,
+`query_dataset` processes the prompts in chunks and `sesgo_batched_query.query_chunk`
+collapses each chunk's model calls into batched forward passes:
+
+- **choose3** → `TernaryChoiceRunner.choose3_batch` over `3·M` forced
+  continuations (three labels × M prompts) in one pass,
+- **greedy decode** → one batched `generate_batch` (per-prompt skip-thinking +
+  choice prefix),
+- **thinking draws** → all `M·N` draws flattened into one `generate_batch`, then
+  regrouped per prompt.
+
+Each per-sample result is assembled exactly as the single-sample path, so a
+batched run matches an unbatched run within fp tolerance (verified on Qwen3-0.6B:
+non-thinking probs ~4e-5, 0 prediction mismatches, ~2.5× faster on the
+thinking-heavy path). The collect scripts expose `--batch-size`.
+
 ## The position → meaning remap
 
 The prompt generator emits all 6 role↔position orderings, so the slot a model

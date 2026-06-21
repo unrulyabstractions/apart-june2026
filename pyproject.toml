@@ -88,6 +88,12 @@ dev = [
 ]
 # Manifold-projection deps. Heavy build (llvmlite); install only when needed.
 viz = ["umap-learn>=0.5.11", "pacmap>=0.9.1"]
+# Cloud GPU fast path. vLLM is CUDA-only and CANNOT install on Apple Silicon, so
+# the marker pins it to non-Darwin Linux hosts; installing `.[cloud]` is a no-op
+# on a Mac. The cloud Docker image (cloud/Dockerfile) installs this extra.
+cloud = [
+    "vllm>=0.6.0; sys_platform == 'linux' and platform_machine == 'x86_64'",
+]
 
 [project.urls]
 "Homepage" = "https://github.com/unrulyabstractions/apart-june2026"

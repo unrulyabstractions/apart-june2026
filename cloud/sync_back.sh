@@ -33,9 +33,12 @@ INSTANCE_FILE="$HERE/.vast_instance_id"
 REMOTE_ROOT="${REMOTE_ROOT:-/root/apart}"
 SSH_KEY="${SSH_KEY:-$HOME/.ssh/id_ed25519}"
 
-# Hard-coded local destination. Intentionally NOT configurable to out/ — the
-# whole safety story is that the cloud writes only into sync/.
-LOCAL_SYNC="$REPO_ROOT/sync"
+# Hard-coded local ROOT. Intentionally NOT configurable to out/ — the whole
+# safety story is that the cloud writes only into sync/. SYNC_SUBDIR optionally
+# nests THIS box's results under sync/<SYNC_SUBDIR>/ so concurrent fleet boxes
+# each land in a DISJOINT quarantine subtree (e.g. box-gemma-2-2b-it__shard0of1)
+# and never target the same file — the safety model preserved under concurrency.
+LOCAL_SYNC="$REPO_ROOT/sync${SYNC_SUBDIR:+/$SYNC_SUBDIR}"
 
 # ── 1. Resolve instance + SSH endpoint (fresh) ─────────────────────────
 INSTANCE="${INSTANCE:-}"
@@ -50,8 +53,9 @@ _resolve_ssh_target || exit 1
 RSYNC_E="ssh -F /dev/null -o StrictHostKeyChecking=accept-new -i $SSH_KEY -p $SSH_PORT"
 DRY=""; [ "${DRY_RUN:-0}" = "1" ] && DRY="--dry-run"
 
-# The two result trees we collected on the box.
-STUDIES=(divergence stability)
+# Result trees to pull. Overridable for the fleet (a box may run other studies);
+# defaults to the original single-box pair so existing usage is unchanged.
+read -r -a STUDIES <<< "${STUDIES:-divergence stability}"
 
 for study in "${STUDIES[@]}"; do
   src="$SSH_USER@$SSH_HOST:$REMOTE_ROOT/out/sesgo/$study/"

@@ -49,6 +49,7 @@ from src.datasets.sesgo_eval import (  # noqa: E402
     SesgoQuerier,
     SesgoQueryConfig,
 )
+from sesgo.shard_output_paths import apply_shard, shard_out_dir  # noqa: E402
 
 # The no-scaffold condition has scaffold_id == None; label it so it sorts first.
 _BASELINE = "(baseline)"
@@ -124,6 +125,18 @@ def parse_args() -> argparse.Namespace:
         help="Fraction of prompts to query, 0-1 (default: 1.0 == all)",
     )
     parser.add_argument(
+        "--batch-size",
+        type=int,
+        default=1,
+        help="Prompts per batched forward pass (default: 1 == single-sample path)",
+    )
+    parser.add_argument(
+        "--shard-index", type=int, default=0, help="This box's shard index (0-based)"
+    )
+    parser.add_argument(
+        "--shard-count", type=int, default=1, help="Total shards (1 == full grid)"
+    )
+    parser.add_argument(
         "--out-dir",
         type=Path,
         default=Path("out"),
@@ -188,6 +201,7 @@ def main() -> None:
 
     # Stride the raw json before deserializing when subsampling (fast path).
     prompt_dataset = load_prompt_dataset(args.prompt_dataset, args.subsample)
+    prompt_dataset = apply_shard(prompt_dataset, args.shard_index, args.shard_count)
     log(f"[collect] loaded {len(prompt_dataset.samples)} prompts")
     n_scaffolds = len({s.scaffold_id for s in prompt_dataset.samples})
     log(f"[collect] {n_scaffolds} scaffold condition(s) present (baseline + scaffolds)")
@@ -203,14 +217,17 @@ def main() -> None:
         temperature=args.temperature,
         do_greedy=True,
         subsample=1.0,
+        batch_size=args.batch_size,
     )
     with P("query_dataset"):
         dataset = SesgoQuerier(config).query_dataset(prompt_dataset, args.model)
 
     log_summary(dataset)
 
-    # out/sesgo/selection/<MODEL>/response_samples.json, keyed by bare model name.
-    out_dir = args.out_dir / "sesgo" / "selection" / dataset.model_name
+    # out/sesgo/selection/<MODEL>/response_samples.json (per-shard subdir when sharded).
+    out_dir = shard_out_dir(
+        args.out_dir, "selection", dataset.model_name, args.shard_index, args.shard_count
+    )
     out_dir.mkdir(parents=True, exist_ok=True)
     out_path = out_dir / "response_samples.json"
     dataset.save_as_json(out_path)

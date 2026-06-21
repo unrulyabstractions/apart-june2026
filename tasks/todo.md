@@ -79,38 +79,60 @@ Turn token verified per family: `<|start_header_id|>` (Llama),
 
 ---
 
-# Workstream: thread ALL per-sample labels + funnel geometry viz through every axis
+# Batching workstream: batched generation + parallel cloud fleet
 
-## Feature 1 — thread every per-sample label to records the viz reads
-- [ ] Add `origin_label` helper + `target_text`/`other_text` access on SesgoItem (bbq already present).
-- [ ] Add fields to SesgoPromptSample: bbq, target_identity, other_identity, label_style(present), gold_label(present), scaffold_id(present). Set in sesgo_prompt_generator from item.
-- [ ] Add fields to SesgoSample: bbq, target_identity, other_identity. Set in sesgo_querier.query_sample from prompt sample (MINIMAL/LOCALIZED — worktree edits this file).
-- [ ] Add fields to GeometrySample: bbq, target_identity, other_identity, label_style. Set in collect_geometry_samples (MINIMAL — worktree edits this file).
-- [ ] origin label helper: False->"original", True->"BBQ-adapted".
+## Goal
+Batched within-box generation (vLLM CUDA fast path, HF batched verified locally)
++ maximally-parallel per-model cloud fleet with safe concurrent sync-back.
 
-## Feature 2 — geometry viz funnels representation through ALL axes
-- [ ] analyze_geometry: carry every per-sample label into projections.json rows + per-axis silhouette/separation for every axis (incl high-cardinality target/other identity).
-- [ ] visualize_geometry_samples: PCA scatter colored by EACH axis (scaffold, origin, language, bias_category, question_polarity, target_identity, other_identity, gold_label, label_style). One file per axis `pca_by_<axis>.png` at representative layer + answer position; cap high-cardinality at top-K + "other".
-- [ ] Keep centroid-shift + explained-variance plots.
+## Plan
+- [ ] `src/inference/batched_generation.py` — reusable batched-HF primitives
+      (LEFT-pad + attention mask; batched generate; batched teacher-forced forward).
+- [ ] HuggingFaceBackend: honor an attention mask in `forward` / `run_with_cache`
+      (padding currently contaminates logits in a batch). Single-sample unchanged.
+- [ ] `src/inference/vllm_batched_backend.py` — vLLM CUDA backend (generation +
+      teacher-forced scoring). Import guarded; raises clearly off-CUDA.
+- [ ] ModelRunner: `generate_batch`, `compute_trajectories_batch` (mask-aware),
+      `run_with_cache_batch` (LEFT-pad, per-sample position offsets).
+- [ ] TernaryChoiceRunner: `choose3_batch` — ONE batched forward over 3N continuations.
+- [ ] SesgoQuerier: `query_dataset` batches over samples; `--batch-size` plumbed.
+- [ ] `--batch-size` on baseline/selection/divergence/geometry collect scripts.
+- [ ] Geometry: batched capture; confirm `--n-thinking 0` short-circuits sampling.
+- [ ] Cloud: model->GPU sizing map (BaseSchema), `cloud/fleet_launch.sh`,
+      `cloud/fleet_run.sh`, `cloud/fleet_sync_back.sh`, sharding, self-destruct.
+- [ ] `cloud/Dockerfile` + `cloud/prefetch_model_weights.py`; vLLM CUDA-only extra.
+- [ ] VERIFY locally on Qwen3-0.6B: batched==single + faster. Cost/wall-clock table.
 
-## Verify (MANDATORY visual)
-- [ ] Regenerate prompts, re-collect geometry (subsample 0.006) + baseline (0.02), re-analyze, re-viz.
-- [ ] READ every new PNG as an image; confirm legends legible for every axis. Iterate.
-- [ ] py_compile all changed files.
+## Review (batching)
 
-## Review (this workstream) — DONE
-- Feature 1: bbq + target_identity + other_identity now on SesgoPromptSample (set in
-  sesgo_prompt_generator from item), SesgoSample (set in sesgo_querier query_sample),
-  and GeometrySample (+label_style; set in collect_geometry_samples). origin_label
-  helper added to sesgo_item.py (False->"original", True->"BBQ-adapted").
-- Feature 2: analyze_geometry now carries ALL per-sample axes into projections.json
-  rows + per-axis silhouette/separation for all 8 non-scaffold axes. viz renders
-  pca_by_<axis>.png for 9 axes + pca_axes_grid.png; high-cardinality identity axes
-  capped at top-8 + (other) with caption; per-group centroid anchoring keeps minority
-  groups in-frame. Centroid-shift + EV plots kept.
-- Verified visually: read pca_axes_grid, pca_by_{scaffold_id,origin,language,
-  bias_category,question_polarity,target_identity,other_identity,gold_label}.png —
-  every legend legible; fixed language panel that was clipping the en group off-view.
-- Worktree-shared files (sesgo_querier.py, collect_geometry_samples.py) touched with
-  minimal, localized additive edits only.
-- All changed .py files py_compile OK. Docs updated (sesgo + sesgo_eval + prompt).
+### What shipped
+- Within-box batching: `batched_padding_helpers.py` (left-pad + mask + offsets),
+  HF backend mask-aware `forward`/`run_with_cache` + `generate_batch`, runner
+  `generate_batch`/`compute_trajectories_batch`/`run_with_cache_batch`,
+  `choose3_batch`, `query_chunk`, `--batch-size` on all 5 collects. Geometry
+  batched capture (shared `geometry_capture_helpers.py`); `--n-thinking 0`
+  short-circuits thinking (verified).
+- vLLM CUDA backend (`vllm_batched_backend.py` + `vllm_option_scoring.py`),
+  `ModelBackend.VLLM`, `_init_vllm`, `cloud` extra in pyproject. Import-guarded;
+  raises off-CUDA. NOT run on the Mac (per constraint).
+- Parallel fleet: `fleet_sizing.py` (sizing map + shard plan), `fleet_launch.sh`
+  (concurrent create), `fleet_run.sh` (concurrent drive + self-destruct),
+  `fleet_model_run.sh`, `fleet_destroy.sh`. Sharding: `shard_slicing.py` +
+  `shard_output_paths.py` + `--shard-index/--shard-count` on all collects.
+  Concurrent-safe sync-back: `SYNC_SUBDIR` per-box quarantine, merge strips the
+  box prefix; `--ignore-existing`/no-`--delete` preserved.
+- Custom image: `cloud/Dockerfile` (torch+vLLM+deps+weights) +
+  `prefetch_model_weights.py`. Implement+document only; not built/pushed.
+
+### Local verification (Qwen3-0.6B, MPS)
+- baseline bs1 vs bs8: max|prob|=1.2e-4, max|logit|=4.7e-2, 0 greedy-label
+  mismatches (10/10 same answer).
+- selection bs1 vs bs8 (thinking): max|prob|=4.4e-5, 0 prediction mismatches,
+  42.8s -> 17.0s (2.5x).
+- geometry bs1 vs bs8 (--n-thinking 0): 0 position/token mismatches, mean
+  cos-sim >= 0.999996 across all 4 structural positions, 19.1s -> 12.6s (1.5x);
+  80 activation files both paths.
+- shard tiling: 3-way exact/disjoint/complete; sharded baseline loaded 5/10,
+  wrote shard_0_of_2/.
+- Full test suite passes (432 tests; only unrelated mental_risk fixture-missing
+  failures). ruff clean on all touched files.

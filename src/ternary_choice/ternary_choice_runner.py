@@ -117,3 +117,47 @@ class TernaryChoiceRunner(ModelRunner):
         """Run three teacher-forced trajectories in one batched forward pass."""
         # Single batched call → 3 teacher-forced forward passes (binary uses 2).
         return self.compute_trajectories_batch(ids_list)
+
+    def _encode_triple(
+        self, prompt: str, choice_prefix: str, labels: tuple[str, str, str]
+    ) -> list[list[int]]:
+        """Encode one prompt's three forced (prefix+label) continuations to ids."""
+        templated_prompt = self.apply_chat_template(prompt)
+        effective_prefix = self.skip_thinking_prefix + choice_prefix
+        return [
+            encode_into_trajectory_ids(self, templated_prompt, effective_prefix + label)
+            for label in labels
+        ]
+
+    @profile("run_ternary_choice_batch")
+    def choose3_batch(
+        self,
+        prompts: list[str],
+        choice_prefixes: list[str],
+        labels_list: list[tuple[str, str, str]],
+    ) -> list[TernaryChoice]:
+        """Score N prompts' 3-way option preference in ONE batched forward pass.
+
+        ``choice_prefixes[i]`` and ``labels_list[i]`` are the per-prompt prefix and
+        option labels (they vary across SESGO prompts). Expands the N prompts into
+        3N teacher-forced continuations, runs a single padded forward, then slices
+        the results back into N consecutive triples. Each triple is scored exactly
+        as ``choose3`` does, so the per-prompt result is identical to the unbatched
+        call within fp tolerance — just amortized across the batch.
+        """
+        if not prompts:
+            return []
+        ids_list: list[list[int]] = []
+        for prompt, prefix, labels in zip(prompts, choice_prefixes, labels_list):
+            ids_list.extend(self._encode_triple(prompt, prefix, labels))
+
+        trajs = self.compute_trajectories_batch(ids_list)
+
+        results: list[TernaryChoice] = []
+        for i, labels in enumerate(labels_list):
+            triple = trajs[3 * i : 3 * i + 3]
+            logprobs, logits = _divergent_scores(triple)
+            results.append(
+                TernaryChoice(labels=tuple(labels), logprobs=logprobs, logits=logits)
+            )
+        return results

@@ -37,8 +37,6 @@ import sys
 from collections import Counter
 from pathlib import Path
 
-import torch
-
 # Bootstrap the repo root onto sys.path so `from src... import ...` resolves
 # regardless of cwd. From <repo>/sesgo/geometry/x.py, parents[2] is the root.
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[2]))
@@ -51,7 +49,6 @@ from src.datasets.prompt import (  # noqa: E402
     SesgoPromptSample,
 )
 from src.datasets.sesgo_eval import (  # noqa: E402
-    GeometryActivation,
     GeometryDataset,
     GeometrySample,
     SesgoQuerier,
@@ -60,13 +57,20 @@ from src.datasets.sesgo_eval import (  # noqa: E402
 from src.ternary_choice import TernaryChoiceRunner  # noqa: E402
 from src.inference.backends import ModelBackend  # noqa: E402
 
-# Structural positions we look for, in capture order. think_* exist only for
-# reasoning models (skip-thinking prefix); missing ones are logged and skipped.
-_POSITION_TYPES = ("turn", "think_open", "think_close", "answer")
+from src.common.device_utils import clear_gpu_memory  # noqa: E402
+from src.datasets.sesgo_eval.sesgo_batched_query import query_chunk  # noqa: E402
+from sesgo.shard_output_paths import apply_shard, shard_out_dir  # noqa: E402
 
-# Tokens to greedily decode for the non-thinking answer path. We only need the
-# answer token (the first generated token); a few extra give a stable sequence.
-_GREEDY_TOKENS = 24
+from sesgo.geometry.geometry_capture_helpers import (  # noqa: E402
+    _POSITION_TYPES,
+    capture_activations,
+)
+from sesgo.geometry.batched_geometry_capture import (  # noqa: E402
+    capture_activations_batch,
+)
+
+# Free accelerator memory every this many CHUNKS so long runs don't accumulate.
+_GPU_CLEAR_EVERY = 25
 
 
 def load_prompt_dataset(path: Path, subsample: float) -> SesgoPromptDataset:
@@ -91,169 +95,65 @@ def load_prompt_dataset(path: Path, subsample: float) -> SesgoPromptDataset:
     )
 
 
-def _single_token_id(runner: TernaryChoiceRunner, text: str) -> int | None:
-    """Token id for ``text`` iff it encodes to exactly one (special) token.
-
-    Each family's assistant-turn / think markers (<|im_start|>,
-    <|start_header_id|>, <start_of_turn>, [/INST], <think>, ...) are single
-    tokens in their own vocab; we encode WITHOUT special tokens so we read the
-    literal id and can search for it in the forced sequence. Returns None when
-    it isn't single (so an unexpected multi-token marker is skipped, not split).
-    """
-    ids = runner.encode_ids(text, add_special_tokens=False)
-    return ids[0] if len(ids) == 1 else None
-
-
-def _resid_filter(layers: list[int] | None):
-    """names_filter selecting per-layer residual-stream (resid_post) hooks.
-
-    resid_post is the post-block residual stream — the canonical "the model's
-    state after layer L" vector. Optionally restrict to a subset of layers.
-    """
-
-    def keep(name: str) -> bool:
-        if "resid_post" not in name:
-            return False
-        if layers is None:
-            return True
-        return any(name == f"blocks.{layer}.hook_resid_post" for layer in layers)
-
-    return keep
+def _make_sample(prompt: SesgoPromptSample, sesgo, activations) -> GeometrySample:
+    """Assemble one GeometrySample from its readout + captured activations."""
+    return GeometrySample(
+        sample_idx=prompt.sample_idx,
+        question_id=prompt.question_id,
+        scaffold_id=prompt.scaffold_id,
+        bias_category=prompt.bias_category,
+        question_polarity=prompt.question_polarity,
+        language=prompt.language,
+        gold_label=prompt.gold_label,
+        prompt_text=prompt.text,
+        non_thinking=sesgo.non_thinking,
+        thinking=sesgo.thinking,
+        activations=activations,
+    )
 
 
-def _stack_resid(cache: dict, layers: list[int], pos: int) -> torch.Tensor:
-    """Stack the residual vector at token ``pos`` across layers -> [n_layers, d_model]."""
-    vecs = []
-    for layer in layers:
-        # cache tensors are [batch, seq, d_model]; batch is always 1 here.
-        act = cache[f"blocks.{layer}.hook_resid_post"]
-        vecs.append(act[0, pos].detach().float().cpu())
-    return torch.stack(vecs, dim=0)
-
-
-def _last_index(ids: list[int], target: int | None) -> int | None:
-    """Index of the LAST occurrence of ``target`` in ``ids`` (None if absent)."""
-    if target is None:
-        return None
-    for i in range(len(ids) - 1, -1, -1):
-        if ids[i] == target:
-            return i
-    return None
-
-
-def _marker_position(runner: TernaryChoiceRunner, ids: list[int], marker: str) -> int | None:
-    """Last index of the single-token ``marker`` in ``ids`` (None if absent/multi).
-
-    Empty markers (non-reasoning families have no think scratch-pad) resolve to
-    None so the caller simply skips that structural position.
-    """
-    if not marker:
-        return None
-    return _last_index(ids, _single_token_id(runner, marker))
-
-
-def find_positions(
-    runner: TernaryChoiceRunner, ids: list[int], answer_start: int
-) -> dict[str, int]:
-    """Locate the structural token positions in the forced id sequence.
-
-    The markers are MODEL-AWARE: each instruct family delimits the assistant
-    turn with its own single special token (Qwen `<|im_start|>`, Llama
-    `<|start_header_id|>`, Gemma `<start_of_turn>`, Mistral `[/INST]`), and only
-    reasoning families carry the <think>/</think> scratch-pad. We ask the runner
-    for its family's markers (``runner.structural_markers``) and search ``ids``:
-    the assistant turn is the LAST turn marker; think_open/close are present only
-    for reasoning models. The answer marker is appended LAST, so its first token
-    sits at ``answer_start`` (the prompt+prefix length); we use that index
-    directly rather than re-tokenizing, which would miss leading-space BPE merges
-    (" a" != "a"). Missing positions are omitted so the caller can log + skip.
-    """
-    markers = runner.structural_markers
-    found: dict[str, int] = {}
-
-    turn = _marker_position(runner, ids, markers.turn_marker)
-    if turn is not None:
-        found["turn"] = turn
-
-    open_i = _marker_position(runner, ids, markers.think_open)
-    if open_i is not None:
-        found["think_open"] = open_i
-    close_i = _marker_position(runner, ids, markers.think_close)
-    if close_i is not None:
-        found["think_close"] = close_i
-
-    # answer_start indexes the first token of the appended marker; guard the
-    # rare case where re-tokenizing prefix+marker shifted a boundary token.
-    if 0 <= answer_start < len(ids):
-        found["answer"] = answer_start
-    return found
-
-
-def capture_activations(
+def collect_geometry(
+    prompts: list[SesgoPromptSample],
+    querier: SesgoQuerier,
     runner: TernaryChoiceRunner,
-    prompt: SesgoPromptSample,
     layers: list[int],
-    sample_dir: Path,
-    rel_root: Path,
-) -> tuple[list[GeometryActivation], list[str]]:
-    """Snapshot residuals along the model's GREEDY NON-THINKING answer path.
+    act_dir: Path,
+    out_root: Path,
+    bs: int,
+) -> tuple[list[GeometrySample], Counter, int]:
+    """Run readout + residual capture over the prompts in chunks of ``bs``.
 
-    Rather than teacher-forcing a chosen marker, we let the model produce its own
-    answer: greedily decode (temperature 0) past the empty <think></think> block
-    (skip-thinking prefill), then run one forward pass over that realized sequence
-    (chat-templated prompt + skip-thinking prefix + choice prefix + greedy answer)
-    and snapshot the per-layer residual stream at the structural positions. The
-    "answer" position is the first generated token. Returns the captured
-    GeometryActivations plus the position types NOT found.
+    ``bs == 1`` keeps the exact single-sample path; ``bs > 1`` batches both the
+    SESGO readout (``query_chunk``) and the residual capture
+    (``capture_activations_batch``) into shared forward passes per chunk.
     """
-    prefix = prompt.choice_prefix or "Answer: "
-    templated = runner.apply_chat_template(prompt.text)
-    head = templated + runner.skip_thinking_prefix + prefix
-    # The model's own greedy non-thinking continuation (new tokens after the
-    # skip-thinking + choice prefix). Deterministic, so it matches the querier's
-    # non-thinking greedy decode.
-    greedy = runner.generate(
-        prompt.text,
-        max_new_tokens=_GREEDY_TOKENS,
-        temperature=0.0,
-        prefilling=runner.skip_thinking_prefix + prefix,
-    )
-    forced = head + greedy
-    ids = runner.encode_ids(forced, add_special_tokens=True)
-    # The answer token is the FIRST generated token = the first index where the
-    # full sequence diverges from the prefix-only one (divergence trick choose3
-    # uses; robust to leading-space BPE merges, " a" != "a").
-    head_ids = runner.encode_ids(head, add_special_tokens=True)
-    answer_start = next(
-        (i for i in range(min(len(head_ids), len(ids))) if head_ids[i] != ids[i]),
-        len(head_ids),
-    )
-
-    # One forward pass capturing only the per-layer residual stream.
-    _, cache = runner._backend.run_with_cache(
-        torch.tensor([ids], device=runner.device), names_filter=_resid_filter(layers)
-    )
-
-    positions = find_positions(runner, ids, answer_start)
-    captured: list[GeometryActivation] = []
-    for ptype in _POSITION_TYPES:
-        pos = positions.get(ptype)
-        if pos is None:
-            continue
-        resid = _stack_resid(cache, layers, pos)  # [n_layers, d_model]
-        fname = f"sample_{prompt.sample_idx}_{ptype}.pt"
-        torch.save(resid, sample_dir / fname)
-        token_text = runner.decode_ids([ids[pos]])
-        captured.append(
-            GeometryActivation(
-                position_type=ptype,
-                token_position=pos,
-                token_text=token_text,
-                path=str((sample_dir / fname).relative_to(rel_root)),
+    samples: list[GeometrySample] = []
+    found: Counter = Counter()
+    n_act_files = 0
+    total = len(prompts)
+    for start in range(0, total, bs):
+        chunk = prompts[start : start + bs]
+        if bs == 1:
+            readouts = [querier.query_sample(chunk[0], runner)]
+            caps = [capture_activations(runner, chunk[0], layers, act_dir, out_root)]
+        else:
+            readouts = query_chunk(chunk, runner, querier.config)
+            captured, missing = capture_activations_batch(
+                runner, chunk, layers, act_dir, out_root
             )
-        )
-    missing = [p for p in _POSITION_TYPES if p not in positions]
-    return captured, missing
+            caps = list(zip(captured, missing))
+        for prompt, sesgo, (activations, missing) in zip(chunk, readouts, caps):
+            for a in activations:
+                found[a.position_type] += 1
+            n_act_files += len(activations)
+            if missing:
+                log(f"[geom] sample {prompt.sample_idx}: missing {missing}")
+            samples.append(_make_sample(prompt, sesgo, activations))
+        log(f"[geom] {min(start + bs, total)}/{total} done")
+        if (start // bs + 1) % _GPU_CLEAR_EVERY == 0:
+            clear_gpu_memory()
+    clear_gpu_memory()
+    return samples, found, n_act_files
 
 
 def parse_args() -> argparse.Namespace:
@@ -280,6 +180,18 @@ def parse_args() -> argparse.Namespace:
         "--subsample", type=float, default=1.0, help="Fraction of prompts (0-1)"
     )
     parser.add_argument(
+        "--batch-size",
+        type=int,
+        default=1,
+        help="Prompts per batched forward pass (default: 1 == single-sample path)",
+    )
+    parser.add_argument(
+        "--shard-index", type=int, default=0, help="This box's shard index (0-based)"
+    )
+    parser.add_argument(
+        "--shard-count", type=int, default=1, help="Total shards (1 == full grid)"
+    )
+    parser.add_argument(
         "--out-dir", type=Path, default=Path("out"), help="Base output directory"
     )
     parser.add_argument(
@@ -296,6 +208,7 @@ def main() -> None:
     log_header(f"COLLECT GEOMETRY SAMPLES ({args.model})")
 
     prompt_dataset = load_prompt_dataset(args.prompt_dataset, args.subsample)
+    prompt_dataset = apply_shard(prompt_dataset, args.shard_index, args.shard_count)
     log(f"[geom] loaded {len(prompt_dataset.samples)} prompts")
 
     # n_thinking=0 disables the thinking level (skips its sampling cost). The
@@ -307,6 +220,7 @@ def main() -> None:
         do_thinking=args.n_thinking > 0,
         do_two_option=False,
         subsample=1.0,
+        batch_size=max(1, args.batch_size),
     )
     querier = SesgoQuerier(config)
     # Geometry capture needs run_with_cache (residual-stream snapshots). The MLX
@@ -323,7 +237,13 @@ def main() -> None:
         [int(x) for x in args.layers.split(",")] if args.layers else all_layers
     )
 
-    out_root = args.out_dir / "sesgo" / "geometry" / runner.model_name.split("/")[-1]
+    out_root = shard_out_dir(
+        args.out_dir,
+        "geometry",
+        runner.model_name.split("/")[-1],
+        args.shard_index,
+        args.shard_count,
+    )
     act_dir = out_root / "activations"
     act_dir.mkdir(parents=True, exist_ok=True)
 
