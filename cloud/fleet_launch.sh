@@ -21,7 +21,7 @@ set -euo pipefail
 
 HERE="$(cd "$(dirname "$0")" && pwd)"
 REPO_ROOT="$(cd "$HERE/.." && pwd)"
-FLEET_DIR="$HERE/.fleet"
+FLEET_DIR="${FLEET_DIR:-$HERE/.fleet}"
 DISK="${DISK:-60}"
 IMAGE="${IMAGE:-vastai/pytorch:@vastai-automatic-tag}"
 PORTAL_ENV='-p 1111:1111 -e OPEN_BUTTON_PORT="1111" -e OPEN_BUTTON_TOKEN="1"'

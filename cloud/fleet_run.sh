@@ -24,7 +24,7 @@
 set -uo pipefail
 
 HERE="$(cd "$(dirname "$0")" && pwd)"
-FLEET_DIR="$HERE/.fleet"
+FLEET_DIR="${FLEET_DIR:-$HERE/.fleet}"
 STUDIES="${STUDIES:-baseline divergence}"   # which collects each box runs
 BATCH_SIZE="${BATCH_SIZE:-32}"              # vLLM continuous-batching width
 N_THINKING="${N_THINKING:-8}"
@@ -38,7 +38,9 @@ wait_running() {
     st="$(vastai show instances-v1 --raw 2>/dev/null | INSTANCE_ID="$iid" python3 -c '
 import sys,json,os
 iid=int(os.environ["INSTANCE_ID"])
-for r in json.load(sys.stdin):
+d=json.load(sys.stdin)
+rows=d if isinstance(d,list) else d.get("instances", d.get("results", []))
+for r in rows:
     if r.get("id")==iid: print(r.get("actual_status") or r.get("cur_state") or "unknown"); break
 else: print("missing")')"
     [ "$st" = "running" ] && return 0
