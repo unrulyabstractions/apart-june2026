@@ -67,7 +67,29 @@ launch_one() {
     q="gpu_name=${gpu} num_gpus>=1 verified=true rentable=true direct_port_count>=1 disk_space>=${disk} dph_total<=${price} cuda_max_good>=12.4 reliability2>=0.95"
     offers="$(vastai search offers "$q" -o reliability2- --raw)"
   fi
-  oid="$(printf '%s' "$offers" | python3 -c 'import sys,json;o=json.load(sys.stdin);print(o[0]["id"] if o else "")')"
+  # SPREAD ACROSS MACHINES: every concurrent launch_one searches at the same instant
+  # and, if each took offers[0], they ALL land on the single top machine — co-locating
+  # 2+ instances per host, where the 2nd instance stalls in 'loading' forever (it never
+  # reaches 'running', so wait_running times out and the box is wasted). Instead we pick
+  # UNIFORMLY AT RANDOM among the top reliable offers, ONE PER DISTINCT MACHINE, so
+  # concurrent launches scatter across hosts while every pick still comes from the
+  # high-reliability set (reliability-first preserved, co-location avoided).
+  oid="$(printf '%s' "$offers" | python3 -c '
+import sys, json, random
+offers = json.load(sys.stdin)
+if not offers:
+    print(""); sys.exit()
+offers.sort(key=lambda o: -o.get("reliability2", 0))  # reliability DESC
+# keep the FIRST offer per machine (its most-reliable offer), among the top 24 hosts
+seen, pool = set(), []
+for o in offers:
+    m = o.get("machine_id")
+    if m in seen:
+        continue
+    seen.add(m); pool.append(o)
+    if len(pool) >= 24:
+        break
+print(random.choice(pool)["id"])')"
   if [ -z "$oid" ]; then echo "[$tag] NO OFFER (loosen price/gpu/disk)"; return 1; fi
   create="$(vastai create instance "$oid" --image "$IMAGE" --env "$PORTAL_ENV" \
     --onstart-cmd 'entrypoint.sh' --disk "$disk" --ssh --direct --raw)"
