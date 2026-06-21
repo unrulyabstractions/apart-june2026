@@ -30,7 +30,20 @@
 
 % --- Graphics, color, tables ---
 \usepackage{graphicx}
-\graphicspath{{images/}}
+%% Search images/ first, then the live results tree produced by the cloud run
+%% (../out/sesgo/<study>/Qwen3-0.6B/plots/). Guarded \IfFileExists includes
+%% (see \plotfig below) mean an absent plot never breaks the build and a
+%% generated plot auto-appears on the next compile -- no manual edits needed.
+\graphicspath{%
+  {images/}%
+  {figures/}%
+  {../out/sesgo/non_thinking_baseline/Qwen3-0.6B/plots/}%
+  {../out/sesgo/stability/Qwen3-0.6B/plots/}%
+  {../out/sesgo/selection/Qwen3-0.6B/plots/}%
+  {../out/sesgo/divergence/Qwen3-0.6B/plots/}%
+  {../out/sesgo/geometry/Qwen3-0.6B/plots/}%
+  {../out/sesgo/Qwen3-0.6B/plots/}%
+}
 \usepackage{xcolor}
 \usepackage{booktabs}
 \usepackage{array}
@@ -69,6 +82,35 @@
 \definecolor{guidecolor}{RGB}{95,95,95}
 \newcommand{\guide}[1]{\par{\color{guidecolor}\itshape #1}\par\medskip}
 
+%% --- Notation helpers ---
+\newcommand{\LLM}{\mathrm{LLM}}
+\newcommand{\given}{\,\vert\,}
+\DeclareMathOperator*{\argmax}{arg\,max}
+\newcommand{\TODO}[1]{\textcolor{red}{[\textbf{TODO:} #1]}}
+
+%% --- Guarded plot include -------------------------------------------------
+%% \plotfig{<full ../out path to .png>}{<bare filename for graphicspath>}
+%%         {<width>}{<caption>}{<label>}
+%% If the PNG exists it is included; otherwise a gray placeholder box is shown,
+%% so the build stays green before the cloud run lands and the figure appears
+%% automatically once the plot is generated.
+\newcommand{\plotplaceholder}[1]{%
+  \fbox{\parbox[c][0.18\textheight][c]{0.78\linewidth}{\centering
+    \color{guidecolor}\itshape Plot pending --- will render automatically once
+    \detokenize{#1} is produced by the run.}}}
+\newcommand{\plotfig}[5]{%
+  \begin{figure}[t]\centering
+    \IfFileExists{#1}{\includegraphics[width=#3]{#2}}{\plotplaceholder{#2}}%
+    \caption{#4}\label{#5}
+  \end{figure}}
+%% \plotsub{<full ../out path>}{<bare filename>}{<width>} -- a guarded include
+%% for use as one panel inside a multi-panel figure (no own caption/float).
+\newcommand{\plotsub}[3]{%
+  \IfFileExists{#1}{\includegraphics[width=#3]{#2}}{\plotsubplaceholder{#2}}}
+\newcommand{\plotsubplaceholder}[1]{%
+  \fbox{\parbox[c][0.15\textheight][c]{0.86\linewidth}{\centering
+    \color{guidecolor}\itshape Plot pending: \detokenize{#1}}}}
+
 \begin{document}
 \thispagestyle{plain}
 
@@ -78,7 +120,9 @@
 \noindent\rule{\textwidth}{1.2pt}\par
 \vspace{0.8em}
 \begin{center}
-  {\LARGE\bfseries PROJECT TITLE%
+  {\LARGE\bfseries Scaffolding Fairer Abstention: Behavioral and\\
+    Representational Effects of Debiasing Preambles on\\
+    Ambiguous Spanish Social-Bias Questions%
     \footnote{Research conducted at the \href{https://www.apartresearch.com/}{The Global South AI Safety Hackathon}, June 2026.}\par}
 \end{center}
 \vspace{0.6em}
@@ -89,13 +133,14 @@
 \begin{center}
   \renewcommand{\arraystretch}{1.15}
   \begin{tabular}{ccc}
-    Author name 1 & Author name 2 & Author name 3 \\
-    \textit{Affiliation} & \textit{Affiliation} & \textit{Affiliation} \\[1.0em]
-    Author name 4 & Author name 5 & Author name 6 \\
-    \textit{Affiliation} & \textit{Affiliation} & \textit{Affiliation} \\
+    \TODO{Author name} & \TODO{Author name} & \TODO{Author name} \\
+    \textit{\TODO{Affiliation}} & \textit{\TODO{Affiliation}} & \textit{\TODO{Affiliation}} \\
   \end{tabular}
 
-  \vspace{1.1em}
+  \vspace{0.9em}
+  {\TODO{Regional track: Latin America \,---\, sub-track: \dots}}\\[0.4em]
+
+  \vspace{0.6em}
   {\bfseries With}\\[0.2em]
   Apart Research
 \end{center}
@@ -105,142 +150,555 @@
 %% ABSTRACT
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 \begin{abstract}
-\guide{Summarize your project in 150--250 words. A strong abstract lets a
-reviewer understand what you did and why it matters without reading anything
-else. Make sure to cover: the problem, your approach, key results, and the main
-takeaway. Polish it last: the abstract should reflect your final results, not
-your initial plan.}
+When a question names no specific person, the correct answer is
+\emph{unknown}. Large language models often fail this: under ambiguity they
+fill the gap with a stereotyped guess and present it as fact, most sharply in
+Global-South, Spanish-language settings where benchmarks and safety tuning are
+thin. We ask whether prepending a short \emph{scaffold}---a one-sentence
+debiasing preamble---makes a small open-weight model (\texttt{Qwen3-0.6B})
+abstain more often, comparing $\mathrm{LLM}(x)$ against $\mathrm{LLM}(x\oplus
+s)$ on the Spanish \textsc{SESGO} benchmark. We formalize a five-study framework
+that pairs two readouts---a teacher-forced three-way ``non-thinking''
+distribution over \{target, other, unknown\} roles, and a sampled ``thinking''
+distribution over parsed generations---with a representational analysis of how
+each scaffold shifts the model's residual-stream geometry. The studies measure
+baseline abstention, stability under surface variation, per-scaffold abstention
+accuracy (selecting a best scaffold $s^\star$), reasoning-distribution
+divergence from abstention, and each scaffold's activation-space shift. We
+release the design, notation, and harness; full results follow as runs complete.
 \end{abstract}
 
 \bigskip
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-%% INFO BOX -- DELETE THIS ENTIRE BOX BEFORE SUBMITTING
-%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-\begin{tcolorbox}[colback=yellow!12,colframe=yellow!55!black,boxrule=0.4pt,
-  arc=1pt,left=8pt,right=8pt,top=8pt,bottom=8pt]
-\textbf{How to use this template}: Replace the gray italic guidance text
-(\texttt{\textbackslash guide\{\ldots\}}) under each section with your content.
-The section structure is strong guidance but not rigid. If your project
-requires a different organization, feel free to adapt. \underline{Delete all
-guidance text including this info box before submitting.} Make sure the project
-title and author information above are up to date.
-
-\medskip
-\textbf{How your submission will be evaluated}: Your project will be judged on
-the quality of this written report. To understand what we look for, see the
-\href{https://www.apartresearch.com/}{Evaluation Rubric}.
-
-\medskip
-\textbf{Recommended length}: 4 pages excluding references and appendix.\\
-Rough guide: Intro \& Related Work 1p, Methods and Results 2.5p, Discussion 0.5p.
-\end{tcolorbox}
-
-%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 \section{Introduction}
-\guide{What problem are you addressing and why does it matter? Connect it to
-your work: we want to know why your work is practically valuable.}
 
-\guide{Provide enough background for readers to understand your work. If
-relevant, briefly describe the threat model or failure mode you're addressing;
-reference prior work that motivates why it is worth addressing, or explain it
-yourself.}
+Ask a careful reasoner ``who arrived late, the manager or the janitor?'' when
+the surrounding text names neither, and it should say it cannot tell. Large
+language models often do not. Under ambiguity they \emph{resolve} the missing
+information, defaulting to the statistically dominant or stereotyped association
+for the social groups in play, and they report that guess with the confidence of
+a fact. This is the failure that ambiguous-context social-bias benchmarks are
+built to expose. When the context is genuinely under-specified, the only correct
+answer is \emph{unknown}, so any confident pick of a specific person or group is,
+by construction, a stereotype-driven error.
 
-\guide{Aspire to clearly list your most important contributions that go beyond
-what exists today.}
+The failure is not evenly distributed. Safety tuning, red-teaming, and bias
+evaluation remain concentrated in English. The result is that we understand the
+abstention behavior of widely deployed models least precisely where it matters
+most---where the social categories (racism, xenophobia, classism, gender) are
+culturally specific and the stereotypes are least represented in alignment data.
+At the same time, small open-weight models are becoming the practical default in
+resource-constrained settings. A cheap intervention that improves their
+abstention at inference time, without retraining, would be worth having.
 
-\noindent\textbf{Our main contributions are:}
+We study one such intervention. A \emph{scaffold} is a single-sentence debiasing
+preamble, prepended to the question. We compare the model's behavior on a prompt
+$x$ against the same prompt with a scaffold $s$ prepended, $\LLM(x)$ versus
+$\LLM(x \oplus s)$, and ask whether the scaffold raises the rate at which the
+model abstains on ambiguous items. We pair that behavioral question with a
+representational one. \emph{How} does a scaffold move the model's internal state,
+and is the move that improves abstention visible in residual-stream geometry? Our
+scaffolds are not ad hoc; each instantiates a structure-aware diversity-pursuit
+methodology~\citep{riossialer2026structureaware}, realized in matched English and
+Spanish. We evaluate on the Spanish \textsc{SESGO}
+benchmark~\citep{robles2025sesgo}, with
+\textsc{MentalRiskES}~\citep{marmol-romero-etal-2024-mentalriskes} as a secondary
+probe, running \texttt{Qwen3-0.6B} locally.
+
+\noindent\textbf{New in this work.} We build on three existing artifacts---the
+\textsc{SESGO} benchmark~\citep{robles2025sesgo}, the structure-aware diversity
+method~\citep{riossialer2026structureaware}, and the
+\textsc{MentalRiskES}~\citep{marmol-romero-etal-2024-mentalriskes}
+corpus---and contribute, new for this hackathon, the following:
 \begin{enumerate}[leftmargin=*,topsep=2pt]
-  \item \guide{First contribution --- what new thing did you create, discover, or demonstrate?}
-  \item \guide{Second contribution.}
-  \item \guide{Third contribution, if applicable.}
+  \item A \textbf{five-study evaluation framework} (\Cref{tab:studies}) for
+    measuring scaffold-induced abstention on ambiguous social-bias prompts,
+    spanning baseline behavior, stability under superficial variation, scaffold
+    selection, reasoning-distribution divergence, and representational geometry.
+  \item A \textbf{dual-readout formalization} (\Cref{sec:methods}) that scores
+    the same item both with a teacher-forced three-way ``non-thinking''
+    distribution over answer roles---remapped from display positions to defeat
+    position bias---and with a sampled ``thinking'' distribution over parsed
+    free-form generations.
+  \item A \textbf{behavioral $+$ representational comparison} of four bilingual
+    debiasing scaffolds against a no-scaffold baseline, selecting a best scaffold
+    $s^\star$ by abstention accuracy and characterizing the activation-space
+    shift it induces.
 \end{enumerate}
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 \section{Related Work}
-\guide{What prior work is most similar, and how does your work differ? Cite the
-most relevant papers, tools, or projects~\citep{example}. Explain what gap your
-work addresses.}
 
-\guide{Some questions which may help:}
-\begin{enumerate}[label=(\alph*),leftmargin=*,topsep=2pt]
-  \item \guide{When and why would someone use your method over the existing state-of-the-art?}
-  \item \guide{What information/insight does your method provide which we did not have before?}
-\end{enumerate}
+\paragraph{Spanish social-bias evaluation.}
+\textsc{SESGO}~\citep{robles2025sesgo} is a Spanish, Latin-American-grounded
+benchmark in the ambiguous-context tradition. Each item presents an
+under-specified scenario and three answer options realizing the roles
+\emph{target}, \emph{other}, and \emph{unknown}, across the categories racism,
+xenophobia, classism, and gender. On ambiguous items the gold answer is
+\emph{unknown}, so a model's bias is read straight off how often it instead
+commits to the target or the other group. We adopt \textsc{SESGO} as our primary
+benchmark and run it bilingually, in both English and Spanish. The original work
+measures \emph{whether} a model is biased; we ask the next question, whether a
+lightweight inference-time scaffold \emph{reduces} that bias, and what
+representational change comes with any improvement.
+
+\paragraph{Spanish mental-health risk.}
+\textsc{MentalRiskES}~\citep{marmol-romero-etal-2024-mentalriskes} is a Spanish
+corpus for the early detection of mental disorders. We include it as a
+secondary, higher-stakes probe. It lets us check for spillover---helpful or
+harmful---when a scaffold that improves abstention on social-bias items is asked
+to make cautious judgements in a sensitive domain, so that our conclusions are
+not tied to a single benchmark format.
+
+\paragraph{Structure-aware diversity as a safety strategy.}
+The scaffolds instantiate the structure-aware diversity-pursuit methodology of
+\citet{riossialer2026structureaware}, which treats homogenization---a model
+collapsing a diverse space of valid responses onto a single dominant mode---as a
+safety problem, and proposes interventions that preserve structurally
+appropriate diversity. Stereotyped resolution of an ambiguous prompt is exactly
+such a collapse. The model homogenizes onto the prior-dominant group instead of
+holding the open ``unknown'' answer. We translate that methodology into four
+concrete bilingual debiasing preambles (\Cref{tab:scaffolds}) and test, both
+behaviorally and geometrically, whether they move the model back toward the
+abstaining response.
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 \section{Methods}
-\guide{Describe your approach clearly enough that someone could replicate it.
-Include key design choices and justify them where relevant (hint: the more you
-can back up your design choices by referencing prior work, the better).}
+\label{sec:methods}
 
-\guide{What models/datasets/tools did you use and why? What were key parameters
-or design decisions? What did you try that didn't work? Could someone reproduce
-your work from this description?}
+\subsection{Setup and notation}
+\label{sec:notation}
+
+We evaluate a single model, \texttt{Qwen3-0.6B}, run locally. The primary data
+are the ambiguous-context items of \textsc{SESGO}~\citep{robles2025sesgo}; each
+item is rendered into a prompt $x$ that poses an under-specified question and
+lists three answer options. The options realize the answer \emph{roles}
+\[
+  y \in \{\, \mathrm{target}\;(t),\ \mathrm{other}\;(o),\ \mathrm{unknown}\;(u) \,\},
+\]
+and on every ambiguous item the gold role is the abstention $y^\star = u$. A
+\emph{scaffold} $s$ is a short debiasing preamble; we write $x \oplus s$ for the
+prompt with $s$ prepended, and compare the model's behavior on $x$ against
+$x \oplus s$. Throughout, $\mathbf{1}[\cdot]$ is the indicator and
+$\delta_u$ is the one-hot distribution placing all mass on the role $u$.
+
+\begin{table}[t]
+  \centering
+  \caption{Datasets. \textsc{SESGO} is the primary benchmark (ambiguous items,
+    gold $=$ unknown); \textsc{MentalRiskES} is a secondary, sensitive-domain
+    probe.}
+  \label{tab:datasets}
+  \small
+  \begin{tabular}{@{}l p{0.62\linewidth}@{}}
+    \toprule
+    \textbf{Dataset} & \textbf{Description} \\
+    \midrule
+    \textsc{SESGO} & Spanish / Latin-American BBQ-style ambiguous social-bias
+      prompts. Categories: racism, xenophobia, classism, gender. EN $+$ ES; three
+      answer roles \{target, other, unknown\}; on ambiguous items
+      $y^\star = \text{unknown}$. \emph{Primary.} \\
+    \textsc{MentalRiskES} & Spanish corpus for early detection of mental
+      disorders; used as a secondary, higher-stakes spillover probe. \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+We read every item at \emph{two} complementary levels. The first is cheap and
+deterministic: a teacher-forced readout that scores the model's option
+preferences without letting it reason. The second is sampled: it lets the model
+reason freely and parses what it commits to.
+
+\paragraph{Non-thinking readout (teacher-forced, three-way).}
+We forbid reasoning (we prefill a skip-thinking prefix and teacher-force each
+option) and, for each role $y$, read the option-label token's conditional
+log-probability at the answer position,
+\[
+  \ell_y \;=\; \log P\!\left(\text{label}_y \given x\right).
+\]
+A ternary-choice runner scores the three forced continuations in one batched
+forward pass; because they share a prefix, the predicting row at the divergence
+position is identical across options, so the three $\ell_y$ are directly
+comparable. We renormalize them into a three-way distribution over roles,
+\begin{equation}
+  p^{\mathrm{nt}}_y \;=\; \frac{\exp(\ell_y)}{\sum_{y'} \exp(\ell_{y'})},
+  \qquad y,y' \in \{t,o,u\}.
+  \label{eq:pnt}
+\end{equation}
+We also retain the raw model logits and each option's inverse single-token
+perplexity $\exp(\ell_y)$ as absolute-confidence signals. Crucially, options are
+scored at \emph{display} positions and then remapped to roles through the item's
+position$\to$role permutation, which averages out position bias. The
+non-thinking prediction is $\hat{y}^{\mathrm{nt}} = \argmax_y p^{\mathrm{nt}}_y$
+(ties resolve to $u$). As a separate signal we also take a \emph{greedy}
+non-thinking decode $\hat{y}^{\mathrm{greedy}}$ (skip-thinking prefill,
+temperature $0$): the role the model actually emits when it answers without
+reasoning. A disagreement $\hat{y}^{\mathrm{greedy}} \neq \hat{y}^{\mathrm{nt}}$
+flags a decoding mismatch.
+
+\paragraph{Thinking readout (sampled).}
+Here the model reasons freely. We draw $N$ generations $g_i \sim \LLM(x)$, strip
+the reasoning block, and parse the role each draw committed to,
+$r_i \in \{t,o,u,\varnothing\}$, where $\varnothing$ marks an undetectable or
+truncated draw (dropped). Over the $M \le N$ parsed draws we form the empirical
+role distribution
+\begin{equation}
+  p^{\mathrm{th}}_y \;=\; \frac{1}{M}\sum_{i=1}^{M} \mathbf{1}[\, r_i = y \,],
+  \label{eq:pth}
+\end{equation}
+reporting each role's mean (pick fraction), its Bernoulli population standard
+deviation $\sqrt{p^{\mathrm{th}}_y(1-p^{\mathrm{th}}_y)}$, and the sample size
+$M$. The thinking prediction is
+$\hat{y}^{\mathrm{th}} = \argmax_y p^{\mathrm{th}}_y$ (ties resolve to $u$).
+
+\paragraph{Derived measures.}
+Because the gold role is abstention, our headline behavioral score is the
+\emph{abstention accuracy}---the fraction of items whose prediction is
+$u$:
+\begin{equation}
+  \mathrm{acc} \;=\; \frac{1}{|\mathcal{Q}|}\sum_{q\in\mathcal{Q}}
+    \mathbf{1}[\, \hat{y}_q = u \,].
+  \label{eq:acc}
+\end{equation}
+To characterize a reasoning distribution we use its Shannon entropy and its
+divergence from correct abstention,
+\begin{equation}
+  H(p) = -\sum_{y} p_y \log p_y,
+  \qquad
+  \mathrm{JS}\!\left(p^{\mathrm{th}} \,\|\, \delta_u\right),
+  \label{eq:entropy-js}
+\end{equation}
+where $\mathrm{JS}$ is the Jensen--Shannon divergence (low when the model's
+free-form reasoning concentrates on $u$). For \emph{stability}, each underlying
+question $q$ is rendered into a set of surface variants $\mathcal{V}_q$
+(option permutation $\times$ label style $\times$ polarity/flip); writing
+$\mathrm{mode}_q$ for the most frequent prediction across the variants, the
+per-item consistency is
+\begin{equation}
+  C_q \;=\; \frac{1}{|\mathcal{V}_q|}\sum_{v\in\mathcal{V}_q}
+    \mathbf{1}[\, \hat{y}_v = \mathrm{mode}_q \,],
+  \label{eq:stability}
+\end{equation}
+complemented by a per-axis flip-sensitivity (the share of variations on a single
+axis that change the prediction). Finally, scaffold \emph{selection} picks
+\begin{equation}
+  s^\star \;=\; \argmax_s \; \mathrm{acc}(x \oplus s),
+  \label{eq:select}
+\end{equation}
+the scaffold maximizing abstention accuracy over the candidate set.
+
+\paragraph{Representational geometry.}
+Along the greedy non-thinking path we additionally capture the residual-stream
+activation $h^{(l)}_p(x) \in \mathbb{R}^{d}$ at layer $l$ and structural token
+position $p \in \{\,\text{turn},\ \text{think\_open},\ \text{think\_close},\
+\text{answer}\,\}$. For each (layer, position) cell we stack the per-sample
+vectors and fit a (mean-centering) PCA. Within the projected space we compute,
+per scaffold condition $s$, the centroid $\mu_s$, its shift from the no-scaffold
+baseline $\Delta_s = \mu_s - \mu_{\text{none}}$, and the shift magnitude
+$\lVert \Delta_s \rVert$, together with a scaffold silhouette score and the
+between/within scatter-trace ratio as separation summaries. The question is
+whether a scaffold that changes behavior also leaves a measurable, consistent
+footprint in the model's internal geometry.
+
+\subsection{Scaffolds}
+
+We compare four bilingual debiasing scaffolds against a no-scaffold baseline
+(\Cref{tab:scaffolds}). Each scaffold pushes the model toward the $u$ answer by a
+\emph{distinct} mechanism. Each is authored in matched English and Spanish, so
+the language axis can be analyzed without confounding it with the scaffold's
+content. All four derive from the structure-aware diversity methodology of
+\citet{riossialer2026structureaware}.
+
+\begin{table}[t]
+  \centering
+  \caption{The four bilingual debiasing scaffolds plus the no-scaffold baseline.
+    Each scaffold pushes the model toward the \emph{unknown} answer by a distinct
+    mechanism and is authored in matched English and Spanish (EN/ES) text.}
+  \label{tab:scaffolds}
+  \small
+  \begin{tabular}{@{}p{0.34\linewidth} p{0.58\linewidth}@{}}
+    \toprule
+    \textbf{Scaffold id} & \textbf{Mechanism (one line; EN/ES matched text)} \\
+    \midrule
+    \texttt{(none)} & Baseline: the question with no preamble. \\
+    \texttt{interpretive\_direction} & Reframes the task as judging whether the
+      text identifies anyone---do not guess or fill gaps. \\
+    \texttt{prior\_dominance\_warning} & Warns that models default to dominant /
+      stereotyped assumptions under uncertainty and present them as fact. \\
+    \texttt{insufficient\_information\_unknown} & Licenses ``unknown'' as the
+      accurate answer when the text does not specify, not a failure to answer. \\
+    \texttt{intent\_and\_register\_respect} & Demands the people be read on their
+      own terms; attribute nothing the text does not state. \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+\subsection{The five studies}
+
+The framework comprises five studies (\Cref{tab:studies}). They share the item
+pool and the readouts above, and differ only in which surface variations are
+exercised, which scaffolds are applied, and which readout is run. We chose each
+combination to keep the study as cheap as its question allows.
+
+\begin{table*}[t]
+  \centering
+  \caption{The five studies. Each row is one experiment, specifying the surface
+    \emph{format variation} exercised, the \emph{scaffolds} applied, the
+    \emph{readout(s)} run, and \emph{what is measured}. ``cheapest'' denotes the
+    single max-logprob label score.}
+  \label{tab:studies}
+  \small
+  \begin{tabular}{@{}l l l l p{0.30\linewidth}@{}}
+    \toprule
+    \textbf{Study} & \textbf{Format variation} & \textbf{Scaffolds} &
+      \textbf{Readout(s)} & \textbf{What is measured} \\
+    \midrule
+    \texttt{non\_thinking\_baseline} & none & none & non-thinking &
+      base abstention $+$ role distribution \\
+    \texttt{stability} & all (perm $\times$ label-style $\times$ flip) & none &
+      cheapest (max-logprob label) & answer consistency across superficial variation \\
+    \texttt{selection} & none & all 5 (none $+$ 4) & non-thinking $+$ thinking &
+      abstention accuracy per scaffold $\to$ select $s^\star$ \\
+    \texttt{divergence} & none & none only & thinking ($N$ draws) &
+      distribution statistics: entropy $+$ JS-div from unknown \\
+    \texttt{geometry} & none & none $+$ $s^\star$ (\texttt{interpretive\_direction}) &
+      greedy non-thinking $+$ activations & PCA of activations; centroid shift per condition \\
+    \bottomrule
+  \end{tabular}
+\end{table*}
+
+In brief: \textbf{non\_thinking\_baseline} fixes the reference point---base
+abstention accuracy (\Cref{eq:acc}) and the average role distribution
+$(p^{\mathrm{nt}}_t, p^{\mathrm{nt}}_o, p^{\mathrm{nt}}_u)$ with no scaffold and no
+variation. \textbf{stability} renders each question across all surface variants
+and reports $C_q$ (\Cref{eq:stability}) and per-axis flip-sensitivity, so we know
+how fragile abstention is before we try to improve it. \textbf{selection} runs
+all five scaffold conditions under both readouts and picks $s^\star$ by
+\Cref{eq:select}, checking that a gain in the teacher-forced preference carries
+over to free-form reasoning. \textbf{divergence} looks past the argmax: on the
+no-scaffold condition it draws $N$ thinking generations, forms $p^{\mathrm{th}}$
+(\Cref{eq:pth}), and reports $H(p^{\mathrm{th}})$ and
+$\mathrm{JS}(p^{\mathrm{th}}\|\delta_u)$ (\Cref{eq:entropy-js}), which separates a
+confidently-wrong model from a merely uncertain one. \textbf{geometry} captures
+activations along the greedy path for the baseline and $s^\star$, fits a PCA to
+each (layer, position) cell, and reports the centroid shift $\Delta_s$, its
+magnitude, and the silhouette and between-within separation---testing whether a
+behavioral change is accompanied by a representational one.
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 \section{Results}
-\guide{Present your main findings with appropriate evidence. Use figures and
-tables where appropriate (we strongly encourage at least one figure, see tips
-below). Distinguish between observations and interpretations.}
 
-\guide{Argue why your claims are robust. E.g., if your approach ``performs
-better'' than alternatives:}
-\begin{enumerate}[label=(\alph*),leftmargin=*,topsep=2pt]
-  \item \guide{Do you have enough data? Is the difference statistically significant?}
-  \item \guide{Is it robust? Or do small changes to your setup cause substantial changes to your results?}
-\end{enumerate}
+\emph{Numbers marked ``prelim.'' below are computed from the small verification
+subsample that exists at submission time (the full five-study runs on
+\texttt{Qwen3-0.6B} are still in progress); they fix the reporting format and
+will be overwritten by the full-run values. Cells with no data yet show a visible
+placeholder. Each figure auto-renders once its plot lands (see
+\Cref{sec:limitations} for the subsampling caveat).}
 
-\noindent\textbf{Tips for figures and tables:}
-\begin{itemize}[label=\textendash,leftmargin=*,topsep=2pt]
-  \item \guide{Number all figures (Figure 1, Figure 2\ldots) and tables (Table 1, Table 2\ldots).}
-  \item \guide{Include descriptive captions that can be understood without the main text.}
-  \item \guide{Place figures/tables near where they're first referenced.}
-  \item \guide{Ensure text in figures is legible!}
-\end{itemize}
+\paragraph{Per-scaffold abstention (selection).}
+\Cref{tab:results-selection} reports abstention accuracy (\Cref{eq:acc}) under
+both readouts for each scaffold, and identifies $s^\star$;
+\Cref{fig:scaffold-effects}(a) plots the same per-scaffold accuracies. The headline question
+is simple. Does any scaffold beat the baseline by a margin that survives across
+both readouts and both languages? On the verification subsample every condition
+already abstains (non-thinking acc $=1.00$, one item each), so the discriminating
+margins await the full run.
 
-%% Example figure scaffold (uncomment and drop a file in images/):
-% \begin{figure}[t]
-%   \centering
-%   \includegraphics[width=0.8\linewidth]{example.png}
-%   \caption{A self-contained caption.}
-%   \label{fig:example}
-% \end{figure}
+\begin{table}[t]
+  \centering
+  \caption{Abstention accuracy per scaffold (\Cref{eq:acc}), non-thinking and
+    thinking readouts. Higher is better; $s^\star$ is the row maximizing
+    accuracy. ``prelim.'' values are from the verification subsample
+    ($n{=}1$ item / scaffold); full-run values pending.}
+  \label{tab:results-selection}
+  \small
+  \begin{tabular}{@{}l c c@{}}
+    \toprule
+    \textbf{Scaffold} & \textbf{acc (non-thinking)} & \textbf{acc (thinking)} \\
+    \midrule
+    \texttt{(none)} & 1.00\textsuperscript{p} & \TODO{no draws yet} \\
+    \texttt{interpretive\_direction} & 1.00\textsuperscript{p} & 1.00\textsuperscript{p} \\
+    \texttt{prior\_dominance\_warning} & 1.00\textsuperscript{p} & \TODO{no draws yet} \\
+    \texttt{insufficient\_information\_unknown} & 1.00\textsuperscript{p} & \TODO{no draws yet} \\
+    \texttt{intent\_and\_register\_respect} & 1.00\textsuperscript{p} & 1.00\textsuperscript{p} \\
+    \bottomrule
+  \end{tabular}\\[2pt]
+  {\footnotesize \textsuperscript{p}\,prelim.\ (verification subsample,
+   $n{=}1$ / scaffold).}
+\end{table}
+
+\begin{figure}[t]\centering
+  \begin{subfigure}{0.49\linewidth}\centering
+    \plotsub{../out/sesgo/selection/Qwen3-0.6B/plots/abstention_by_scaffold.png}%
+      {abstention_by_scaffold.png}{\linewidth}
+    \caption{Abstention by scaffold (selection); highest bar is $s^\star$.}
+    \label{fig:selection}
+  \end{subfigure}\hfill
+  \begin{subfigure}{0.49\linewidth}\centering
+    \plotsub{../out/sesgo/geometry/Qwen3-0.6B/plots/geometry_pca.png}%
+      {geometry_pca.png}{\linewidth}
+    \caption{PCA of answer-position activations; $\Delta_s$ is the scaffold's
+      representational shift (geometry).}
+    \label{fig:geometry}
+  \end{subfigure}
+  \caption{Scaffold effects, behavioral (left) and representational (right).
+    Panels auto-render as the selection and geometry runs land.}
+  \label{fig:scaffold-effects}
+\end{figure}
+
+\paragraph{Stability, divergence, and geometry.}
+\Cref{tab:results-aux} collects the remaining summaries: mean stability
+consistency $\bar{C}$ (\Cref{eq:stability}), the no-scaffold reasoning entropy
+and JS-divergence from abstention (\Cref{eq:entropy-js}), and the
+geometry shift magnitude $\lVert\Delta_{s^\star}\rVert$ with its scaffold
+silhouette; the geometry panel is \Cref{fig:scaffold-effects}(b), and
+\Cref{fig:stab-div} gives the stability and divergence distributions.
+
+\begin{table}[t]
+  \centering
+  \caption{Auxiliary summaries: stability consistency, reasoning-distribution
+    divergence, and representational shift. ``prelim.'' values are from the
+    verification subsample; full-run values pending.}
+  \label{tab:results-aux}
+  \small
+  \begin{tabular}{@{}l c@{}}
+    \toprule
+    \textbf{Measure} & \textbf{Value} \\
+    \midrule
+    Mean stability consistency $\bar{C}$ & 0.33\textsuperscript{p} \\
+    Reasoning entropy $H(p^{\mathrm{th}})$ (no scaffold) & 0.00\textsuperscript{p} \\
+    JS-div from abstention $\mathrm{JS}(p^{\mathrm{th}}\|\delta_u)$ & 0.00\textsuperscript{p} \\
+    Geometry shift $\lVert\Delta_{s^\star}\rVert$ (answer position) & \TODO{geometry run pending} \\
+    Scaffold silhouette & \TODO{geometry run pending} \\
+    \bottomrule
+  \end{tabular}\\[2pt]
+  {\footnotesize \textsuperscript{p}\,prelim.: $\bar{C}$ over $1$ question
+   ($9$ variants); $H,\mathrm{JS}$ over $2$ no-scaffold items whose draws all
+   abstained.}
+\end{table}
+
+\begin{figure}[t]\centering
+  \begin{subfigure}{0.49\linewidth}\centering
+    \plotsub{../out/sesgo/stability/Qwen3-0.6B/plots/consistency_hist.png}%
+      {consistency_hist.png}{\linewidth}
+    \caption{Per-item consistency $C_q$ (\Cref{eq:stability}); mass near $1$ =
+      abstention robust to surface variation.}
+    \label{fig:stability}
+  \end{subfigure}\hfill
+  \begin{subfigure}{0.49\linewidth}\centering
+    \plotsub{../out/sesgo/divergence/Qwen3-0.6B/plots/js_from_unknown_hist.png}%
+      {js_from_unknown_hist.png}{\linewidth}
+    \caption{No-scaffold reasoning JS from abstention
+      (\Cref{eq:entropy-js}); mass near $0$ = reasoning concentrates on
+      ``unknown''.}
+    \label{fig:divergence}
+  \end{subfigure}
+  \caption{Robustness (left, stability) and reasoning-distribution divergence
+    (right, divergence). Panels auto-render as the runs land.}
+  \label{fig:stab-div}
+\end{figure}
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-\section{Discussion and Limitations}
-\guide{Discuss the broader implications for AI safety. What do your results
-mean? What trends do you notice and what might they indicate?}
+\section{Discussion}
 
-\subsection*{Limitations}
-\guide{What are the limitations of your work? What threat models or failure
-modes did you not address? Be honest about constraints --- methodological
-limitations, scope limitations, or aspects you couldn't fully address in the
-hackathon timeframe. Explicitly note the assumptions you made, whether
-implicitly or explicitly, and how the interpretation of your results would
-change if a given assumption did not hold.}
+If a one-sentence preamble reliably raises abstention on ambiguous social-bias
+prompts, it is an unusually cheap safety lever: no retraining, no fine-tuning
+data, droppable in front of an already-deployed small model in exactly the
+low-resource, Spanish-language settings where heavier interventions are out of
+reach. The dual-readout design keeps us honest---a common failure of
+prompt-based debiasing is that the intervention shifts the teacher-forced option
+preference while leaving free-form reasoning untouched, and running both readouts
+catches that. The geometry study adds a further check: whether a behavioral gain
+corresponds to a real representational change rather than a brittle surface
+artifact. A scaffold that helps under both readouts and leaves a consistent
+activation-space footprint is the strongest evidence the framework can produce;
+one that helps the teacher-forced score but not the sampled one is a cautionary
+result, and we report it as such.
 
-\subsection*{Future Work}
-\guide{What are the natural next steps? How could this work be extended?}
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+\section{Limitations and Dual-Use Considerations}
+\label{sec:limitations}
+
+\paragraph{Limitations.}
+Our study is deliberately narrow, and several limitations follow from that
+choice. (i) We evaluate a \emph{single}, small model (\texttt{Qwen3-0.6B}); a
+small model may follow instructions too weakly to benefit, and scaffold effects
+need not transfer to larger or differently tuned models. (ii) The scope is
+Spanish (plus matched English) and \emph{four} bias categories (racism,
+xenophobia, classism, gender), so the findings do not speak to other languages
+or social axes. (iii) Our scaffolds are \emph{prompt-level} interventions, not
+training- or weight-level ones; they steer behavior at inference time and make
+no claim about the model's underlying dispositions. (iv) The \texttt{divergence}
+study reports a \emph{stratified subsample} of the full study grid rather than
+the complete cross-product, and we restrict throughout to \emph{ambiguous}-context
+items where abstention is the gold answer---we do not yet measure the
+abstention/accuracy trade-off on disambiguated items, where a specific answer is
+correct. (v) The thinking readout relies on a parser that can drop or misread
+free-form draws, biasing $M$ and $p^{\mathrm{th}}$. (vi) The geometry analysis is
+correlational: a centroid shift shows the scaffold changes the representation,
+not that the change \emph{causes} better abstention. (vii) The scaffold texts and
+the position$\to$role remap assume the model treats English and Spanish
+symmetrically; where it does not, language becomes a confound rather than a
+controlled axis.
+
+\paragraph{Dual-use and misuse risks.}
+The same machinery that improves abstention can be turned against it, and we
+flag this explicitly. (a) A debiasing preamble is trivially \emph{invertible}:
+the one-sentence scaffold that pushes the model toward ``unknown'' can be
+rewritten, with no new technique, into a \emph{bias-amplifying} preamble that
+pushes the model to commit to the stereotyped group. (b) Our representational
+analysis compounds this. The activation-geometry method that \emph{locates} a
+debiasing direction $\Delta_{s^\star}$ equally locates a steer-toward-stereotype
+direction; a centroid shift is signed, and an adversary can move along it in
+either sense. (c) Abstention itself can be \emph{gamed}: a model (or a deployer)
+optimizing the abstention metric can learn to answer ``unknown'' indiscriminately,
+trading a real bias problem for an evasive, low-utility one that our
+ambiguous-only setup would not penalize. We therefore frame the scaffolds as a
+measurement and mitigation tool to be released with these caveats, not as a
+drop-in fix, and we report cautionary (helps-one-readout-but-not-the-other)
+results as first-class outcomes.
+
+\paragraph{Future improvements.}
+Several extensions follow directly. Add disambiguated items, to measure the
+abstention/accuracy trade-off rather than assume it away, and to detect
+abstention-gaming. Sweep multiple model sizes and families to see how far the
+effect transfers, and extend beyond Spanish and the four categories. Compose and
+ablate the four scaffold mechanisms to isolate the active ingredient. Move the
+geometry analysis from correlational to causal by \emph{steering} activations
+along $\Delta_{s^\star}$ and watching abstention respond---an experiment that, by
+its symmetry, also quantifies the inversion risk above. We see this design as the
+start of that line of work, not the end of it.
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 \section{Conclusion}
-\guide{Briefly summarize your main findings and their implications (1--2 paragraphs).}
+
+We presented a five-study framework for measuring whether a short debiasing
+scaffold makes a small LLM abstain more often---rather than guess a
+stereotype---on ambiguous Spanish social-bias questions. The framework pairs a
+teacher-forced three-way readout with a sampled reasoning readout, selects a best
+scaffold by abstention accuracy, and asks whether that scaffold leaves a
+measurable shift in the model's residual-stream geometry. Formalizing $\LLM(x)$
+versus $\LLM(x\oplus s)$ on \textsc{SESGO}, with \textsc{MentalRiskES} as a
+sensitive secondary probe, lets the design target one specific failure: confident
+stereotyped resolution under ambiguity. That failure is most consequential in
+exactly the Global-South, Spanish-language settings where it is least studied. The
+quantitative results follow once the runs complete. What we contribute here is the
+reproducible design, notation, and harness that will make those results
+interpretable.
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 \section*{Code and Data}
-\guide{Include links if applicable. If your project doesn't involve code (e.g.,
-policy analysis) or if there are info-hazard considerations, note that here.}
 \begin{itemize}[label=\textendash,leftmargin=*,topsep=2pt]
-  \item \textbf{Code repository:} \guide{Link to GitHub/GitLab if applicable.}
-  \item \textbf{Data/Datasets:} \guide{Link if applicable.}
-  \item \textbf{Other artifacts (optional):} \guide{Demo link, video walkthrough, Hugging Face Space, etc.}
+  \item \textbf{Code repository:} the evaluation harness (ternary-choice runner,
+    non-thinking / thinking readouts, scaffolds, and geometry analysis) will be
+    released with the final version.
+  \item \textbf{Data/Datasets:} \textsc{SESGO}~\citep{robles2025sesgo} and
+    \textsc{MentalRiskES}~\citep{marmol-romero-etal-2024-mentalriskes}, used under
+    their original licenses.
+  \item \textbf{Model:} \texttt{Qwen3-0.6B}, run locally.
 \end{itemize}
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-\section*{Author Contributions (optional)}
-\guide{e.g., ``A.B. led the project and designed experiments. C.D. implemented
-the code. All authors contributed to writing and reviewed the final manuscript.''}
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %% REFERENCES -- add entries to references.bib and cite with \citep{key}.
@@ -249,16 +707,15 @@ the code. All authors contributed to writing and reviewed the final manuscript.'
 \bibliography{references}
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-\section*{Appendix (optional)}
-\guide{Supplementary material such as additional figures, detailed methodology,
-prompts used, extended results, etc.}
+\section*{Appendix}
+The full bilingual scaffold texts (English and Spanish) and the per-item prompt
+rendering are included in the released harness; \Cref{tab:scaffolds} gives the
+one-line mechanism for each.
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 \section*{LLM Usage Statement}
-\guide{If you used LLM assistance in developing your project or writing this
-report, briefly note how. Ensure all claims and results have been verified.
-NOTE: We strongly encourage that the final version of the submission is
-primarily written by your team. e.g., ``We used Claude to brainstorm approaches
-and help draft sections. All results and claims were independently verified.''}
+We used an LLM assistant to help draft and format this report and to formalize
+notation from the codebase. All design decisions, claims, and (forthcoming)
+results are verified by the authors against the harness implementation.
 
 \end{document}

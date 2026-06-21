@@ -43,19 +43,9 @@ fi
 [ $# -gt 0 ] || { echo "usage: bash cloud/at_vast.sh <command>" >&2; exit 1; }
 CMD="$*"
 
-# ── 2. Resolve SSH host / port FRESH each call ─────────────────────────
-# Vast returns ssh://user@host:port — parse it. -F /dev/null ignores the user's
-# ~/.ssh/config so behaviour is reproducible.
-SSH_URL="$(vastai ssh-url "$INSTANCE" 2>/dev/null | tr -d '\n')"
-if [[ "$SSH_URL" =~ ^ssh://([^@]+)@([^:]+):([0-9]+)$ ]]; then
-  SSH_USER="${BASH_REMATCH[1]}"
-  SSH_HOST="${BASH_REMATCH[2]}"
-  SSH_PORT="${BASH_REMATCH[3]}"
-else
-  echo "Could not parse ssh-url: '$SSH_URL'" >&2
-  echo "Is instance $INSTANCE still running?  vastai show instances" >&2
-  exit 1
-fi
+# ── 2. Resolve SSH host / port FRESH each call (v1 API; see _ssh_target.sh) ──
+. "$HERE/_ssh_target.sh"
+_resolve_ssh_target || exit 1
 
 SSH="ssh -F /dev/null -o StrictHostKeyChecking=accept-new -i $SSH_KEY -p $SSH_PORT $SSH_USER@$SSH_HOST"
 

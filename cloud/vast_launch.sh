@@ -92,7 +92,7 @@ echo ">> Created instance ${INSTANCE_ID}. Waiting for it to come up (image pull 
 
 # ----------------------------- 3. POLL ----------------------------
 for i in $(seq 1 80); do
-  ST_JSON="$(vastai show instances --raw)"
+  ST_JSON="$(vastai show instances-v1 --raw)"
   STATUS="$(printf '%s' "$ST_JSON" | INSTANCE_ID="$INSTANCE_ID" python3 -c '
 import sys, json, os
 iid = int(os.environ["INSTANCE_ID"])
@@ -113,8 +113,14 @@ done
 
 # ----------------------------- 4. CONNECT INFO --------------------
 echo
-echo ">> SSH:"
-vastai ssh-url "$INSTANCE_ID" || echo "   (ssh-url not ready yet; rerun: vastai ssh-url ${INSTANCE_ID})"
+echo ">> SSH endpoint (from show instances-v1):"
+INSTANCE="$INSTANCE_ID"
+. "$HERE/_ssh_target.sh"
+if _resolve_ssh_target; then
+  echo "   ssh -p $SSH_PORT $SSH_USER@$SSH_HOST"
+else
+  echo "   (endpoint not ready yet; rerun: vastai show instances-v1)"
+fi
 echo
 echo ">> Next: bash cloud/sync_up.sh    # push code + SESGO prompts to the box"
 echo ">> Then: bash cloud/at_vast.sh \"bash cloud/at_setup.sh\"   # uv sync on the box"

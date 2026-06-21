@@ -44,13 +44,8 @@ if [ -z "$INSTANCE" ]; then
   INSTANCE="$(cat "$INSTANCE_FILE")"
 fi
 
-SSH_URL="$(vastai ssh-url "$INSTANCE" 2>/dev/null | tr -d '\n')"
-if [[ "$SSH_URL" =~ ^ssh://([^@]+)@([^:]+):([0-9]+)$ ]]; then
-  SSH_USER="${BASH_REMATCH[1]}"; SSH_HOST="${BASH_REMATCH[2]}"; SSH_PORT="${BASH_REMATCH[3]}"
-else
-  echo "Could not parse ssh-url: '$SSH_URL'. Is instance $INSTANCE running?" >&2
-  exit 1
-fi
+. "$HERE/_ssh_target.sh"
+_resolve_ssh_target || exit 1
 
 RSYNC_E="ssh -F /dev/null -o StrictHostKeyChecking=accept-new -i $SSH_KEY -p $SSH_PORT"
 DRY=""; [ "${DRY_RUN:-0}" = "1" ] && DRY="--dry-run"

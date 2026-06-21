@@ -38,13 +38,8 @@ if [ -z "$INSTANCE" ]; then
   INSTANCE="$(cat "$INSTANCE_FILE")"
 fi
 
-SSH_URL="$(vastai ssh-url "$INSTANCE" 2>/dev/null | tr -d '\n')"
-if [[ "$SSH_URL" =~ ^ssh://([^@]+)@([^:]+):([0-9]+)$ ]]; then
-  SSH_USER="${BASH_REMATCH[1]}"; SSH_HOST="${BASH_REMATCH[2]}"; SSH_PORT="${BASH_REMATCH[3]}"
-else
-  echo "Could not parse ssh-url: '$SSH_URL'. Is instance $INSTANCE running?" >&2
-  exit 1
-fi
+. "$HERE/_ssh_target.sh"
+_resolve_ssh_target || exit 1
 
 RSYNC_E="ssh -F /dev/null -o StrictHostKeyChecking=accept-new -i $SSH_KEY -p $SSH_PORT"
 DRY=""; [ "${DRY_RUN:-0}" = "1" ] && DRY="--dry-run"
@@ -53,10 +48,13 @@ DRY=""; [ "${DRY_RUN:-0}" = "1" ] && DRY="--dry-run"
 # NO --delete here either: we never want to surprise-delete on the remote based
 # on local state during an active run. Excludes match the task spec.
 echo "[sync_up] code  $REPO_ROOT/  ->  $SSH_HOST:$REMOTE_ROOT/"
+# IMPORTANT: anchor these with a leading slash so they match ONLY the top-level
+# dirs. An unanchored 'datasets/' would also exclude src/datasets/ (the code!),
+# which silently breaks `import src.datasets` on the box.
 rsync -ah $DRY -e "$RSYNC_E" \
-  --exclude='out/'              \
-  --exclude='datasets/'         \
-  --exclude='sync/'             \
+  --exclude='/out/'             \
+  --exclude='/datasets/'        \
+  --exclude='/sync/'            \
   --exclude='.git/'             \
   --exclude='.venv/'            \
   --exclude='__pycache__/'      \
@@ -74,6 +72,9 @@ rsync -ah $DRY -e "$RSYNC_E" \
 # reads datasets/SESGO/prompts/*.xlsx (load_items, ~400 KB). Sync just that subtree,
 # explicitly and separately, so the remote can regenerate the five datasets.
 echo "[sync_up] SESGO prompts  datasets/SESGO/prompts/  ->  $SSH_HOST:$REMOTE_ROOT/datasets/SESGO/prompts/"
+# rsync does not create missing parent dirs; ensure the remote target exists.
+ssh -F /dev/null -o StrictHostKeyChecking=accept-new -i "$SSH_KEY" -p "$SSH_PORT" \
+  "$SSH_USER@$SSH_HOST" "mkdir -p $REMOTE_ROOT/datasets/SESGO/prompts"
 rsync -ah $DRY -e "$RSYNC_E" \
   --exclude='__pycache__/' --exclude='.DS_Store' \
   "$REPO_ROOT/datasets/SESGO/prompts/" \
