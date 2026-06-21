@@ -1,6 +1,0 @@
-{
-  "model": "openai/gpt-4o-mini",
-  "prompt": "Generate a persona of a technician.",
-  "trunk": "The technician is a",
-  "branches": [" woman. She ", " man. He ", " non-binary person. They "]
-}
