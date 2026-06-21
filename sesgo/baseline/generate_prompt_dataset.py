@@ -1,19 +1,28 @@
-"""Build a SesgoPromptDataset from the SESGO ambiguous-bias corpus.
+"""Build BOTH SESGO prompt datasets (STABILITY + GEOMETRY) in one run.
 
-Run-by-path driver for baseline task 1.a (plus the part-2 scaffolding axis).
-Loads the SESGO ambiguous-context items, renders the full prompt grid with
-SesgoPromptDatasetGenerator, and writes the dataset to out/sesgo/. By default it
-generates EVERYTHING (all categories, both languages, all four scaffolds plus
-the no-scaffold baseline); --limit is an optional cap for quick runs. The
-generator emits, per item, both the WITH-each-scaffold conditions and the
-WITHOUT (scaffold_id=None) baseline — that pairing is the with/without
-comparison set this study reports on.
+Run-by-path driver for baseline task 1. Loads the SESGO ambiguous-context items
+once and renders two complementary prompt grids, each isolating a single axis so
+the two downstream studies stay orthogonal:
+
+  STABILITY  - all superficial FORMAT variation, NO scaffolding. Per item: every
+               role->position permutation (6) x every label style (3) x the lone
+               no-scaffold condition = 18 prompts, scaffold_id always None. Probes
+               how consistent the model's answer is across format-only rewrites of
+               the SAME item.
+  GEOMETRY   - NO format variation, VARYING scaffold. Per item: the canonical
+               permutation (1) x one label style (1) x {no-scaffold + each of the
+               4 scaffolds} = 5 prompts. Probes how each debiasing scaffold moves
+               the answer with format held fixed.
+
+By default it generates EVERYTHING (all categories, both languages); --limit is
+an optional cap for quick runs. Outputs:
+  out/sesgo/stability/prompt_dataset.json
+  out/sesgo/geometry/prompt_dataset.json
 
 Usage:
   uv run python sesgo/baseline/generate_prompt_dataset.py
   uv run python sesgo/baseline/generate_prompt_dataset.py \
       --categories racism,gender --languages es --limit 5
-  uv run python sesgo/baseline/generate_prompt_dataset.py --no-scaffolds
 """
 
 from __future__ import annotations
@@ -50,11 +59,14 @@ _CATEGORY_ALIASES: dict[str, SesgoCategory] = {
     "gender": SesgoCategory.GENDER,
 }
 
+# The single canonical label style the GEOMETRY grid holds fixed (format off).
+_CANONICAL_LABEL_STYLE: tuple[str, str, str] = ("a)", "b)", "c)")
+
 
 def parse_args() -> argparse.Namespace:
     """Parse command-line arguments for prompt-dataset generation."""
     parser = argparse.ArgumentParser(
-        description="Generate a SesgoPromptDataset from the SESGO corpus",
+        description="Generate the STABILITY + GEOMETRY SesgoPromptDatasets",
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     # Source location and selection knobs.
@@ -80,20 +92,12 @@ def parse_args() -> argparse.Namespace:
         default=None,
         help="OPTIONAL cap on items PER (category, language) (default: all)",
     )
-    # Scaffolding axis. The generator always emits the no-scaffold baseline;
-    # --no-scaffolds drops the WITH-scaffold conditions so only that baseline
-    # remains (useful to render the raw, unguided grid on its own).
-    parser.add_argument(
-        "--no-scaffolds",
-        action="store_true",
-        help="Generate ONLY the no-scaffold baseline (skip every scaffold)",
-    )
     # Output.
     parser.add_argument(
         "--out-dir",
         type=Path,
         default=Path("out"),
-        help="Base output directory; dataset lands at <out-dir>/sesgo/",
+        help="Base output dir; datasets land at <out-dir>/sesgo/{stability,geometry}/",
     )
     return parser.parse_args()
 
@@ -116,26 +120,28 @@ def resolve_languages(spec: str) -> tuple[str, ...]:
     return tuple(c.strip().lower() for c in spec.split(",") if c.strip())
 
 
-def log_grid_counts(dataset: SesgoPromptDataset) -> None:
-    """Report per-axis prompt counts so the grid coverage is visible.
-
-    The scaffold axis includes the None baseline (rendered as "(none)") so the
-    with/without comparison size is legible at a glance.
-    """
+def log_stability_counts(dataset: SesgoPromptDataset) -> None:
+    """Report STABILITY coverage: scaffold (all None) and the format axes."""
     scaffolds = Counter(s.scaffold_id or "(none)" for s in dataset.samples)
-    categories = Counter(s.bias_category for s in dataset.samples)
-    langs = Counter(s.language for s in dataset.samples)
-    polarities = Counter(s.question_polarity for s in dataset.samples)
-    log(f"  by scaffold:  {dict(scaffolds)}")
-    log(f"  by category:  {dict(categories)}")
-    log(f"  by language:  {dict(langs)}")
-    log(f"  by polarity:  {dict(polarities)}")
+    styles = Counter(s.label_style for s in dataset.samples)
+    perms = Counter(tuple(s.position_labels) for s in dataset.samples)
+    log(f"  by scaffold:    {dict(scaffolds)}")
+    log(f"  by label_style: {dict(styles)}")
+    log(f"  distinct permutations: {len(perms)}")
+
+
+def log_geometry_counts(dataset: SesgoPromptDataset) -> None:
+    """Report GEOMETRY coverage: the scaffold axis (None baseline + each)."""
+    scaffolds = Counter(s.scaffold_id or "(none)" for s in dataset.samples)
+    styles = Counter(s.label_style for s in dataset.samples)
+    log(f"  by scaffold:    {dict(scaffolds)}")
+    log(f"  by label_style: {dict(styles)}")
 
 
 def main() -> None:
-    """Load items, render the scaffold-crossed prompt grid, and persist it."""
+    """Load items once, render both prompt grids, and persist each."""
     args = parse_args()
-    log_header("GENERATE PROMPT DATASET (sesgo)")
+    log_header("GENERATE PROMPT DATASETS (sesgo: stability + geometry)")
 
     categories = resolve_categories(args.categories)
     languages = resolve_languages(args.languages)
@@ -148,27 +154,55 @@ def main() -> None:
         )
     log(f"[generate] loaded {len(items)} items (languages={list(languages)})")
 
-    # By default cross every concrete debiasing scaffold against the always-on
-    # no-scaffold baseline; --no-scaffolds renders only that baseline.
-    scaffolds = [] if args.no_scaffolds else get_scaffolds()
-    config = SesgoPromptConfig(
-        name="sesgo",
-        categories=[c.value for c in categories] if categories else [],
+    cat_values = [c.value for c in categories] if categories else []
+
+    # STABILITY: all format variation, no scaffolding (generate(items, []) leaves
+    # only the no-scaffold condition -> scaffold_id always None).
+    stability_config = SesgoPromptConfig(
+        name="stability",
+        all_permutations=True,
+        label_styles=[("a)", "b)", "c)"), ("1)", "2)", "3)"), ("x)", "y)", "z)")],
+        include_no_scaffold=True,
+        categories=cat_values,
         languages=list(languages),
         limit=args.limit,
     )
-    with P("generate_prompts"):
-        dataset = SesgoPromptDatasetGenerator(config).generate(items, scaffolds)
+    with P("generate_stability"):
+        stability = SesgoPromptDatasetGenerator(stability_config).generate(items, [])
 
-    log_section("dataset")
+    log_section("stability dataset (format variation, no scaffold)")
     log(f"  items:   {len(items)}")
-    log(f"  prompts: {len(dataset.samples)}")
-    log_grid_counts(dataset)
+    log(f"  prompts: {len(stability.samples)}")
+    log_stability_counts(stability)
+    stability_dir = ensure_dir(args.out_dir / "sesgo" / "stability")
+    stability_path = stability_dir / "prompt_dataset.json"
+    stability.save_as_json(stability_path)
+    log(f"[generate] wrote {stability_path}")
 
-    out_dir = ensure_dir(args.out_dir / "sesgo")
-    dataset_path = out_dir / "prompt_dataset.json"
-    dataset.save_as_json(dataset_path)
-    log(f"[generate] wrote {dataset_path}")
+    # GEOMETRY: no format variation, varying scaffold (canonical perm + one style,
+    # crossed with the no-scaffold baseline plus each scaffold).
+    geometry_config = SesgoPromptConfig(
+        name="geometry",
+        all_permutations=False,
+        label_styles=[_CANONICAL_LABEL_STYLE],
+        include_no_scaffold=True,
+        categories=cat_values,
+        languages=list(languages),
+        limit=args.limit,
+    )
+    with P("generate_geometry"):
+        geometry = SesgoPromptDatasetGenerator(geometry_config).generate(
+            items, get_scaffolds()
+        )
+
+    log_section("geometry dataset (scaffold variation, no format)")
+    log(f"  items:   {len(items)}")
+    log(f"  prompts: {len(geometry.samples)}")
+    log_geometry_counts(geometry)
+    geometry_dir = ensure_dir(args.out_dir / "sesgo" / "geometry")
+    geometry_path = geometry_dir / "prompt_dataset.json"
+    geometry.save_as_json(geometry_path)
+    log(f"[generate] wrote {geometry_path}")
 
 
 if __name__ == "__main__":
