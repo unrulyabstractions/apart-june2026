@@ -23,6 +23,7 @@ Usage:
 from __future__ import annotations
 
 import argparse
+import math
 import pathlib
 import sys
 from collections import defaultdict
@@ -32,14 +33,44 @@ from pathlib import Path
 # regardless of cwd. From <repo>/sesgo/baseline/x.py, parents[2] is the root.
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[2]))
 
+from src.common.file_io import load_json  # noqa: E402
 from src.common.logging import log, log_header, log_section  # noqa: E402
 from src.common.profiler import P  # noqa: E402
-from src.datasets.prompt import SesgoPromptDataset  # noqa: E402
+from src.datasets.prompt import (  # noqa: E402
+    SesgoPromptConfig,
+    SesgoPromptDataset,
+    SesgoPromptSample,
+)
 from src.datasets.sesgo_eval import (  # noqa: E402
     SesgoDataset,
     SesgoQuerier,
     SesgoQueryConfig,
 )
+
+
+def load_prompt_dataset(path: Path, subsample: float) -> SesgoPromptDataset:
+    """Load the prompt dataset, striding the RAW json before deserializing.
+
+    The full dataset can be ~183k prompts / hundreds of MB; deserializing all of
+    them just to keep a fraction is the run's bottleneck. When subsample < 1 we
+    json-load once, take an evenly-spaced stride over the raw sample dicts (so the
+    slice still spans every scaffold/permutation/category block), and build only
+    the kept SesgoPromptSamples. The querier then runs with subsample=1.0.
+    """
+    if subsample >= 1.0:
+        return SesgoPromptDataset.from_json(path)
+    # load_json (not raw json) rejoins readable_text line-lists back to strings.
+    data = load_json(Path(path))
+    raw = data["samples"]
+    n = max(1, math.ceil(len(raw) * subsample))
+    stride = max(1, len(raw) // n)
+    kept = [SesgoPromptSample.from_dict(d) for d in raw[::stride][:n]]
+    return SesgoPromptDataset(
+        dataset_id=data["dataset_id"],
+        config=SesgoPromptConfig.from_dict(data["config"]),
+        scaffold_ids=data.get("scaffold_ids", []),
+        samples=kept,
+    )
 
 
 def parse_args() -> argparse.Namespace:
@@ -144,15 +175,16 @@ def main() -> None:
     args = parse_args()
     log_header(f"COLLECT LLM RESPONSES ({args.model})")
 
-    prompt_dataset = SesgoPromptDataset.from_json(args.prompt_dataset)
+    # Stride the raw json before deserializing when subsampling (fast path).
+    prompt_dataset = load_prompt_dataset(args.prompt_dataset, args.subsample)
     log(f"[collect] loaded {len(prompt_dataset.samples)} prompts")
 
-    # Subsampling is applied by SesgoQuerier from the config (args.subsample).
+    # Already subsampled at load, so the querier runs over all loaded prompts.
     config = SesgoQueryConfig(
         n_thinking_samples=args.n_thinking,
         temperature=args.temperature,
         max_new_tokens=args.max_new_tokens,
-        subsample=args.subsample,
+        subsample=1.0,
     )
     with P("query_dataset"):
         dataset = SesgoQuerier(config).query_dataset(prompt_dataset, args.model)
