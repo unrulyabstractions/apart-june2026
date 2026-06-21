@@ -207,15 +207,12 @@ and is the move that improves abstention visible in residual-stream geometry? Ou
 scaffolds are not ad hoc; each instantiates a structure-aware diversity-pursuit
 methodology~\citep{riossialer2026structureaware}, realized in matched English and
 Spanish. We evaluate on the Spanish \textsc{SESGO}
-benchmark~\citep{robles2025sesgo}, with
-\textsc{MentalRiskES}~\citep{marmol-romero-etal-2024-mentalriskes} as a secondary
-probe, running \texttt{Qwen3-0.6B} locally.
+benchmark~\citep{robles2025sesgo}, running \texttt{Qwen3-0.6B} locally.
 
-\noindent\textbf{New in this work.} We build on three existing artifacts---the
-\textsc{SESGO} benchmark~\citep{robles2025sesgo}, the structure-aware diversity
-method~\citep{riossialer2026structureaware}, and the
-\textsc{MentalRiskES}~\citep{marmol-romero-etal-2024-mentalriskes}
-corpus---and contribute, new for this hackathon, the following:
+\noindent\textbf{New in this work.} We build on two existing artifacts---the
+\textsc{SESGO} benchmark~\citep{robles2025sesgo} and the structure-aware diversity
+method~\citep{riossialer2026structureaware}---and contribute, new for this
+hackathon, the following:
 \begin{enumerate}[leftmargin=*,topsep=2pt]
   \item A \textbf{five-study evaluation framework} (\Cref{tab:studies}) for
     measuring scaffold-induced abstention on ambiguous social-bias prompts,
@@ -248,14 +245,6 @@ measures \emph{whether} a model is biased; we ask the next question, whether a
 lightweight inference-time scaffold \emph{reduces} that bias, and what
 representational change comes with any improvement.
 
-\paragraph{Spanish mental-health risk.}
-\textsc{MentalRiskES}~\citep{marmol-romero-etal-2024-mentalriskes} is a Spanish
-corpus for the early detection of mental disorders. We include it as a
-secondary, higher-stakes probe. It lets us check for spillover---helpful or
-harmful---when a scaffold that improves abstention on social-bias items is asked
-to make cautious judgements in a sensitive domain, so that our conclusions are
-not tied to a single benchmark format.
-
 \paragraph{Structure-aware diversity as a safety strategy.}
 The scaffolds instantiate the structure-aware diversity-pursuit methodology of
 \citet{riossialer2026structureaware}, which treats homogenization---a model
@@ -286,28 +275,10 @@ and on every ambiguous item the gold role is the abstention $y^\star = u$. A
 \emph{scaffold} $s$ is a short debiasing preamble; we write $x \oplus s$ for the
 prompt with $s$ prepended, and compare the model's behavior on $x$ against
 $x \oplus s$. Throughout, $\mathbf{1}[\cdot]$ is the indicator and
-$\delta_u$ is the one-hot distribution placing all mass on the role $u$.
-
-\begin{table}[t]
-  \centering
-  \caption{Datasets. \textsc{SESGO} is the primary benchmark (ambiguous items,
-    gold $=$ unknown); \textsc{MentalRiskES} is a secondary, sensitive-domain
-    probe.}
-  \label{tab:datasets}
-  \small
-  \begin{tabular}{@{}l p{0.62\linewidth}@{}}
-    \toprule
-    \textbf{Dataset} & \textbf{Description} \\
-    \midrule
-    \textsc{SESGO} & Spanish / Latin-American BBQ-style ambiguous social-bias
-      prompts. Categories: racism, xenophobia, classism, gender. EN $+$ ES; three
-      answer roles \{target, other, unknown\}; on ambiguous items
-      $y^\star = \text{unknown}$. \emph{Primary.} \\
-    \textsc{MentalRiskES} & Spanish corpus for early detection of mental
-      disorders; used as a secondary, higher-stakes spillover probe. \\
-    \bottomrule
-  \end{tabular}
-\end{table}
+$\delta_u$ is the one-hot distribution placing all mass on the role $u$. The
+items are the Spanish / Latin-American BBQ-style ambiguous social-bias prompts of
+\textsc{SESGO}, spanning the categories racism, xenophobia, classism, and gender,
+rendered in matched English and Spanish (EN $+$ ES).
 
 We read every item at \emph{two} complementary levels. The first is cheap and
 deterministic: a teacher-forced readout that scores the model's option
@@ -458,7 +429,7 @@ combination to keep the study as cheap as its question allows.
     \textbf{Study} & \textbf{Format variation} & \textbf{Scaffolds} &
       \textbf{Readout(s)} & \textbf{What is measured} \\
     \midrule
-    \texttt{non\_thinking\_baseline} & none & none & non-thinking &
+    \texttt{baseline} & none & none & non-thinking &
       base abstention $+$ role distribution \\
     \texttt{stability} & all (perm $\times$ label-style $\times$ flip) & none &
       cheapest (max-logprob label) & answer consistency across superficial variation \\
@@ -472,7 +443,7 @@ combination to keep the study as cheap as its question allows.
   \end{tabular}
 \end{table*}
 
-In brief: \textbf{non\_thinking\_baseline} fixes the reference point---base
+In brief: \textbf{baseline} fixes the reference point---base
 abstention accuracy (\Cref{eq:acc}) and the average role distribution
 $(p^{\mathrm{nt}}_t, p^{\mathrm{nt}}_o, p^{\mathrm{nt}}_u)$ with no scaffold and no
 variation. \textbf{stability} renders each question across all surface variants
@@ -505,8 +476,7 @@ read these as a directional pilot, not as definitive large-$n$ effect estimates.
 The same harness runs unchanged on \texttt{Llama-3.2-1B-Instruct},
 \texttt{gemma-2-2b-it}, and \texttt{Mistral-7B-Instruct} (verified end-to-end via
 per-family chat-template and reasoning-marker handling); full-grid
-\emph{cross-model comparison} and the \textsc{MentalRiskES} probe are future work
-(see \Cref{sec:limitations}).}
+\emph{cross-model comparison} is future work (see \Cref{sec:limitations}).}
 
 \begin{figure}[t]\centering
   \begin{subfigure}{0.49\linewidth}\centering
@@ -768,9 +738,8 @@ stereotype---on ambiguous Spanish social-bias questions. The framework pairs a
 teacher-forced three-way readout with a sampled reasoning readout, selects a best
 scaffold by abstention accuracy, and asks whether that scaffold leaves a
 measurable shift in the model's residual-stream geometry. Formalizing $\LLM(x)$
-versus $\LLM(x\oplus s)$ on \textsc{SESGO}, with \textsc{MentalRiskES} as a
-sensitive secondary probe, lets the design target one specific failure: confident
-stereotyped resolution under ambiguity. That failure is most consequential in
+versus $\LLM(x\oplus s)$ on \textsc{SESGO} lets the design target one specific
+failure: confident stereotyped resolution under ambiguity. That failure is most consequential in
 exactly the Global-South, Spanish-language settings where it is least studied. A
 minimal-sample pilot of all five studies runs the pipeline end-to-end and gives
 directional findings---high but unstable baseline abstention, a clearly selected
@@ -785,9 +754,8 @@ makes those results interpretable.
   \item \textbf{Code repository:} the evaluation harness (ternary-choice runner,
     non-thinking / thinking readouts, scaffolds, and geometry analysis) will be
     released with the final version.
-  \item \textbf{Data/Datasets:} \textsc{SESGO}~\citep{robles2025sesgo} and
-    \textsc{MentalRiskES}~\citep{marmol-romero-etal-2024-mentalriskes}, used under
-    their original licenses.
+  \item \textbf{Data/Datasets:} \textsc{SESGO}~\citep{robles2025sesgo}, used under
+    its original license.
   \item \textbf{Model:} \texttt{Qwen3-0.6B}, run locally.
 \end{itemize}
 
