@@ -40,7 +40,7 @@ done
 
 # ── 2. List mode ────────────────────────────────────────────────────────
 if [ "$ACTION" = "list" ]; then
-  vastai show instances
+  vastai show instances-v1
   exit 0
 fi
 
@@ -51,7 +51,7 @@ if [ -z "$INSTANCE" ]; then
     echo ">> Resolved instance ${INSTANCE} from ${STORE}"
   else
     echo "No instance id given and ${STORE} not found." >&2
-    vastai show instances >&2 || true
+    vastai show instances-v1 >&2 || true
     exit 1
   fi
 fi
@@ -78,7 +78,9 @@ if [ "$ACTION" = "stop" ]; then
   echo ">> Stopped instance ${INSTANCE}. Disk still being billed."
   echo ">> Restart with: vastai start instance ${INSTANCE}"
 else
-  vastai destroy instance "$INSTANCE"
+  # The script's own --yes-i-am-really-sure already confirmed; auto-answer the
+  # CLI's inner [y/N] prompt so teardown is non-interactive.
+  printf 'y\n' | vastai destroy instance "$INSTANCE"
   echo ">> Destroyed instance ${INSTANCE}. All billing stopped."
   rm -f "$STORE"
 fi
