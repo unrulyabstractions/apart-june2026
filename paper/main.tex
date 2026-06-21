@@ -38,6 +38,7 @@
   {images/}%
   {figures/}%
   {../out/sesgo/baseline/Qwen3-0.6B/plots/}%
+  {../out/sesgo/baseline_full/Qwen3-0.6B/plots/}%
   {../out/sesgo/baseline/cross_model/plots/}%
   {../out/sesgo/stability/Qwen3-0.6B/plots/}%
   {../out/sesgo/selection/Qwen3-0.6B/plots/}%
@@ -161,19 +162,19 @@
 \begin{abstract}
 On ambiguous Spanish \textsc{SESGO} questions naming no specific person the
 correct answer is \emph{unknown}; on disambiguated ones a specific role is
-correct. We test a debiasing \emph{scaffold}---a one-sentence preamble prepended
-to the question to induce abstention---using a five-study framework that scores
-every item under three readouts (a teacher-forced three-option distribution over
+correct. We test debiasing \emph{scaffolds}---one-sentence preambles prepended to
+the question to induce abstention---using a five-study framework that scores every
+item under three readouts (a teacher-forced three-option distribution over
 \{target, other, unknown\}, a two-option forced choice, and a greedy reasoning
-decode) against a per-condition gold. On \texttt{Qwen3-0.6B} ($n{=}2310$) the
-model abstains at 71--87\% under three-option forcing but reaches 28--46\% on
-disambiguated items. The selected scaffold $s^\star$ is the no-scaffold baseline,
-abstaining on 80\% of ambiguous items ($n{=}35$) under forcing and 86\% under
-thinking ($n{=}22$). A five-model Qwen/Llama/Mistral sweep ($n{=}770$/cell) shows
-abstention and disambiguated accuracy rise with scale. Probing answer-position
-activations ($n{=}462$, scaffold vs.\ none), the debiasing scaffold is the most
-separable axis ($+0.48$ silhouette) while social identity collapses ($-0.48$). We
-release the harness.
+decode) against a per-condition gold. On \texttt{Qwen3-0.6B}, a full-data run
+($n{=}5388$ ambiguous items) selects $s^\star{=}$\texttt{interpretive\_direction},
+which drives near-total abstention ($99.9\%$) and beats the no-scaffold baseline
+($85.6\%$); one scaffold underperforms baseline, so not all scaffolds help. This
+aligns with the geometry (the scaffold is the dominant separable axis, $+0.48$
+silhouette) and the causal steering (\Cref{app:steer}): the scaffold works
+behaviorally, representationally, and causally. A five-model Qwen/Llama/Mistral
+sweep ($n{=}770$/cell) shows abstention and disambiguated accuracy rise with scale.
+We release the harness.
 \end{abstract}
 
 \bigskip
@@ -329,8 +330,8 @@ which scaffolds are applied, and which readout is run.
       accuracy vs.\ model size (abstention $+$ disambiguated) \\
     \texttt{stability} & $18$ ($3$ styles $\times$ $6$ perms) & 1 model, none &
       3-opt $+$ 2-opt & answer consistency $C_q$ across cosmetic variation \\
-    \texttt{selection} & none & 1 model; scaffolds defined (Tab.~1), baseline scored & 3-opt $+$ thinking &
-      abstention accuracy $\to$ select $s^\star$ \\
+    \texttt{selection} & none & 1 model; all 4 scaffolds (Tab.~1) scored & 3-opt &
+      per-scaffold abstention $\to$ select $s^\star$ \\
     \texttt{divergence} & none & 1 model, none & 3-opt $+$ 2-opt $+$ greedy- $+$ sampled-thinking &
       per-readout accuracy $+$ reasoning JS-div from unknown \\
     \texttt{geometry} & scaffold + none & 1 model, scaffold vs.\ none & greedy-thinking $+$ activations &
@@ -342,7 +343,8 @@ which scaffolds are applied, and which readout is run.
 In one line: \textbf{baseline} reads the full grid by bias category;
 \textbf{cross\_model} repeats it across five models against model size;
 \textbf{stability} measures answer consistency across cosmetic variation;
-\textbf{selection} picks the debiasing scaffold $s^\star$ by abstention accuracy;
+\textbf{selection} picks the debiasing scaffold $s^\star$ by per-scaffold
+abstention accuracy (full-data, all four scaffolds; \Cref{app:fulldata});
 \textbf{divergence} compares all four readouts and the reasoning distribution; and
 \textbf{geometry} reads the answer-position representation. Each pipeline's
 specific methodology, bulleted results, and figures are given in its own appendix
@@ -363,19 +365,19 @@ specific methodology, bulleted results, and figures are given in its own appendi
     (\texttt{Qwen3-0.6B}); only the cross-model sweep spans five models (each
     family contributing two sizes), so the per-condition and geometric findings are
     not yet shown to generalize across models or scales.
-  \item \textbf{Small per-cell $n$ on the pilot studies.} The stability, selection,
-    and divergence studies use small item pools (stability $n{=}8/16$ items per
-    condition; selection $35$ ambiguous items, of which $22$ produced parsable
-    thinking draws; divergence $43$ scored items), so per-item Wilson CIs are wide
-    and the slice-level rates (e.g.\ per-category abstention) should be read as
-    pilot estimates rather than precise measurements.
-  \item \textbf{Limited per-scaffold behavioral comparison.} The four candidate
-    debiasing scaffolds in \Cref{tab:scaffolds} are fully defined, but in this run
-    the selection study scored only the no-scaffold baseline condition, so the
-    selected $s^\star$ is that baseline. The scaffolds' \emph{representational}
-    effect is measured in the geometry study (scaffold-vs-none silhouette $+0.48$),
-    but the full per-scaffold behavioral abstention comparison is still limited and
-    pending.
+  \item \textbf{Small per-cell $n$ on the pilot studies.} The stability and
+    divergence studies use small item pools (stability $n{=}8/16$ items per
+    condition; divergence $43$ scored items), so per-item Wilson CIs are wide and the
+    slice-level rates (e.g.\ per-category abstention) should be read as pilot
+    estimates rather than precise measurements. The selection / full-data run
+    (\Cref{app:fulldata}) is the exception---$1347$ ambiguous items per scaffold.
+  \item \textbf{Per-scaffold comparison on one model.} The full-data run
+    (\Cref{app:fulldata}) scores all four \Cref{tab:scaffolds} scaffolds on $1347$
+    ambiguous items each and selects $s^\star{=}$\texttt{interpretive\_direction}
+    behaviorally ($99.9\%$ vs.\ $85.6\%$ baseline), corroborated by the
+    representational ($+0.48$ silhouette, \Cref{app:geometry}) and causal
+    (\Cref{app:steer}) findings; but this per-scaffold ranking is established only on
+    \texttt{Qwen3-0.6B} and is not yet shown to hold across models or scales.
   \item \textbf{Spanish-only scope.} Coverage is Spanish (with matched English
     scaffold text) and four bias categories (racism, xenophobia, classism, gender);
     the \textbf{genero} category is underpowered ($n{=}18$ total; $n{=}6$ per
@@ -385,9 +387,9 @@ specific methodology, bulleted results, and figures are given in its own appendi
     labels separate the answer representation; it is correlational, not causal, and
     does not establish that the scaffold axis \emph{drives} abstention behavior.
   \item \textbf{Parser dependence.} The greedy- and sampled-thinking readouts depend
-    on a parser that can drop free-form draws ($4$ of $47$ divergence prompts and
-    $13$ of $35$ selection items yielded no parsable thinking draw), which biases
-    the parsed count $M$ and the thinking distribution $p^{\mathrm{th}}$.
+    on a parser that can drop free-form draws ($4$ of $47$ divergence prompts yielded
+    no parsable thinking draw), which biases the parsed count $M$ and the thinking
+    distribution $p^{\mathrm{th}}$.
   \item \textbf{Symmetry assumptions.} The position$\to$role remap and bilingual
     rendering assume the model treats display positions and the two languages
     symmetrically; residual position or language bias would leak into the reported
@@ -408,9 +410,10 @@ specific methodology, bulleted results, and figures are given in its own appendi
 
 \paragraph{Suggestions for future improvements.}
 \begin{itemize}[leftmargin=*,topsep=2pt,itemsep=1pt]
-  \item Run all four \Cref{tab:scaffolds} scaffolds through the selection study, so
-    the selected $s^\star$ rests on a real per-scaffold behavioral comparison rather
-    than the no-scaffold baseline.
+  \item Replicate the full-data per-scaffold ranking
+    (\Cref{app:fulldata}: $s^\star{=}$\texttt{interpretive\_direction}, with
+    \texttt{intent\_and\_register\_respect} below the no-scaffold baseline) across the
+    cross-model sweep, to test whether the same scaffold wins at other scales.
   \item Extend the per-condition and geometry studies across the cross-model sweep's
     models and sizes to test whether the findings generalize beyond \texttt{Qwen3-0.6B}.
   \item Extend the causal steering of \Cref{app:steer}---which already turns the
@@ -564,36 +567,74 @@ that change the prediction).
 \label{app:selection}
 
 \paragraph{Methods.}
-The candidate scaffolds (\Cref{tab:scaffolds}) are defined and scaffold
+The candidate scaffolds (\Cref{tab:scaffolds}) are scored and scaffold
 \emph{selection} picks
 \begin{equation}
   s^\star \;=\; \argmax_s \; \mathrm{acc}(x \oplus s),
   \label{eq:select}
 \end{equation}
-the scaffold maximizing abstention accuracy over the candidate set, scored on both
-the three-option and (sampled) thinking readouts. In this run only the no-scaffold
-baseline condition (\texttt{scaffold\_id}\,$=$\,\texttt{(none)}) was scored on
-$35$ ambiguous items (gold $=$ unknown), so the selected $s^\star$ is that
-baseline. The full bilingual scaffold texts (English and Spanish) and the per-item
-prompt rendering are included in the released harness; \Cref{tab:scaffolds} gives
-the one-line mechanism for each.
+the scaffold maximizing abstention accuracy over the candidate set. The full-data
+run (\Cref{app:fulldata}) scores all four conditions on the same pool of $1347$
+ambiguous items each (gold $=$ unknown) under the three-option teacher-forced
+readout, so $s^\star$ rests on a real per-scaffold behavioral comparison. The full
+bilingual scaffold texts (English and Spanish) and the per-item prompt rendering
+are included in the released harness; \Cref{tab:scaffolds} gives the one-line
+mechanism for each.
+
+\paragraph{Results.}
+Per-scaffold three-option abstention on the $1347$ ambiguous items per condition,
+in descending order:
+\begin{itemize}[leftmargin=*,topsep=2pt,itemsep=1pt]
+  \item \texttt{interpretive\_direction}: $99.9\%$ ($1345/1347$, CI$[99,100]$)
+    ---near-total abstention; this is the selected $s^\star$.
+  \item \texttt{prior\_dominance\_warning}: $88.3\%$ ($1190/1347$, CI$[87,90]$).
+  \item \texttt{(none)} no-scaffold baseline: $85.6\%$ ($1153/1347$, CI$[84,87]$).
+  \item \texttt{intent\_and\_register\_respect}: $79.9\%$ ($1076/1347$,
+    CI$[78,82]$)---this scaffold \emph{underperforms the no-scaffold baseline}, so
+    not all scaffolds help; scaffold choice matters.
+  \item The selected $s^\star{=}$\texttt{interpretive\_direction} lifts abstention
+    $+14.3$ points over the no-scaffold baseline ($99.9\%$ vs.\ $85.6\%$); the two
+    intermediate scaffolds bracket the baseline (one above, one below). This backs
+    the central contribution behaviorally and corroborates the representational
+    finding (scaffold-vs-none silhouette $+0.48$, \Cref{app:geometry}) and the
+    causal steering (\Cref{app:steer}).
+\end{itemize}
+
+\plotfig{../out/sesgo/baseline_full/Qwen3-0.6B/plots/abstention_by_axis.png}{abstention_by_axis.png}{0.82\linewidth}{\textbf{Selection / full-data} on \texttt{Qwen3-0.6B} ($n{=}5388$ ambiguous items): three-option teacher-forced abstention (top row) by language, origin, and scaffold; $s^\star{=}$\texttt{interpretive\_direction} reaches $99.9\%$ while \texttt{intent\_and\_register\_respect} ($79.9\%$) falls below the no-scaffold baseline ($85.6\%$). Dashed line $=1/3$ chance.}{fig:selection}
+
+\section{Full-data cross-axis baseline}
+\label{app:fulldata}
+
+\paragraph{Methods.}
+The full-data run scores the \textsc{SESGO} grid on \texttt{Qwen3-0.6B} across all
+four scaffold conditions (\Cref{tab:scaffolds}: the no-scaffold baseline and the
+three debiasing scaffolds) and both languages, reading every item under the three
+readouts (3-opt, 2-opt, greedy-thinking). Coverage is
+$16{,}164/24{,}480$ prompts ($66\%$), balanced across every axis: $4041$ samples
+per scaffold, es $12{,}684$ / en $3480$, and original $10{,}320$ / bbq-adapted
+$5844$. We report the three-option teacher-forced abstention on the $5388$
+\emph{ambiguous} items (gold $=$ unknown), sliced by language, origin, and scaffold;
+rates carry Wilson $95\%$ CIs. The per-scaffold slice drives scaffold selection
+(\Cref{app:selection}).
 
 \paragraph{Results.}
 \begin{itemize}[leftmargin=*,topsep=2pt,itemsep=1pt]
-  \item Selected $s^\star$ = no-scaffold baseline.
-  \item Three-option non-thinking abstention: $80\%$ ($28/35$, CI$[64,90]$).
-  \item Sampled-thinking abstention (on the $22$-item subset with parsable thinking
-    draws): $86\%$ ($19/22$, CI$[67,95]$).
-  \item Thinking abstention by category: clasismo $100\%$ ($n{=}3$); racismo
-    $100\%$ ($n{=}6$); xenofobia $77\%$ ($10/13$).
-  \item Two-option forced choice: abstains $0\%$ by construction (target$=14$ vs.\
-    other$=21$).
-  \item Representational effect measured separately in the geometry appendix
-    (scaffold-vs-none silhouette $+0.48$); the per-scaffold behavioral abstention
-    comparison is limited and pending.
+  \item \textbf{Language} (3-opt abstention, ambiguous): en $96.2\%$
+    ($1116/1160$, CI$[95,97]$) vs.\ es $86.3\%$ ($3648/4228$, CI$[85,87]$)---the
+    model abstains markedly more on the matched English rendering.
+  \item \textbf{Origin}: bbq-adapted $96.1\%$ ($1872/1948$, CI$[95,97]$) vs.\
+    original \textsc{SESGO} $84.1\%$ ($2892/3440$, CI$[83,85]$)---the
+    BBQ-derived items elicit more abstention than the Latin-American-grounded
+    original items.
+  \item \textbf{Scaffold} (per condition, $n{=}1347$ each), in descending
+    abstention: \texttt{interpretive\_direction} $99.9\%$;
+    \texttt{prior\_dominance\_warning} $88.3\%$; \texttt{(none)} baseline $85.6\%$;
+    \texttt{intent\_and\_register\_respect} $79.9\%$ (full numbers and CIs in
+    \Cref{app:selection}).
+  \item The cross-axis figure (\Cref{fig:selection}) shows all three slices side by
+    side over the 3-opt, 2-opt, and greedy-thinking readouts; the 2-opt panel cannot
+    abstain by construction.
 \end{itemize}
-
-\plotfig{../out/sesgo/selection/Qwen3-0.6B/plots/abstention_by_scaffold.png}{abstention_by_scaffold.png}{0.62\linewidth}{\textbf{Selection} on \texttt{Qwen3-0.6B} ($n{=}35$ ambiguous items): abstention by readout for the selected scaffold $s^\star$ (gold star, the no-scaffold baseline); thinking $86\%$ ($n{=}22$), non-thinking $80\%$ ($n{=}35$).}{fig:selection}
 
 \section{Divergence}
 \label{app:divergence}
