@@ -1,14 +1,13 @@
-"""Dataset generation: parametric prompt datasets and default experiment configs.
+"""Dataset generation for risk assessment.
 
-Parametric generation (generate.py / phrasings.py / templates.py): a *scenario*
-defines a prompt template parameterised by a planning horizon (in months). For
-every horizon we emit one prompt per *phrasing* in the equivalent-phrasing
-group ("4 weeks" ≡ "1 month" ≡ "28 days"). Train/test split is by
-phrasing-group, so held-out phrasings exercise whether equivalent phrasings
-collapse onto the same point on the manifold.
-
-Default configs (default_configs.py / default_datasets.py): canonical dataset
-and experiment configurations ported from temporal-awareness.
+Subpackages:
+- ``mental_risk/``: MentalRiskES corpus loader + the baseline generation
+  scripts that turn it into prompt datasets.
+- ``prompt/``: risk prompt construction (``risk_*`` builders) plus the shared
+  formatting-variation helpers.
+- ``risk/``: querying a risk prompt dataset through a model into a ``RiskDataset``.
+- ``other/``: parametric scenario datasets (``generate.py`` / phrasings /
+  templates), parameterised by a planning horizon with phrasing-group splits.
 
 DO NOT add explicit __all__ lists here - use auto_export instead.
 See src/common/auto_export.py for documentation on how this works.

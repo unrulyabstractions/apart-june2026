@@ -29,7 +29,7 @@ class RiskDataset(BaseSchema):
 
     @property
     def model_name(self) -> str:
-        """Bare model name, dropping any org prefix (mirrors PreferenceDataset)."""
+        """Bare model name, dropping any org prefix."""
         return self.model.split("/")[-1]
 
     def save_as_json(self, path: Path | str) -> None:

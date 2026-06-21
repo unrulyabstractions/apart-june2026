@@ -1,27 +1,25 @@
 # Risk-Assessment Querying
 
 Runs `RiskPromptSample`s (from `src/datasets/prompt/`) through a local LLM and
-records a **two-level** `RiskAssessmentSample` per prompt. This is the risk-domain
-counterpart of `src/datasets/preference/`.
+records a `RiskAssessmentSample` per prompt with up to two analysis levels.
 
 ## The two analysis levels
 
-| Level | How | Output |
-|-------|-----|--------|
-| **Non-thinking** | Teacher-force both answer options past an empty `<think></think>` block (`BinaryChoiceRunner.choose`) — no reasoning. | A calibrated `P(at risk)` from a 2-way softmax over the two divergent logprobs. |
-| **Thinking** | Sample `n_thinking_samples` free-form generations (`temperature > 0`), parse a risk score from each, summarize the cloud. | Mean / std / entropy / diversity / min / max over the parsed scores. |
+| Level | Applies to | How | Output |
+|-------|-----------|-----|--------|
+| **Non-thinking** | CATEGORIZE only | Teacher-force both answer options past an empty `<think></think>` block (`BinaryChoiceRunner.choose`) — no reasoning. | A calibrated `P(at risk)` from a 2-way softmax over the two divergent logprobs. |
+| **Thinking** | CATEGORIZE + SCORE | Sample `n_thinking_samples` free-form generations (`temperature > 0`), parse a risk score from each, summarize the cloud. | Mean / std / entropy / diversity / min / max over the parsed scores. |
 
-Both levels run per prompt according to `RiskQueryConfig` (`do_non_thinking`,
-`do_thinking`).
+Levels run per prompt according to `RiskQueryConfig` (`do_non_thinking`,
+`do_thinking`), but non-thinking is skipped for SCORE prompts — a free numeric
+answer has no binary anchor — so SCORE prompts carry the thinking level only.
 
 ## Recipes
 
-**Non-thinking.** `choice = runner.choose(text, choice_prefix or "Answer: ", labels)`;
-`p = softmax(lp_pos, lp_neg)` ordered so `pos` is the at-risk option. For
-CATEGORIZE the labels and at-risk index come straight from the prompt
-(`labels`, `positive_idx`). For SCORE there are no labels, so we synthesize
-scale-anchor labels — `("1","0")` if `scale_high` else `("0","1")` — with pos
-index 0, yielding `P(at-risk endpoint)`.
+**Non-thinking (CATEGORIZE only).**
+`choice = runner.choose(text, choice_prefix or "Answer: ", labels)`;
+`p = softmax(lp_pos, lp_neg)` ordered so `pos` is the at-risk option. The labels
+and at-risk index come straight from the prompt (`labels`, `positive_idx`).
 
 **Thinking.** For each generation we strip the thinking block, then: SCORE
 extracts the first number in `[0,1]` (inverting when `scale_high is False`);

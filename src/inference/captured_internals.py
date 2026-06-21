@@ -19,8 +19,8 @@ class ActivationSpec(BaseSchema):
 class InternalsConfig(BaseSchema):
     """Configuration for capturing model internals.
 
-    If None is passed to PreferenceQueryConfig.internals, ALL activations are captured.
-    Use InternalsConfig.empty() to capture no activations.
+    If None is passed where an InternalsConfig is expected, ALL activations are
+    captured. Use InternalsConfig.empty() to capture no activations.
     """
 
     activations: list[ActivationSpec] = field(default_factory=list)

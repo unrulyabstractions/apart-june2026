@@ -1,8 +1,8 @@
 """Base class for sample position mappings.
 
 This module provides generic position mapping types that can be used
-across different domains. Domain-specific builders should be in their
-respective modules (e.g., src/common/sample_position_mapping.py).
+across different domains. Domain-specific builders should live in their
+own modules and subclass these base types.
 """
 
 from __future__ import annotations

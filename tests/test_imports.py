@@ -9,8 +9,8 @@ import yaml
 
 def test_package_imports() -> None:
     import src  # noqa: F401
-    from src import binary_choice, common, datasets, geometry, inference  # noqa: F401
-    from src.datasets import other, preference, prompt  # noqa: F401
+    from src import binary_choice, common, datasets, inference  # noqa: F401
+    from src.datasets import mental_risk, other, prompt, risk  # noqa: F401
 
 
 def test_generate_example_dataset(tmp_path: Path) -> None:

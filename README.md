@@ -78,11 +78,10 @@ apart/
 │   │   └── math/entropy_diversity/   # entropy, diversity, power means, divergences
 │   ├── inference/              # Model runner + backends (HF, MLX, nnsight, TransformerLens,
 │   │   └── interventions/      #   Anthropic/OpenAI/Gemini APIs) + intervention/patching support
-│   ├── datasets/               # DataManager + prompt/preference/parametric datasets
+│   ├── datasets/               # Risk prompt + parametric scenario datasets
 │   ├── generation/             # Trajectory generation methods
 │   ├── estimation/             # Normativity estimation pipeline
 │   ├── scoring/                # Trajectory scoring / judging
-│   ├── geometry/               # Activation extraction (config, data, utils)
 │   ├── binary_choice/          # Binary-choice running + parsing
 │   ├── dynamics/               # Trajectory-dynamics analysis
 │   └── viz/                    # Tree / dynamics visualization
@@ -91,7 +90,6 @@ apart/
 ├── webapp/                     # Streamlit/FastAPI playground for investigation
 ├── submodules/                 # External datasets (winoqueer, more-of-the-same)
 ├── wanderings/                 # Exploratory notes / scratch
-├── utils/                      # Thin CLI wrappers
 └── tests/                      # pytest
 ```
 

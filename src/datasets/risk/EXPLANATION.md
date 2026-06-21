@@ -15,7 +15,7 @@ Each `RiskPromptSample` already carries everything needed to interpret a reply:
 `gold_risk`, `framing`, `language`, `sample_idx`). The querier never re-derives
 any of this.
 
-## Level 1 — Non-thinking (calibrated probability)
+## Level 1 — Non-thinking (calibrated probability) — CATEGORIZE only
 
 `BinaryChoiceRunner.choose` teacher-forces two continuations (one per answer
 option) past an auto-inserted empty `<think></think>` block, so the model never
@@ -27,10 +27,11 @@ m = max(lp_pos, lp_neg)
 p = exp(lp_pos - m) / (exp(lp_pos - m) + exp(lp_neg - m))   # predicted_risk
 ```
 
-- **CATEGORIZE**: `labels = sample.labels`, at-risk index `= sample.positive_idx`.
-- **SCORE**: synthesize anchor labels `("1","0")` if `scale_high` else `("0","1")`;
-  the pos label is the at-risk endpoint, so pos index is 0. This gives a
-  non-thinking `P(at-risk endpoint)` for numeric prompts too.
+This level applies **only to CATEGORIZE** prompts, whose `labels` and at-risk
+index (`sample.positive_idx`) are well-defined binary anchors. SCORE prompts ask
+for a free number whose first token (e.g. the `0` of `0.75`) is uninformative as
+a binary anchor, so `query_sample` skips non-thinking for them — SCORE is covered
+by the thinking level alone.
 
 We also keep `choice.choice_idx` (0/1/-1) and the raw labels/logprobs in
 `NonThinkingResult` for auditing.

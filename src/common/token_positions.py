@@ -567,8 +567,8 @@ def build_position_mapping_from_sample_mappings(
     objective_tail positions from bleeding into constraint positions.
 
     Args:
-        src_mapping: SamplePositionMapping for source sequence
-        dst_mapping: SamplePositionMapping for destination sequence
+        src_mapping: SamplePositionMappingBase for source sequence
+        dst_mapping: SamplePositionMappingBase for destination sequence
         src_tokens: Optional decoded tokens for source (for visualization)
         dst_tokens: Optional decoded tokens for destination (for visualization)
 
