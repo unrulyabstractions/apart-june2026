@@ -26,7 +26,10 @@ Endpoints (every data endpoint takes a ?model= query param; default = first):
   GET /api/models          {models: [name, ...], default: name}.
   GET /api/projections     the selected model's raw projections.json.
   GET /api/sample/{idx}    per-sample detail dict (prompt + readouts).
-  GET /api/config          {model_name, layers, positions, axes, n_samples}.
+  GET /api/config          {model_name, layers, positions, axes, n_samples};
+                           ``axes`` is the FULL colour-by registry restricted to
+                           axes with real variation in this model (each
+                           {key, label, continuous}).
 
 Usage (run as a script, NOT a module path):
   uv run python sesgo/geometry/geometry_viz_server.py \
@@ -51,6 +54,7 @@ sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[2]))
 
 from src.datasets.sesgo_eval import GeometrySample  # noqa: E402
 
+from sesgo.geometry.geometry_color_axes import COLOR_AXES, SCAFFOLD_AXIS_KEY  # noqa: E402
 from sesgo.geometry.geometry_model_registry import (  # noqa: E402
     GeometryModel,
     default_model_name,
@@ -80,6 +84,43 @@ def _select(model_name: str | None) -> GeometryModel:
 def _enum_value(v):
     """Stringify an enum-or-plain label (SesgoLabel.UNKNOWN -> 'unknown')."""
     return getattr(v, "value", v)
+
+
+def _iter_projection_rows(projections: dict):
+    """Yield every per-sample projection row across all (layer, position) cells.
+
+    The projections blob is ``results[layer][position]["samples"] -> [row, ...]``;
+    each row is the flat metadata dict (one value per COLOR_AXES key) plus coords.
+    """
+    for per_pos in (projections.get("results") or {}).values():
+        for block in (per_pos or {}).values():
+            yield from (block or {}).get("samples", [])
+
+
+def _live_axes(projections: dict) -> list[dict]:
+    """The COLOR_AXES that carry real variation in this model's projection rows.
+
+    An axis is kept when its value across the projection rows is neither entirely
+    null/missing nor single-valued (a dead axis would only clutter the dropdown).
+    Returns a flat ``{key, label, continuous}`` dict per surviving axis, preserving
+    the registry's display order. ``scaffold_id`` carries None as the no-scaffold
+    baseline, which counts as a distinct value (so it is never spuriously dropped).
+    """
+    seen: dict[str, set] = {a.key: set() for a in COLOR_AXES}
+    for row in _iter_projection_rows(projections):
+        for key in seen:
+            if key in row:
+                seen[key].add(row[key])
+    out: list[dict] = []
+    for axis in COLOR_AXES:
+        values = seen[axis.key]
+        # Drop only when entirely absent/null or single-valued (no real variation).
+        non_null = {v for v in values if v is not None}
+        distinct = len(values) if axis.key == SCAFFOLD_AXIS_KEY else len(non_null)
+        if distinct < 2:
+            continue
+        out.append({"key": axis.key, "label": axis.pretty, "continuous": axis.continuous})
+    return out
 
 
 def _sample_detail(s: GeometrySample) -> dict:
@@ -176,8 +217,10 @@ def build_app(geometry_root: Path, preferred: str | None = None) -> FastAPI:
                 "model_name": proj.get("model_name", m.name),
                 "layers": params.get("layers", list(proj.get("results", {}).keys())),
                 "positions": params.get("positions", []),
-                # The four categorical axes the scatter can color by.
-                "axes": ["scaffold_id", "bias_category", "question_polarity", "language"],
+                # EVERY colour-by axis from the shared registry that has real
+                # variation in this model's rows — each {key, label, continuous}.
+                # Categorical axes get a discrete legend; continuous ones a colorbar.
+                "axes": _live_axes(proj),
                 "n_samples": len(m.by_idx),
             }
         )
@@ -501,10 +544,15 @@ _JS = r"""
 const PALETTE = ["#7aa2ff","#9b7dff","#48d597","#ffb454","#ff6b8a","#43c6e8",
                  "#f78fb3","#a0e57a","#c792ea","#ffd166","#5fd3bc","#ff8a5c"];
 const BASELINE = "(baseline)";
+const SCAFFOLD_KEY = "scaffold_id";  // None == no-scaffold baseline (special-cased)
 
 let PROJ = null;        // selected model's full projections.json
 let CFG = null;         // selected model's config (layers/positions/axes/...)
 let MODEL = null;       // selected model name (sent as ?model= on every fetch)
+// AXES: the current model's colour-by axes (each {key, label, continuous}),
+// straight from /api/config; AXIS_BY_KEY maps key -> that axis for O(1) lookup.
+let AXES = [];
+let AXIS_BY_KEY = {};
 const els = {};
 let state = { layer:null, position:null, color:"scaffold_id", view:"2d" };
 
@@ -527,7 +575,7 @@ async function boot(){
   catch(e){ $("plot-loading").innerHTML = "<div class='empty-title'>Failed to load models</div>"; return; }
 
   fillSelect(els.model, info.models);
-  fillSelect(els.color, ["scaffold_id","bias_category","question_polarity","language"], prettyAxis);
+  // The COLOR BY dropdown is filled per-model in loadModel (axes are model-specific).
   MODEL = info.default;
   els.model.value = MODEL;
 
@@ -561,11 +609,22 @@ async function loadModel(name){
   } catch(e){
     $("plot-loading").innerHTML = "<div class='empty-title'>Failed to load "+name+"</div>"; return;
   }
+  // The colour-by axes are model-specific; rebuild the dropdown from CFG.axes
+  // (each {key, label, continuous}) using the human label, keyed by axis key.
+  AXES = CFG.axes || [];
+  AXIS_BY_KEY = {};
+  AXES.forEach(a => { AXIS_BY_KEY[a.key] = a; });
+  const prevColor = state.color;
+  fillSelect(els.color, AXES.map(a=>a.key), prettyAxis);
+  // Keep the prior colour-by if this model also has it, else default to scaffold.
+  state.color = AXIS_BY_KEY[prevColor] ? prevColor
+              : (AXIS_BY_KEY[SCAFFOLD_KEY] ? SCAFFOLD_KEY : (AXES[0] && AXES[0].key));
+  els.color.value = state.color;
+
   fillSelect(els.layer, CFG.layers);
   fillSelect(els.position, CFG.positions);
   state.layer = CFG.layers[0];
   state.position = firstNonEmptyPosition() || CFG.positions[0];
-  state.color = els.color.value || "scaffold_id";
   els.layer.value = state.layer;
   els.position.value = state.position;
   fillChips();
@@ -588,10 +647,14 @@ function fillSelect(sel, items, label){
     o.value = it; o.textContent = label ? label(it) : it; sel.appendChild(o);
   });
 }
+// Human label for an axis KEY, from the current model's axis registry (CFG.axes).
 function prettyAxis(a){
-  return ({scaffold_id:"Scaffold", bias_category:"Bias category",
-           question_polarity:"Question polarity", language:"Language"})[a] || a;
+  const ax = AXIS_BY_KEY[a];
+  return ax ? ax.label : a;
 }
+// Is the currently-selected colour-by axis a continuous scalar (colorbar) vs
+// categorical (discrete legend)? Drives the render branch.
+function isContinuous(key){ return !!(AXIS_BY_KEY[key] && AXIS_BY_KEY[key].continuous); }
 function firstNonEmptyPosition(){
   const r = (PROJ.results||{})[state.layer || CFG.layers[0]] || {};
   return CFG.positions.find(p => r[p] && r[p].samples && r[p].samples.length);
@@ -604,7 +667,7 @@ function currentBlock(){
   return lr[state.position] || null;
 }
 function axisLabel(s, axis){
-  if(axis === "scaffold_id") return s.scaffold_id == null ? BASELINE : String(s.scaffold_id);
+  if(axis === SCAFFOLD_KEY) return s.scaffold_id == null ? BASELINE : String(s.scaffold_id);
   return String(s[axis]);
 }
 function colorFor(i){ return PALETTE[i % PALETTE.length]; }
@@ -637,12 +700,28 @@ function groupTraces(block){
 }
 
 function hoverText(s){
-  return `idx ${s.sample_idx}<br>scaffold: ${s.scaffold_id==null?BASELINE:s.scaffold_id}`
+  // Lead with the axis currently coloured by (its value for this point), then
+  // the always-shown core attributes.
+  const cv = state.color === SCAFFOLD_KEY
+    ? (s.scaffold_id==null?BASELINE:s.scaffold_id) : s[state.color];
+  return `idx ${s.sample_idx}<br>${prettyAxis(state.color)}: ${cv}`
+       + `<br>scaffold: ${s.scaffold_id==null?BASELINE:s.scaffold_id}`
        + `<br>bias: ${s.bias_category}<br>polarity: ${s.question_polarity}`
        + `<br>lang: ${s.language}<br>gold: ${s.gold_label}<extra></extra>`;
 }
 
 function render2d(block){
+  const traces = isContinuous(state.color)
+    ? continuousTraces2d(block)
+    : categoricalTraces2d(block);
+  Plotly.react($("plot"), traces, layout2d(block), {responsive:true, displaylogo:false,
+    modeBarButtonsToRemove:["lasso2d","select2d"]});
+  bindClick();
+}
+
+// Categorical 2D: one trace per category (discrete legend toggles categories),
+// plus the scaffold-centroid rings when colouring by scaffold.
+function categoricalTraces2d(block){
   const { groups, labels } = groupTraces(block);
   const traces = labels.map((lab,i)=>{
     const ss = groups.get(lab);
@@ -654,8 +733,7 @@ function render2d(block){
       marker:{ size:8, color:colorFor(i), line:{width:.8, color:"rgba(255,255,255,.35)"}, opacity:.9 },
     };
   });
-  // Overlay scaffold centroids as larger ringed markers when coloring by scaffold.
-  if(state.color === "scaffold_id"){
+  if(state.color === SCAFFOLD_KEY){
     const cents = ((block.scaffold_stats||{}).centroids)||{};
     const cl = Object.keys(cents);
     if(cl.length){
@@ -668,12 +746,42 @@ function render2d(block){
       });
     }
   }
-  Plotly.react($("plot"), traces, layout2d(block), {responsive:true, displaylogo:false,
-    modeBarButtonsToRemove:["lasso2d","select2d"]});
-  bindClick();
+  return traces;
+}
+
+// Continuous 2D: a SINGLE trace whose marker.color is the scalar, a perceptual
+// Viridis colorscale, and a visible colorbar (no per-category legend).
+function continuousTraces2d(block){
+  const ss = block.samples;
+  return [{
+    type:"scattergl", mode:"markers", name:prettyAxis(state.color),
+    x:ss.map(s=>s.coord2d[0]), y:ss.map(s=>s.coord2d[1]),
+    customdata:ss.map(s=>s.sample_idx),
+    text:ss.map(hoverText), hovertemplate:"%{text}",
+    marker:continuousMarker(ss, 8),
+  }];
+}
+
+// Shared continuous marker: Viridis colorscale over the scalar + a labelled colorbar.
+function continuousMarker(ss, size){
+  return {
+    size, opacity:.92, line:{width:.5, color:"rgba(255,255,255,.25)"},
+    color:ss.map(s=>s[state.color]), colorscale:"Viridis", showscale:true,
+    colorbar:{ title:{text:prettyAxis(state.color), font:{size:11, color:"#94a0c4"}},
+               tickfont:{size:10, color:"#94a0c4"}, outlinewidth:0, thickness:14, len:.85 },
+  };
 }
 
 function render3d(block){
+  const traces = isContinuous(state.color)
+    ? continuousTraces3d(block)
+    : categoricalTraces3d(block);
+  Plotly.react($("plot"), traces, layout3d(block), {responsive:true, displaylogo:false});
+  bindClick();
+}
+
+// Categorical 3D: one trace per category + scaffold-centroid rings.
+function categoricalTraces3d(block){
   const { groups, labels } = groupTraces(block);
   const traces = labels.map((lab,i)=>{
     const ss = groups.get(lab);
@@ -685,7 +793,7 @@ function render3d(block){
       marker:{ size:4.5, color:colorFor(i), opacity:.88, line:{width:.5,color:"rgba(255,255,255,.25)"} },
     };
   });
-  if(state.color === "scaffold_id"){
+  if(state.color === SCAFFOLD_KEY){
     const cents = ((block.scaffold_stats||{}).centroids)||{};
     const cl = Object.keys(cents);
     if(cl.length){
@@ -697,8 +805,19 @@ function render3d(block){
       });
     }
   }
-  Plotly.react($("plot"), traces, layout3d(block), {responsive:true, displaylogo:false});
-  bindClick();
+  return traces;
+}
+
+// Continuous 3D: a single Viridis-coloured trace with a colorbar.
+function continuousTraces3d(block){
+  const ss = block.samples;
+  return [{
+    type:"scatter3d", mode:"markers", name:prettyAxis(state.color),
+    x:ss.map(s=>s.coord3d[0]), y:ss.map(s=>s.coord3d[1]), z:ss.map(s=>s.coord3d[2]),
+    customdata:ss.map(s=>s.sample_idx),
+    text:ss.map(hoverText), hovertemplate:"%{text}",
+    marker:continuousMarker(ss, 4.5),
+  }];
 }
 
 function baseLayout(block){
@@ -836,14 +955,14 @@ function renderStats(block){
     html += `</table>`;
   }
 
-  // Axis separation ranking — highlight the axis the geometry separates best.
+  // Axis separation ranking over EVERY categorical colour-by axis (scaffold
+  // silhouette lives in scaffold_stats; the rest in axis_separation) — highlight
+  // the axis the geometry separates best.
   const sep = block.axis_separation||{};
-  const rows = [
-    ["scaffold_id", ss.silhouette],
-    ["bias_category", (sep.bias_category||{}).silhouette],
-    ["question_polarity", (sep.question_polarity||{}).silhouette],
-    ["language", (sep.language||{}).silhouette],
-  ].filter(r=>r[1]!=null);
+  const rows = AXES.filter(a=>!a.continuous).map(a=>{
+    const sil = a.key === SCAFFOLD_KEY ? ss.silhouette : (sep[a.key]||{}).silhouette;
+    return [a.key, sil];
+  }).filter(r=>r[1]!=null);
   if(rows.length){
     rows.sort((a,b)=>b[1]-a[1]);
     const best = rows[0][0];
