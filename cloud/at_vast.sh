@@ -47,7 +47,10 @@ CMD="$*"
 . "$HERE/_ssh_target.sh"
 _resolve_ssh_target || exit 1
 
-SSH="ssh -F /dev/null -o StrictHostKeyChecking=accept-new -i $SSH_KEY -p $SSH_PORT $SSH_USER@$SSH_HOST"
+# ConnectTimeout bounds the wait_ssh readiness probe (a freshly-'running' box whose
+# sshd is not up yet fails FAST instead of hanging on the full TCP timeout);
+# ServerAlive* tears down a stalled session so long on-box steps don't wedge.
+SSH="ssh -F /dev/null -o StrictHostKeyChecking=accept-new -o ConnectTimeout=20 -o ServerAliveInterval=15 -o ServerAliveCountMax=8 -i $SSH_KEY -p $SSH_PORT $SSH_USER@$SSH_HOST"
 
 # ── 3. Run the command on the remote box ───────────────────────────────
 echo "[at_vast] run on $SSH_HOST:$SSH_PORT  ::  $CMD"

@@ -41,8 +41,12 @@ fi
 . "$HERE/_ssh_target.sh"
 _resolve_ssh_target || exit 1
 
-RSYNC_E="ssh -F /dev/null -o StrictHostKeyChecking=accept-new -i $SSH_KEY -p $SSH_PORT"
+RSYNC_E="ssh -F /dev/null -o StrictHostKeyChecking=accept-new -o ConnectTimeout=20 -o ServerAliveInterval=10 -o ServerAliveCountMax=6 -i $SSH_KEY -p $SSH_PORT"
 DRY=""; [ "${DRY_RUN:-0}" = "1" ] && DRY="--dry-run"
+# --timeout=120: if the stream stalls (a freshly-booted box whose net is flaky),
+# fail fast with a non-zero exit so fleet_run's retry loop re-pushes, rather than
+# leaving a half-synced tree behind.
+RSYNC_TIMEOUT="--timeout=120"
 
 # ── 2. Push the code tree (local -> remote) ────────────────────────────
 # NO --delete here either: we never want to surprise-delete on the remote based
@@ -51,7 +55,7 @@ echo "[sync_up] code  $REPO_ROOT/  ->  $SSH_HOST:$REMOTE_ROOT/"
 # IMPORTANT: anchor these with a leading slash so they match ONLY the top-level
 # dirs. An unanchored 'datasets/' would also exclude src/datasets/ (the code!),
 # which silently breaks `import src.datasets` on the box.
-rsync -ah $DRY -e "$RSYNC_E" \
+rsync -ah $DRY $RSYNC_TIMEOUT -e "$RSYNC_E" \
   --exclude='/out/'             \
   --exclude='/datasets/'        \
   --exclude='/sync/'            \
@@ -75,7 +79,7 @@ echo "[sync_up] SESGO prompts  datasets/SESGO/prompts/  ->  $SSH_HOST:$REMOTE_RO
 # rsync does not create missing parent dirs; ensure the remote target exists.
 ssh -F /dev/null -o StrictHostKeyChecking=accept-new -i "$SSH_KEY" -p "$SSH_PORT" \
   "$SSH_USER@$SSH_HOST" "mkdir -p $REMOTE_ROOT/datasets/SESGO/prompts"
-rsync -ah $DRY -e "$RSYNC_E" \
+rsync -ah $DRY $RSYNC_TIMEOUT -e "$RSYNC_E" \
   --exclude='__pycache__/' --exclude='.DS_Store' \
   "$REPO_ROOT/datasets/SESGO/prompts/" \
   "$SSH_USER@$SSH_HOST:$REMOTE_ROOT/datasets/SESGO/prompts/"

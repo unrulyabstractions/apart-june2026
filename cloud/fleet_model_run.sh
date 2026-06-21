@@ -38,6 +38,20 @@ echo "[fleet_model_run] model=$MODEL shard=$SHARD_INDEX/$SHARD_COUNT studies='$S
 echo "[fleet_model_run] generate prompt datasets"
 "$PY" sesgo/generate/generate_prompt_dataset.py
 
+# DEFENSE IN DEPTH: if sync_up did not deliver the SESGO prompt xlsx (e.g. a
+# half-synced box), generate writes a prompt_dataset.json with ZERO samples and the
+# collect below silently produces an EMPTY response_samples.json. Abort loudly here
+# so the box is never billed for an empty run and never syncs an empty result.
+for study in $STUDIES; do
+  ds="out/sesgo/$study/prompt_dataset.json"
+  n="$("$PY" -c "import json,sys; print(len(json.load(open(sys.argv[1])).get('samples',[])))" "$ds" 2>/dev/null || echo 0)"
+  if [ "${n:-0}" -lt 1 ]; then
+    echo "[fleet_model_run] FATAL: $ds has $n prompts -- prompt sources missing (sync_up incomplete?). Aborting." >&2
+    exit 1
+  fi
+  echo "[fleet_model_run] $study prompt_dataset has $n prompts"
+done
+
 SHARD_ARGS="--shard-index $SHARD_INDEX --shard-count $SHARD_COUNT"
 
 run_study() {

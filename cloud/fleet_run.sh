@@ -49,6 +49,41 @@ else: print("missing")')"
   return 1
 }
 
+# A box reports 'running' (API) well BEFORE its sshd / direct port is reachable.
+# Pushing then races the network and rsync dies mid-transfer ("connection
+# unexpectedly closed"), leaving the box with NO code / NO prompt xlsx -> generate
+# produces 0 items -> collect writes an EMPTY response_samples.json. So after
+# wait_running we PROBE actual SSH connectivity (a trivial remote `true`) and only
+# proceed once the box really answers. Bounded; returns non-zero if it never does.
+wait_ssh() {
+  local iid="$1" i
+  for i in $(seq 1 40); do
+    if INSTANCE="$iid" bash "$HERE/at_vast.sh" "true" >/dev/null 2>&1; then
+      return 0
+    fi
+    sleep 10
+  done
+  return 1
+}
+
+# Push code+prompts (sync_up) and build the env (at_setup), each RETRIED a few
+# times: a transient SSH hiccup mid-rsync must not silently leave a half-synced
+# box. Returns non-zero only if every attempt fails, so the caller can abort the
+# box instead of running it on an empty/partial tree.
+sync_and_setup() {
+  local iid="$1" attempt
+  for attempt in 1 2 3; do
+    echo "[setup attempt $attempt] sync_up"
+    if INSTANCE="$iid" bash "$HERE/sync_up.sh" && \
+       INSTANCE="$iid" bash "$HERE/at_vast.sh" "bash cloud/at_setup.sh"; then
+      return 0
+    fi
+    echo "[setup attempt $attempt] FAILED; retrying after 15s"
+    sleep 15
+  done
+  return 1
+}
+
 # Run ONE box end-to-end, then destroy it. Backgrounded by the caller.
 run_one() {
   local tag="$1"
@@ -60,9 +95,21 @@ run_one() {
 
     wait_running "$iid" || { echo "[$tag] never became running"; return 1; }
 
-    # Steps 2-3: push code + env. INSTANCE pins every helper to THIS box.
-    INSTANCE="$iid" bash "$HERE/sync_up.sh"
-    INSTANCE="$iid" bash "$HERE/at_vast.sh" "bash cloud/at_setup.sh"
+    # Step 1b: wait until sshd is ACTUALLY reachable (API 'running' is too early).
+    if ! wait_ssh "$iid"; then
+      echo "[$tag] SSH never came up; destroying box (no work attempted)."
+      INSTANCE="$iid" bash "$HERE/vast_destroy.sh" --yes-i-am-really-sure
+      return 1
+    fi
+
+    # Steps 2-3: push code + env, with retries. If the box can't be fully set up,
+    # ABORT before running so we never produce an EMPTY result on a half-synced
+    # box -- and destroy it so it stops billing.
+    if ! sync_and_setup "$iid"; then
+      echo "[$tag] sync_up/at_setup failed after retries; destroying box (no empty run)."
+      INSTANCE="$iid" bash "$HERE/vast_destroy.sh" --yes-i-am-really-sure
+      return 1
+    fi
 
     # Step 4: run THIS box's model+shard pipeline (batched) on the box.
     INSTANCE="$iid" MODEL="$model" SHARD_INDEX="$sidx" SHARD_COUNT="$scount" \
@@ -80,8 +127,8 @@ run_one() {
   echo "[$tag] finished (log: $log)"
 }
 
-export -f run_one wait_running
-export FLEET_DIR STUDIES BATCH_SIZE N_THINKING HERE
+export -f run_one wait_running wait_ssh sync_and_setup
+export FLEET_DIR STUDIES BATCH_SIZE N_THINKING HERE HF_TOKEN
 
 echo ">> Driving all boxes concurrently (studies: $STUDIES, batch_size: $BATCH_SIZE)..."
 for idf in "$FLEET_DIR"/*.id; do
