@@ -1,3 +1,44 @@
+# RUN: baseline_full (ALL SESGO data) on Qwen3-0.6B — DONE 2026-06-21
+
+## Result
+- Full grid = 6120 items x 4 scaffold conditions = 24480 prompts (all langs es+en x
+  all origins original+bbq-adapted x {none + interpretive_direction +
+  prior_dominance_warning + intent_and_register_respect}).
+- Collected 16164 / 24480 (66%): 7 of 8 RTX_4090 shards landed (shard6 complete at
+  3060; the rest are partial checkpoints recovered after the fleet driver process was
+  killed mid-run; shard7's box died at setup). All axes fully covered & balanced
+  (4041/scaffold; es 12684 / en 3480; original 10320 / bbq 5844).
+- Combined -> out/sesgo/baseline_full/Qwen3-0.6B/response_samples.json (16164).
+- Figure -> out/sesgo/baseline_full/Qwen3-0.6B/plots/abstention_by_axis.png.
+
+## Headline numbers (3-opt teacher-forced abstention on ambiguous, n=5388)
+- language: en 96.2% (n=1160) vs es 86.4% (n=4228)
+- origin:   BBQ-adapted 96.1% (n=1948) vs original 84.2% (n=3440)
+- scaffold: interpretive_direction 99.9% > prior_dominance 88.4% > none 85.7% >
+            intent_and_register 80.0% (n=1347 each)
+- greedy-thinking abstention: scaffolds lift it from 63% (none) to 83%
+  (interpretive_direction); bbq 87% vs original 65%.
+
+## Cost / boxes
+- ~$8.14 total across 3 fleet attempts (OOM batch=64 run + SSH-proxy-outage run +
+  the successful batch=12 run, incl. extra billing after the driver process died).
+- ALL 40 boxes across all attempts DESTROYED (verified: 0 of our instances live).
+
+## Code shipped (committed + pushed)
+- load_items `origins` opt-in; get_baseline_full_scaffolds(); GENERATE_ALL_DATA
+  generator opt-in -> out/sesgo/baseline_full/; collect `--study` flag;
+  HF_FORWARD_MICRO_BATCH (OOM-resilient teacher-forced forward);
+  combine_baseline_full_shards.py; baseline_full_axis_{slices,plots}.py +
+  visualize_baseline_full_samples.py; fleet threading; docs + lessons.
+
+## Lessons (see tasks/lessons.md)
+- 4090 teacher-forced batch=64 OOMs on long scaffolded prompts -> batch<=16.
+- Vast SSH-proxy-wide outages can kill an in-flight fleet; fewer shards = smaller
+  surface. The long-running fleet_run.sh driver can be killed by the harness -> on
+  driver death, manually sync_back each live box THEN destroy (billing keeps running).
+
+---
+
 # RUN: Full-scale forking-paths on Qwen/Qwen3-32B (cloud H100) — 2026-06-21
 
 - [x] Stage SESGO prompt xlsx into datasets/SESGO/prompts/ (gitignored)
