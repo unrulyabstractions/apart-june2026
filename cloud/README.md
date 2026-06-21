@@ -232,6 +232,20 @@ list comes from the fleet plan so the two never drift.
   checkpoint survives. Prefer `reliability>=0.95` offers and just re-launch the
   affected models. Always sweep `vastai show instances-v1` at the end and destroy
   any stragglers (`cloud/fleet_destroy.sh --yes-i-am-really-sure`, or by id).
+- **Box-replacement resume.** `collect` already checkpoints
+  `response_samples.json` every 25 samples and, on restart, *resumes* from an
+  existing one (the querier loads it and skips completed identities), so a box
+  restarting its OWN collect resumes for free. To make *replacement* resumable —
+  when a box dies and a fresh one takes its slice — `fleet_run.sh` runs a
+  background **partial puller** (`cloud/sync_partial.sh pull`, every
+  `PARTIAL_SYNC_EVERY=180`s) that mirrors the growing `response_samples.json` down
+  to a throwaway `sync/partial-box-<tag>/` tree, and **pushes** the newest partial
+  back up (`sync_partial.sh push`) *before* the run on each (re)launch so the fresh
+  box's collect resumes instead of restarting from 0. The partial tree is never
+  promoted (`merge_sync` globs `box-*/` only), so it can never reach `out/`. The
+  thinking studies (divergence/selection/stability) resume fully; geometry only
+  resumes samples whose side-car `.pt` activation tensors survive (it recomputes
+  the rest), so its primary resume path is a same-box restart.
 
 ---
 
