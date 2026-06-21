@@ -53,5 +53,9 @@ _resolve_ssh_target || exit 1
 SSH="ssh -F /dev/null -o StrictHostKeyChecking=accept-new -o ConnectTimeout=20 -o ServerAliveInterval=15 -o ServerAliveCountMax=8 -i $SSH_KEY -p $SSH_PORT $SSH_USER@$SSH_HOST"
 
 # ── 3. Run the command on the remote box ───────────────────────────────
+# `cd` into REMOTE_ROOT ONLY if it already exists. Before the first sync_up the
+# repo dir is absent, and an unconditional `cd /root/apart` would FAIL the whole
+# command -- which broke the wait_ssh readiness probe (it cd'd into a dir that only
+# exists post-sync, so SSH "never came up" even on a perfectly reachable box).
 echo "[at_vast] run on $SSH_HOST:$SSH_PORT  ::  $CMD"
-exec $SSH "cd $REMOTE_ROOT && $CMD"
+exec $SSH "cd $REMOTE_ROOT 2>/dev/null || true; $CMD"

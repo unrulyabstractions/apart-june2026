@@ -26,7 +26,12 @@ command -v vastai >/dev/null || { echo "vastai not found. pip install vastai" >&
 
 # ── 1. Parse arguments ──────────────────────────────────────────────────
 ACTION="destroy"
-INSTANCE=""
+# Honor an INSTANCE from the environment (how fleet_run / fleet_destroy pin this
+# call to a SPECIFIC box: `INSTANCE=$iid bash vast_destroy.sh ...`). A positional
+# id arg still overrides it below; the .vast_instance_id file is the last fallback.
+# Hard-resetting this to "" (the old behavior) silently ignored the env var, so the
+# fleet's per-box self-destroy resolved NOTHING and the box kept billing.
+INSTANCE="${INSTANCE:-}"
 CONFIRMED=0
 while [[ $# -gt 0 ]]; do
   case "$1" in
