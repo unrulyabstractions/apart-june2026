@@ -1,25 +1,32 @@
-"""Interactive web visualizer for the SESGO geometry PCA.
+"""Interactive web visualizer for the SESGO geometry PCA (multi-model).
 
 Run-by-path FastAPI app. Serves the precomputed PCA projection (from
 analyze_geometry.py -> out/sesgo/geometry/<MODEL>/analysis/projections.json) as an
 interactive Plotly scatter, plus a per-sample DETAIL panel backed by the
 GeometryDataset (response_samples.json from collect_geometry_samples.py).
 
+MODEL SWITCHING: the server discovers EVERY model under out/sesgo/geometry/*/
+that has both a response_samples.json and a sibling analysis/projections.json
+(see geometry_model_registry). The frontend exposes a model selector; switching
+re-fetches that model's config + projections and re-renders. Each model's blobs
+load lazily on first selection, so startup stays instant with one model or many.
+
 WHY a static server (no websockets): unlike the temporal-manifolds webapp, the
 data here is fully precomputed by analyze_geometry.py, so the frontend only needs
-to GET the projection once and re-slice it client-side as the user flips
-layer/position/color-by/2D-3D. Per-sample detail (prompt text + the non_thinking /
-thinking readouts) is too heavy to ship in the projection blob, so it is fetched
-lazily by sample_idx from the loaded GeometryDataset.
+to GET a model's projection once and re-slice it client-side as the user flips
+model/layer/position/color-by/2D-3D. Per-sample detail (prompt text + the
+non_thinking / thinking readouts) is too heavy to ship in the projection blob, so
+it is fetched lazily by (model, sample_idx) from the loaded GeometryDataset.
 
 The HTML page is built as a Python f-string (Plotly.js from CDN); there is no
 separate static bundle, mirroring how the projection JSON is self-contained.
 
-Endpoints:
-  GET /                   the single-page app (HTML).
-  GET /api/projections    the raw projections.json.
-  GET /api/sample/{idx}   per-sample detail dict (prompt + readouts).
-  GET /api/config         {model_name, layers, positions, axes, n_samples}.
+Endpoints (every data endpoint takes a ?model= query param; default = first):
+  GET /                    the single-page app (HTML).
+  GET /api/models          {models: [name, ...], default: name}.
+  GET /api/projections     the selected model's raw projections.json.
+  GET /api/sample/{idx}    per-sample detail dict (prompt + readouts).
+  GET /api/config          {model_name, layers, positions, axes, n_samples}.
 
 Usage (run as a script, NOT a module path):
   uv run python sesgo/geometry/geometry_viz_server.py \
@@ -29,13 +36,12 @@ Usage (run as a script, NOT a module path):
 from __future__ import annotations
 
 import argparse
-import json
 import pathlib
 import sys
 from pathlib import Path
 
 import uvicorn
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Query
 from fastapi.responses import HTMLResponse, JSONResponse
 
 # Bootstrap the repo root onto sys.path so `from src... import ...` resolves the
@@ -43,25 +49,32 @@ from fastapi.responses import HTMLResponse, JSONResponse
 # deep under the repo root: sesgo/geometry/<here>).
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[2]))
 
-from src.datasets.sesgo_eval import GeometryDataset, GeometrySample  # noqa: E402
+from src.datasets.sesgo_eval import GeometrySample  # noqa: E402
+
+from sesgo.geometry.geometry_model_registry import (  # noqa: E402
+    GeometryModel,
+    default_model_name,
+    discover_models,
+)
 
 # ── State loaded once at startup ──────────────────────────────────────────────
-# Populated by build_app() so the import side stays free of disk I/O.
+# Populated by build_app() so the import side stays free of disk I/O. ``models``
+# maps model_name -> GeometryModel (lazy blobs); ``default`` is the initially
+# selected model the frontend boots into.
 _STATE: dict = {
-    "projections": {},  # parsed projections.json
-    "dataset": None,  # GeometryDataset (for detail lookups)
-    "by_idx": {},  # sample_idx -> GeometrySample (O(1) detail fetch)
-    "model_name": "",
+    "models": {},  # model_name -> GeometryModel
+    "default": "",  # initially selected model_name
 }
 
 
-def _projections_path(samples: Path) -> Path:
-    """Locate projections.json for a given response_samples.json.
-
-    analyze_geometry.py writes it to a sibling ``analysis/`` directory:
-    out/sesgo/geometry/<MODEL>/{response_samples.json, analysis/projections.json}.
-    """
-    return samples.resolve().parent / "analysis" / "projections.json"
+def _select(model_name: str | None) -> GeometryModel:
+    """Resolve the ``?model=`` param to a loaded model (404 if unknown)."""
+    models: dict[str, GeometryModel] = _STATE["models"]
+    name = model_name or _STATE["default"]
+    m = models.get(name)
+    if m is None:
+        raise HTTPException(status_code=404, detail=f"unknown model {name!r}")
+    return m
 
 
 def _enum_value(v):
@@ -113,23 +126,22 @@ def _sample_detail(s: GeometrySample) -> dict:
 
 
 def build_app(samples_path: Path) -> FastAPI:
-    """Load projections + dataset for ``samples_path`` and wire up the routes."""
-    proj_path = _projections_path(samples_path)
-    if not proj_path.exists():
+    """Discover every captured model under ``samples_path``'s geometry root.
+
+    ``samples_path`` only fixes which model the frontend boots INTO (its parent
+    dir name); all sibling models become switchable. This keeps the existing
+    ``--samples out/.../<MODEL>/response_samples.json`` invocation working while
+    making every model under ``out/sesgo/geometry/`` available in the selector.
+    """
+    geometry_root = samples_path.resolve().parents[1]  # .../<MODEL>/file -> root
+    models = discover_models(geometry_root)
+    if not models:
         raise FileNotFoundError(
-            f"projections not found at {proj_path} — run "
+            f"no analysed models found under {geometry_root} — run "
             f"`uv run python sesgo/geometry/analyze_geometry.py {samples_path}` first."
         )
-    with open(proj_path) as f:
-        projections = json.load(f)
-
-    dataset = GeometryDataset.from_json(samples_path)
-    by_idx = {s.sample_idx: s for s in dataset.samples}
-
-    _STATE["projections"] = projections
-    _STATE["dataset"] = dataset
-    _STATE["by_idx"] = by_idx
-    _STATE["model_name"] = projections.get("model_name", dataset.model_name)
+    _STATE["models"] = models
+    _STATE["default"] = default_model_name(models, preferred=samples_path.resolve().parent.name)
 
     app = FastAPI(title="SESGO Geometry Visualizer")
 
@@ -137,30 +149,36 @@ def build_app(samples_path: Path) -> FastAPI:
     async def index() -> str:
         return _render_html()
 
+    @app.get("/api/models")
+    async def api_models() -> JSONResponse:
+        # The selector's options + which one to boot into.
+        return JSONResponse({"models": list(_STATE["models"].keys()), "default": _STATE["default"]})
+
     @app.get("/api/projections")
-    async def api_projections() -> JSONResponse:
-        # Raw projections.json — the frontend slices it client-side.
-        return JSONResponse(_STATE["projections"])
+    async def api_projections(model: str | None = Query(default=None)) -> JSONResponse:
+        # Raw projections.json for the selected model — sliced client-side.
+        return JSONResponse(_select(model).projections)
 
     @app.get("/api/sample/{idx}")
-    async def api_sample(idx: int) -> JSONResponse:
-        s = _STATE["by_idx"].get(idx)
+    async def api_sample(idx: int, model: str | None = Query(default=None)) -> JSONResponse:
+        s = _select(model).by_idx.get(idx)
         if s is None:
             raise HTTPException(status_code=404, detail=f"sample_idx {idx} not found")
         return JSONResponse(_sample_detail(s))
 
     @app.get("/api/config")
-    async def api_config() -> JSONResponse:
-        proj = _STATE["projections"]
+    async def api_config(model: str | None = Query(default=None)) -> JSONResponse:
+        m = _select(model)
+        proj = m.projections
         params = proj.get("params", {})
         return JSONResponse(
             {
-                "model_name": _STATE["model_name"],
+                "model_name": proj.get("model_name", m.name),
                 "layers": params.get("layers", list(proj.get("results", {}).keys())),
                 "positions": params.get("positions", []),
                 # The four categorical axes the scatter can color by.
                 "axes": ["scaffold_id", "bias_category", "question_polarity", "language"],
-                "n_samples": len(_STATE["by_idx"]),
+                "n_samples": len(m.by_idx),
             }
         )
 
@@ -171,15 +189,13 @@ def build_app(samples_path: Path) -> FastAPI:
 
 
 def _render_html() -> str:
-    """Build the single-page app as one HTML string (Plotly.js from CDN)."""
-    proj = _STATE["projections"]
-    model_name = _STATE["model_name"]
-    n_samples = len(_STATE["by_idx"])
-    params = proj.get("params", {})
+    """Build the single-page app as one HTML string (Plotly.js from CDN).
+
+    The shell is model-agnostic: every header chip + control is filled by JS
+    after it fetches the selected model's config/projections, so switching
+    models only re-runs that client-side fill (no server-rendered model facts).
+    """
     title = "SESGO Geometry — PCA of activations"
-    # Subtitle facts shown in the header chips.
-    n_layers = len(params.get("layers", []))
-    n_positions = len(params.get("positions", []))
 
     return f"""<!DOCTYPE html>
 <html lang="en">
@@ -200,14 +216,18 @@ def _render_html() -> str:
     </div>
   </div>
   <div class="header-chips">
-    <div class="chip"><span class="chip-k">model</span><span class="chip-v">{model_name}</span></div>
-    <div class="chip"><span class="chip-k">samples</span><span class="chip-v">{n_samples}</span></div>
-    <div class="chip"><span class="chip-k">layers</span><span class="chip-v">{n_layers}</span></div>
-    <div class="chip"><span class="chip-k">positions</span><span class="chip-v">{n_positions}</span></div>
+    <div class="chip"><span class="chip-k">model</span><span class="chip-v" id="chip-model">—</span></div>
+    <div class="chip"><span class="chip-k">samples</span><span class="chip-v" id="chip-samples">—</span></div>
+    <div class="chip"><span class="chip-k">layers</span><span class="chip-v" id="chip-layers">—</span></div>
+    <div class="chip"><span class="chip-k">positions</span><span class="chip-v" id="chip-positions">—</span></div>
   </div>
 </header>
 
 <div class="controls">
+  <div class="ctrl-group">
+    <label>Model</label>
+    <select id="sel-model"></select>
+  </div>
   <div class="ctrl-group">
     <label>Layer</label>
     <select id="sel-layer"></select>
@@ -269,7 +289,6 @@ def _render_html() -> str:
 <div id="toast" class="toast"></div>
 
 <script>
-const PARAMS = {json.dumps(params)};
 const ROLE_NAMES = ["target", "other", "unknown"];
 {_JS}
 </script>
@@ -483,8 +502,9 @@ const PALETTE = ["#7aa2ff","#9b7dff","#48d597","#ffb454","#ff6b8a","#43c6e8",
                  "#f78fb3","#a0e57a","#c792ea","#ffd166","#5fd3bc","#ff8a5c"];
 const BASELINE = "(baseline)";
 
-let PROJ = null;        // full projections.json
-let CFG = null;         // config (layers/positions/axes/...)
+let PROJ = null;        // selected model's full projections.json
+let CFG = null;         // selected model's config (layers/positions/axes/...)
+let MODEL = null;       // selected model name (sent as ?model= on every fetch)
 const els = {};
 let state = { layer:null, position:null, color:"scaffold_id", view:"2d" };
 
@@ -493,31 +513,26 @@ function toast(msg){
   const t = $("toast"); t.textContent = msg; t.classList.add("show");
   clearTimeout(t._h); t._h = setTimeout(()=>t.classList.remove("show"), 2200);
 }
+// Every data endpoint is scoped to the selected model via ?model=.
+function api(path){ return path + "?model=" + encodeURIComponent(MODEL); }
 
 // ── Boot ─────────────────────────────────────────────────────────────────────
+// Wire the static controls ONCE, fetch the model list, then load the default
+// model. Switching models only re-runs loadModel (no re-binding of controls).
 async function boot(){
-  els.layer = $("sel-layer"); els.position = $("sel-position"); els.color = $("sel-color");
-  try {
-    [CFG, PROJ] = await Promise.all([
-      fetch("/api/config").then(r=>r.json()),
-      fetch("/api/projections").then(r=>r.json()),
-    ]);
-  } catch(e){
-    $("plot-loading").innerHTML = "<div class='empty-title'>Failed to load data</div>";
-    return;
-  }
-  // Populate selectors from config (layers/positions) and the fixed axes list.
-  fillSelect(els.layer, CFG.layers);
-  fillSelect(els.position, CFG.positions);
-  fillSelect(els.color, CFG.axes, prettyAxis);
-  state.layer = CFG.layers[0];
-  state.position = firstNonEmptyPosition() || CFG.positions[0];
-  state.color = "scaffold_id";
-  els.layer.value = state.layer;
-  els.position.value = state.position;
-  els.color.value = state.color;
+  els.model = $("sel-model"); els.layer = $("sel-layer");
+  els.position = $("sel-position"); els.color = $("sel-color");
+  let info;
+  try { info = await fetch("/api/models").then(r=>r.json()); }
+  catch(e){ $("plot-loading").innerHTML = "<div class='empty-title'>Failed to load models</div>"; return; }
 
-  els.layer.onchange = ()=>{ state.layer = els.layer.value; render(); };
+  fillSelect(els.model, info.models);
+  fillSelect(els.color, ["scaffold_id","bias_category","question_polarity","language"], prettyAxis);
+  MODEL = info.default;
+  els.model.value = MODEL;
+
+  els.model.onchange = ()=> loadModel(els.model.value);
+  els.layer.onchange = ()=>{ state.layer = els.layer.value; state.position = firstNonEmptyPosition() || state.position; els.position.value = state.position; render(); };
   els.position.onchange = ()=>{ state.position = els.position.value; render(); };
   els.color.onchange = ()=>{ state.color = els.color.value; render(); };
   document.querySelectorAll("#view-toggle .pill").forEach(b=>{
@@ -528,8 +543,42 @@ async function boot(){
   });
   $("btn-reset").onclick = ()=>{ render(); toast("View reset"); };
 
+  await loadModel(MODEL);
+}
+
+// Fetch + render one model's geometry: config + projections, repopulate the
+// layer/position selectors (they differ per model), refresh header chips.
+async function loadModel(name){
+  MODEL = name;
+  $("plot-loading").classList.remove("hidden");
+  $("plot-loading").innerHTML = "<div class='spinner'></div><div>Loading "+name+"…</div>";
+  $("detail-body").innerHTML = "<div class='detail-hint'>Click a point in the scatter to inspect a sample.</div>";
+  try {
+    [CFG, PROJ] = await Promise.all([
+      fetch(api("/api/config")).then(r=>r.json()),
+      fetch(api("/api/projections")).then(r=>r.json()),
+    ]);
+  } catch(e){
+    $("plot-loading").innerHTML = "<div class='empty-title'>Failed to load "+name+"</div>"; return;
+  }
+  fillSelect(els.layer, CFG.layers);
+  fillSelect(els.position, CFG.positions);
+  state.layer = CFG.layers[0];
+  state.position = firstNonEmptyPosition() || CFG.positions[0];
+  state.color = els.color.value || "scaffold_id";
+  els.layer.value = state.layer;
+  els.position.value = state.position;
+  fillChips();
   $("plot-loading").classList.add("hidden");
   render();
+}
+
+// Header chips reflect the currently loaded model.
+function fillChips(){
+  $("chip-model").textContent = CFG.model_name;
+  $("chip-samples").textContent = CFG.n_samples;
+  $("chip-layers").textContent = (CFG.layers||[]).length;
+  $("chip-positions").textContent = (CFG.positions||[]).length;
 }
 
 function fillSelect(sel, items, label){
@@ -692,7 +741,7 @@ async function loadDetail(idx){
   const body = $("detail-body");
   body.innerHTML = "<div class='detail-hint'>Loading sample "+idx+"…</div>";
   let d;
-  try { d = await fetch("/api/sample/"+idx).then(r=>{ if(!r.ok) throw 0; return r.json(); }); }
+  try { d = await fetch(api("/api/sample/"+idx)).then(r=>{ if(!r.ok) throw 0; return r.json(); }); }
   catch(e){ body.innerHTML = "<div class='detail-hint'>Could not load sample "+idx+".</div>"; return; }
   body.innerHTML = renderDetail(d);
 }

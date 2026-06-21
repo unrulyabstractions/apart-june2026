@@ -40,6 +40,12 @@ uv run python sesgo/geometry/analyze_geometry.py            <RS>   # PCA + per-a
 uv run python sesgo/geometry/visualize_geometry_samples.py  <RS>   # PCA grid (every label axis)
 PORT=8002 bash sesgo/geometry/visualize_geometry.sh         <RS>   # interactive viz server
 ```
+The viz server is **multi-model**: it discovers every model under
+`out/sesgo/geometry/*/` that has both `response_samples.json` and
+`analysis/projections.json`, and exposes a **Model** selector. Switching models
+reloads that model's PCA geometry (all layers/positions/axes) in place; `<RS>`
+only fixes which model the page boots into. Run `collect → analyze` for each
+model you want to compare; one model is enough for the server to run.
 Common flags: `--model <hf-id>` (default `Qwen/Qwen3-0.6B`), `--subsample 0..1`,
 `--batch-size N` (batched forward), `--shard-index/--shard-count` (split the grid).
 Collection checkpoints to `response_samples.json` as it goes — re-run the same
