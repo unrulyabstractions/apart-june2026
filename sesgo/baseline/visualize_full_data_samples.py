@@ -43,6 +43,7 @@ from sesgo.baseline.full_data_axis_slices import (  # noqa: E402
     abstention_cells,
     axis_values,
 )
+from sesgo.baseline.full_data_breakdown_plots import plot_abstention_breakdown  # noqa: E402
 from sesgo.baseline.cross_model_aggregation import COND_TITLES  # noqa: E402
 
 
@@ -111,6 +112,13 @@ def main() -> None:
         plots_dir / "abstention_by_axis.png",
     )
     log(f"[viz] wrote {out_path}")
+
+    # The hero breakdown: ambiguous abstention by thinking x scaffold x wording,
+    # faceted per bias category -- the plain-language view of whether scaffolds work.
+    breakdown_path = plot_abstention_breakdown(
+        ambig, dataset.model_name, plots_dir / "abstention_breakdown.png",
+    )
+    log(f"[viz] wrote {breakdown_path}")
 
 
 if __name__ == "__main__":
