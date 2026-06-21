@@ -2,30 +2,25 @@
 # Launch the interactive SESGO geometry PCA visualizer (MULTI-MODEL).
 #
 # Usage:
-#   sesgo/geometry/visualize_geometry.sh [SAMPLES_JSON]
-#   PORT=8003 sesgo/geometry/visualize_geometry.sh out/sesgo/geometry/Qwen3-0.6B/response_samples.json
+#   PORT=8003 sesgo/geometry/visualize_geometry.sh
 #
-# SAMPLES_JSON only picks which model the page boots INTO; the server then
-# discovers every model under out/sesgo/geometry/*/ (each needing both
-# response_samples.json and analysis/projections.json) and exposes a Model
-# selector so you can switch between them in the browser.
+# No model needs to be specified. The server discovers EVERY analysed model under
+# out/sesgo/geometry/*/ (each needing response_samples.json + analysis/
+# projections.json) and exposes a Model selector so you switch between them live
+# in the browser. Optionally pass a different geometry root as $1.
 #
-# Ensures the boot model's PCA projection exists (runs analyze_geometry.py if
-# needed-on every launch so the served data is fresh), opens the browser, then
-# serves the app.
+# (To refresh a model's projections after new data, run analyze_geometry.py on it
+#  separately — this launcher no longer re-analyses on every start, so it's fast.)
 set -euo pipefail
 
 # Repo root = two levels up from this script (sesgo/geometry/<here>).
 cd "$(dirname "$0")/../.."
 
-SAMPLES="${1:-out/sesgo/geometry/Qwen3-0.6B/response_samples.json}"
 PORT="${PORT:-8002}"
+ROOT="${1:-out/sesgo/geometry}"
 
-# 1) Produce / refresh projections.json (writes to <MODEL>/analysis/).
-uv run python sesgo/geometry/analyze_geometry.py "$SAMPLES"
+# Open the browser shortly after the server comes up.
+(sleep 2 && open "http://localhost:$PORT") >/dev/null 2>&1 &
 
-# 2) Open the browser shortly after the server comes up.
-(sleep 2 && open "http://localhost:$PORT") &
-
-# 3) Serve (run-by-path; no module import needed).
-uv run python sesgo/geometry/geometry_viz_server.py --samples "$SAMPLES" --port "$PORT"
+# Serve (run-by-path; discovers + serves all models; no model arg required).
+uv run python sesgo/geometry/geometry_viz_server.py --geometry-root "$ROOT" --port "$PORT"

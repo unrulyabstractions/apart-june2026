@@ -125,23 +125,23 @@ def _sample_detail(s: GeometrySample) -> dict:
 # ── App factory ───────────────────────────────────────────────────────────────
 
 
-def build_app(samples_path: Path) -> FastAPI:
-    """Discover every captured model under ``samples_path``'s geometry root.
+def build_app(geometry_root: Path, preferred: str | None = None) -> FastAPI:
+    """Discover every analysed model under ``geometry_root`` and serve them all.
 
-    ``samples_path`` only fixes which model the frontend boots INTO (its parent
-    dir name); all sibling models become switchable. This keeps the existing
-    ``--samples out/.../<MODEL>/response_samples.json`` invocation working while
-    making every model under ``out/sesgo/geometry/`` available in the selector.
+    No model needs to be specified: every model under ``out/sesgo/geometry/*/``
+    (each needing response_samples.json + analysis/projections.json) is listed and
+    switchable via the Model selector. ``preferred`` only picks which one the
+    frontend boots INTO (the selector changes it live); it is optional.
     """
-    geometry_root = samples_path.resolve().parents[1]  # .../<MODEL>/file -> root
+    geometry_root = geometry_root.resolve()
     models = discover_models(geometry_root)
     if not models:
         raise FileNotFoundError(
             f"no analysed models found under {geometry_root} — run "
-            f"`uv run python sesgo/geometry/analyze_geometry.py {samples_path}` first."
+            f"`uv run python sesgo/geometry/analyze_geometry.py <MODEL>/response_samples.json` first."
         )
     _STATE["models"] = models
-    _STATE["default"] = default_model_name(models, preferred=samples_path.resolve().parent.name)
+    _STATE["default"] = default_model_name(models, preferred=preferred)
 
     app = FastAPI(title="SESGO Geometry Visualizer")
 
@@ -872,11 +872,18 @@ def parse_args() -> argparse.Namespace:
         description="Interactive web visualizer for the SESGO geometry PCA"
     )
     parser.add_argument(
+        "--geometry-root",
+        type=Path,
+        default=Path("out/sesgo/geometry"),
+        help="dir whose subdirs are per-model geometry outputs (default "
+        "out/sesgo/geometry); every analysed model under it is served + switchable",
+    )
+    parser.add_argument(
         "--samples",
         type=Path,
-        default=Path("out/sesgo/geometry/Qwen3-0.6B/response_samples.json"),
-        help="response_samples.json (a GeometryDataset); projections.json is read from its "
-        "sibling analysis/ dir",
+        default=None,
+        help="optional: a specific <MODEL>/response_samples.json to boot INTO "
+        "(the Model selector changes it live; NOT required)",
     )
     parser.add_argument("--port", type=int, default=8002, help="server port (default 8002)")
     parser.add_argument("--host", type=str, default="127.0.0.1", help="bind host")
@@ -887,7 +894,13 @@ def parse_args() -> argparse.Namespace:
 # below is the supported run-by-path path (no module import needed).
 args = parse_args() if __name__ == "__main__" else None
 if args is not None:
-    app = build_app(args.samples)
+    # --samples (optional) just picks the boot model; otherwise serve the whole
+    # geometry root and let the UI's Model selector choose. No model required.
+    if args.samples is not None:
+        _root, _pref = args.samples.resolve().parents[1], args.samples.resolve().parent.name
+    else:
+        _root, _pref = args.geometry_root, None
+    app = build_app(_root, _pref)
 
 
 if __name__ == "__main__":
