@@ -293,3 +293,62 @@ gpu_util>0 on a few is STALE (stopped boxes don't compute). None actively runnin
 ## 5. PAPER: add Appendix H (Steering, figs+JSON on disk). Skip G (no forking figs). Rebuild+commit.
 
 ## 6. SWEEP: Qwen3-8B still missing. 70B baseline missing. Boxes all stopped.
+
+## REVIEW (hour complete)
+
+### 1. RECLAIM
+- Destroyed 27 boxes: 25 originally-stopped + 2 wedged (41989335, 41989340, never came up).
+- KEPT 7 actively-running boxes (419916xx) — a concurrent agent's fleet_run.sh is SSH-driving
+  them on MODEL=Qwen3-0.6B STUDIES=baseline_full SHARD_*of8 (GENERATE_ALL_DATA=1), rsync pulling
+  into sync/partial-box-Qwen3-0.6B__shard*of8/. (8 at start, 1 self-destructed on finish -> 7.)
+- Remaining RUNNING burn: $6.43/hr (the active grid). Stopped/idle burn eliminated.
+
+### 2. BASELINE MERGE (target 2310)
+- Promoted to out/ @2310: Qwen3-14B (was MISSING), gemma-2-9b-it (was MISSING),
+  Llama-3.1-8B-Instruct (was BROKEN 96 -> rm + promote 2310). All verified non-empty real.
+- CORRECTION to task premise: sync/final-Qwen3-32B (1376) and final-gemma-2-27b-it (1408) are
+  NOT full 2310 — they EQUAL the out/ partials exactly. NO 2310 exists anywhere for these two.
+  Did NOT destroy-and-replace partials with identical data (would have lost nothing but gained
+  nothing and risked the only copy). Left partials intact.
+- Completeness: 11/14 full (2310); 2 partial (Qwen3-32B 1376, gemma-2-27b 1408); 2 missing
+  (Qwen3-8B, Llama-3.1-70B baseline).
+
+### 3. COMBINE SHARDS (scope models)
+- Geometry combined (clobber-safe, all .pt verified):
+  - Qwen3-0.6B: 6/6 shards -> 4620 samples, 517,440 .pt. analyzed+visualized (re-analyze running bg).
+  - Qwen3-32B: 4/4 shards -> 4620 samples, 1,182,720 .pt. analyze DEFERRED (too heavy this hr; data safe).
+  - Llama-3.1-70B (NEW): single box -> 140 samples, 28,000 .pt. analyzed + visualized.
+- Llama-3.2-1B geometry: shard 1of4 missing -> SKIPPED (next hour).
+- Selection/Divergence: no complete box-* shard sets -> SKIPPED.
+
+### CROSS-SIZE SCAFFOLD SILHOUETTE (label position, mean across layers)
+- Qwen3-0.6B (0.6B): +0.488 (0.635 @ L14)  [matches paper +0.48]
+- Llama-3.1-70B (70B, NEW): +0.473 (0.476-0.477 across last layers)
+- Qwen3-32B (32B): pending analyze
+- FINDING HOLDS ACROSS FAMILY + SCALE: scaffold is the dominant separable axis (~0.48) on both a
+  tiny Qwen and a huge Llama.
+
+### 4. RE-RENDER
+- Cross-model size sweep re-rendered: now 13 models (added 14B/9b/8B).
+- Per-model baseline viz: Qwen3-14B, gemma-2-9b-it, Llama-3.1-8B-Instruct (accuracy + role_prob).
+
+### 5. PAPER
+- Added Appendix H (Steering): Methods -> bulleted Results -> Figure 8 (abstention & unknown-mass
+  vs alpha). Registered out/sesgo/steer/figures in graphicspath. Rewrote future-work bullet to cite
+  the now-done App H. Did NOT touch \section{Results} stub.
+- NO Appendix G (Forking): no forking output figures on disk (only unmerged branch code).
+- Build clean: 13 pages (was 12), no placeholders. Verified page 12 visually (Fig 8 real plots).
+- Committed (8469e15) + pushed onto origin/main (no conflict; I own paper this hour).
+
+### 6. SWEEP
+- NOT launching Qwen3-8B / 70B baseline: a concurrent agent is actively driving the cloud fleet
+  (live fleet_run.sh + rsync). Launching would collide on shared cloud/.fleet/ + sync/ state and
+  double-bill. Deferred to an hour when the cloud is not owned by another process.
+
+### PENDING (next hour)
+- Qwen3-32B geometry analyze + viz (data combined, just heavy).
+- Qwen3-0.6B geometry re-analyze finishing in bg (refreshes plots; paper unaffected).
+- Qwen3-8B + Llama-3.1-70B baseline (launch when cloud free).
+- Llama-3.2-1B geometry shard 1of4 (resume), then combine.
+- Qwen3-32B / gemma-2-27b baseline: still only partials; need a real full-2310 run.
+- Selection/divergence shard sets incomplete (only partial-box mirrors).
