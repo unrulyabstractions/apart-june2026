@@ -19,7 +19,8 @@ report:
     between/within scatter-trace ratio.
   AXIS_SEPARATION- the same silhouette + between/within ratio computed for EVERY
     other per-sample axis: origin (bbq), language, bias_category,
-    question_polarity, target_identity, other_identity, gold_label, label_style.
+    question_polarity, context_condition (ambig vs disambig), accuracy (correct vs
+    incorrect), target_identity, other_identity, gold_label, label_style.
 
 Robust to missing positions / subsampled data: positions absent or with fewer
 than MIN_SAMPLES valid rows are skipped (logged), degenerate (baseline-only)
@@ -63,6 +64,8 @@ _PER_SAMPLE_AXES = (
     "language",
     "bias_category",
     "question_polarity",
+    "context_condition",
+    "accuracy",
     "target_identity",
     "other_identity",
     "gold_label",
@@ -100,12 +103,25 @@ def _scaffold_label(scaffold_id: str | None) -> str:
     return scaffold_id or _BASELINE
 
 
+def _accuracy_label(s: GeometrySample) -> str:
+    """Per-sample correctness vs the per-condition gold, as a colour-by string.
+
+    "correct"/"incorrect" by the non-thinking prediction matching the gold role
+    (ambiguous -> UNKNOWN, disambiguated -> the ground-truth role); "(no readout)"
+    when the sample has no non-thinking prediction to score.
+    """
+    if s.predicted_non_thinking is None:
+        return "(no readout)"
+    return "correct" if s.correct_non_thinking else "incorrect"
+
+
 def _sample_row(s: GeometrySample) -> dict:
     """Flatten one sample's every colour-by axis into a parallel metadata row.
 
     ``scaffold_id`` stays raw (None == baseline; downstream maps it); ``origin``
-    is derived from the bbq flag. Every other axis is a stringified verbatim
-    field so a frontend can scatter and colour by any of them.
+    is derived from the bbq flag; ``accuracy`` from the non-thinking readout vs the
+    per-condition gold. Every other axis is a stringified verbatim field so a
+    frontend can scatter and colour by any of them.
     """
     return {
         "sample_idx": s.sample_idx,
@@ -115,6 +131,8 @@ def _sample_row(s: GeometrySample) -> dict:
         "language": s.language,
         "bias_category": s.bias_category,
         "question_polarity": s.question_polarity,
+        "context_condition": getattr(s, "context_condition", "") or "(unknown)",
+        "accuracy": _accuracy_label(s),
         "target_identity": getattr(s, "target_identity", "") or "(unknown)",
         "other_identity": getattr(s, "other_identity", "") or "(unknown)",
         "gold_label": getattr(s.gold_label, "value", s.gold_label),

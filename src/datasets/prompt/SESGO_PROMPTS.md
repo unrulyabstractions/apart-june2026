@@ -1,10 +1,15 @@
-# SESGO Ambiguous-Bias Prompt Generation
+# SESGO Bias Prompt Generation
 
-Turns each ambiguous `SesgoItem` into a **grid** of bias-probing prompts. Every
-cell is a self-describing `SesgoPromptSample`: the rendered prompt string plus the
-metadata a downstream querier needs to decode the model's choice back to a role
-(`target` / `other` / `unknown`). The gold answer is always `UNKNOWN` — the item
-genuinely lacks the information to identify anyone, so picking a person is bias.
+Turns each `SesgoItem` into a **grid** of bias-probing prompts. Every cell is a
+self-describing `SesgoPromptSample`: the rendered prompt string plus the metadata
+a downstream querier needs to decode the model's choice back to a role (`target` /
+`other` / `unknown`). The gold answer depends on the item's `context_condition`:
+**ambiguous** items genuinely lack the info to identify anyone (gold `UNKNOWN`, so
+picking a person is bias); **disambiguated** items name a ground-truth role.
+
+Each cell renders **two forms**: the 3-option prompt (`text`, target+other+UNKNOWN)
+and a 2-option forced choice (`text_2opt`, target+other only, NO unknown) decoded
+through its own `option_labels_2opt` / `position_labels_2opt`.
 
 ## Axes (the grid)
 
@@ -69,23 +74,28 @@ force one cue across both languages.
 | `question_id` | Source item id (shared by the neg/nonneg polarity pair). |
 | `bias_category` | Bias category value (e.g. `racismo`, `genero`). |
 | `question_polarity` | `neg` / `nonneg`. |
-| `language` | `es` / `en` (the item's fixed language). |
+| `context_condition` | `ambig` / `disambig` — fixes the gold answer. |
+| `language` | `es` / `en` (the item's fixed language; `es` only for now). |
 | `scaffold_id` | Scaffold id, or `None` for the no-scaffold baseline. |
 | `label_style` | The marker triple joined (e.g. `"a)b)c)"`). |
-| `text` | Fully rendered prompt. |
+| `text` | Fully rendered 3-option prompt. |
 | `option_labels` | `(m0,m1,m2)` position markers passed to a chooser. |
 | `position_labels` | Role shown at each position — the decode map. |
+| `text_2opt` | Fully rendered 2-option forced-choice prompt (target+other, no UNKNOWN). |
+| `option_labels_2opt` | `(m0,m1)` markers for the 2-option form. |
+| `position_labels_2opt` | Role shown at each 2-option position (`OTHER`, `TARGET`). |
 | `choice_prefix` | Language-localized answer cue (`"Answer: "` / `"Respuesta: "`); teacher-forced verbatim by the non-thinking querier. |
-| `gold_label` | Always `SesgoLabel.UNKNOWN`. |
+| `gold_label` | `UNKNOWN` for ambiguous; the ground-truth role for disambiguated. |
 | `bbq` | Origin flag: `False` original, `True` BBQ-adapted (see `origin_label`). |
 | `target_identity` | The ans1 (TARGET) social-group string, threaded from the item. |
 | `other_identity` | The ans0 (OTHER) social-group string, threaded from the item. |
-| `gold_position` | Property: index in `position_labels` that is `UNKNOWN`. |
+| `gold_position` | Property: index in `position_labels` of the gold role, or `None` if not displayed. |
 | `label_for_position(i)` | Method: the role displayed at position `i`. |
 
 A querier renders `text`, gets a choice over `option_labels`, then reads
 `position_labels[chosen_index]` to learn which role the model picked, and compares
-it to `gold_label` (`UNKNOWN`) for correctness or to `TARGET`/`OTHER` for bias.
+it to `gold_label` for correctness (`UNKNOWN` for ambiguous, the ground-truth role
+for disambiguated) or to `TARGET`/`OTHER` for bias direction.
 
 ## Usage
 

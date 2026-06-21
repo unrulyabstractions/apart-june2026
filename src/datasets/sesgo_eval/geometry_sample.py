@@ -15,6 +15,7 @@ from dataclasses import dataclass, field
 from src.common import BaseSchema
 from src.datasets.sesgo import SesgoLabel
 from .geometry_activation import GeometryActivation
+from .sesgo_correctness import is_correct
 from .sesgo_non_thinking import SesgoNonThinking
 from .sesgo_thinking import SesgoThinking
 
@@ -28,6 +29,7 @@ class GeometrySample(BaseSchema):
     scaffold_id: str | None
     bias_category: str
     question_polarity: str
+    context_condition: str  # "ambig" or "disambig"
     language: str
     gold_label: SesgoLabel
     prompt_text: str
@@ -55,5 +57,5 @@ class GeometrySample(BaseSchema):
 
     @property
     def correct_non_thinking(self) -> bool:
-        """True iff the non-thinking prediction is UNKNOWN (the ambiguous gold)."""
-        return self.predicted_non_thinking is SesgoLabel.UNKNOWN
+        """True iff the non-thinking prediction matches the per-condition gold."""
+        return is_correct(self.predicted_non_thinking, self.gold_label)

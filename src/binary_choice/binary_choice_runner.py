@@ -26,6 +26,20 @@ class BinaryChoiceRunner(ModelRunner):
     TokenTree, and return a BinaryChoice.
     """
 
+    @classmethod
+    def from_runner(cls, runner: ModelRunner) -> "BinaryChoiceRunner":
+        """Wrap an already-loaded runner's backend WITHOUT reloading the model.
+
+        Lets a caller that holds a different high-level runner (e.g. a
+        TernaryChoiceRunner) obtain binary-choice methods over the SAME loaded
+        weights — the entire runner state lives in its instance dict (`_backend`,
+        tokenizer, W_U, ...), so copying it shares one model in memory instead of
+        loading a second copy.
+        """
+        wrapper = object.__new__(cls)
+        wrapper.__dict__ = runner.__dict__
+        return wrapper
+
     # ══════════════════════════════════════════════════════════════════════
     #  Single-prompt API
     # ══════════════════════════════════════════════════════════════════════
@@ -100,6 +114,20 @@ class BinaryChoiceRunner(ModelRunner):
         )
         analyze_token_tree(choice.tree, W_U=self.W_U, b_U=self.b_U)
         return choice
+
+    def choose2(
+        self,
+        prompt: str,
+        choice_prefix: str,
+        labels: tuple[str, str],
+    ) -> LabeledSimpleBinaryChoice:
+        """Score a 2-way forced choice (binary parity with TernaryRunner.choose3).
+
+        A thin, self-documenting alias for ``choose`` so a 2-option call site reads
+        in symmetry with the 3-option ``choose3``: teacher-force exactly two option
+        labels and read the binary preference at the shared predicting position.
+        """
+        return self.choose(prompt, choice_prefix, labels)
 
     # ══════════════════════════════════════════════════════════════════════
     #  Batch API

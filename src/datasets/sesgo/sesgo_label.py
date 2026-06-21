@@ -11,6 +11,12 @@ from __future__ import annotations
 from enum import Enum
 
 
+# Corpus positional convention for the `label` / `answer_info` index:
+# ans0 == OTHER, ans1 == TARGET, ans2 == UNKNOWN. Single source of truth for
+# decoding a disambiguated item's ground-truth `label` integer into a role.
+_INDEX_TO_LABEL = ("other", "target", "unknown")
+
+
 class SesgoLabel(Enum):
     """Role of a SESGO answer option.
 
@@ -22,3 +28,12 @@ class SesgoLabel(Enum):
     TARGET = "target"
     OTHER = "other"
     UNKNOWN = "unknown"
+
+    @classmethod
+    def from_answer_index(cls, index: int) -> "SesgoLabel":
+        """Decode a corpus answer index (ans0/ans1/ans2) into its role.
+
+        The SESGO `label` column gives the index of the correct answer for a
+        DISAMBIGUATED item; ans0=OTHER, ans1=TARGET, ans2=UNKNOWN by convention.
+        """
+        return cls(_INDEX_TO_LABEL[int(index)])

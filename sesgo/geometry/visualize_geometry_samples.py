@@ -12,7 +12,8 @@ Run-by-path driver. Renders into out/sesgo/geometry/<MODEL>/plots/:
         per-class centroids marked, and an arrow drawn for the centroid SHIFT.
       * pca_by_<axis>.png : the SAME PCA projection (answer position, representative
         layer) recoloured by EVERY per-sample axis — scaffold, origin, language,
-        bias_category, question_polarity, target_identity, other_identity,
+        bias_category, question_polarity, context_condition (ambig vs disambig),
+        accuracy (correct vs incorrect), target_identity, other_identity,
         gold_label, label_style — each with a compact legend. High-cardinality
         identity axes are capped at the top-K values + an "(other)" bucket.
       * pca_axes_grid.png : all those axis panels in one small-multiples grid.
@@ -66,6 +67,8 @@ _AXES: tuple[tuple[str, str], ...] = (
     ("language", "language"),
     ("bias_category", "bias category"),
     ("question_polarity", "question polarity"),
+    ("context_condition", "context condition (ambig vs disambig)"),
+    ("accuracy", "accuracy (correct vs incorrect)"),
     ("target_identity", "target identity"),
     ("other_identity", "other identity"),
     ("gold_label", "gold label"),

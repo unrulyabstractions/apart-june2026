@@ -1,23 +1,35 @@
-# SESGO Ambiguous-Bias Querying
+# SESGO Bias Querying
 
 Runs `SesgoPromptSample`s (from `src/datasets/prompt/`) through a local LLM and
-records a `SesgoSample` per prompt with up to two analysis levels. Each level is
-a 3-way distribution over the answer *roles* — TARGET / OTHER / UNKNOWN — not the
-displayed positions. The ambiguous-context gold is always UNKNOWN, so a "correct"
-sample is one where the model abstains rather than picking a group.
+records a `SesgoSample` per prompt with up to three analysis levels. Readouts are
+distributions over the answer *roles* — TARGET / OTHER / UNKNOWN — not the
+displayed positions. Gold depends on the context condition: **ambiguous** items
+are correct when the model abstains (predicts UNKNOWN); **disambiguated** items
+are correct when the prediction matches the ground-truth role given by `label`.
 
 This is the SESGO counterpart of `src/datasets/risk/`; the loader package
 `src/datasets/sesgo/` stays torch-free, and the model querier lives here.
 
-## The two analysis levels
+## The three analysis levels
 
 | Level | How | Output |
 |-------|-----|--------|
-| **Non-thinking** | Teacher-force the three option markers past an empty `<think></think>` block (`TernaryChoiceRunner.choose3`) — no reasoning. | A `SesgoNonThinking`: five per-option vectors (`prob`, `logprob`, `logit`, `normalized_logit`, `inv_ppl`), each length-3 in role order [TARGET, OTHER, UNKNOWN], **remapped from POSITIONS** via `position_labels`, plus `entropy`/`diversity`/`predicted`. |
+| **Non-thinking (3-option)** | Teacher-force the three option markers past an empty `<think></think>` block (`TernaryChoiceRunner.choose3`) — no reasoning. | A `SesgoNonThinking`: five per-option vectors (`prob`, `logprob`, `logit`, `normalized_logit`, `inv_ppl`), each length-3 in role order [TARGET, OTHER, UNKNOWN], **remapped from POSITIONS** via `position_labels`, plus `entropy`/`diversity`/`predicted`. |
+| **Non-thinking (2-option)** | Teacher-force only the two GROUP markers (target+other, NO unknown) over `text_2opt` (`BinaryChoiceRunner.choose2`) — a forced choice. | A `SesgoTwoOption`: `prob`/`logprob` length-2 in role order [OTHER, TARGET] remapped via `position_labels_2opt`, plus `picked`. With no UNKNOWN, ambiguous accuracy is N/A (records bias DIRECTION); disambiguated accuracy = picked the ground-truth group. |
 | **Thinking** | Sample `n_thinking_samples` free-form generations (`temperature > 0`), parse which role each chose. | A `SesgoThinking`: per-role `mean` (pick fraction) and `std` (population std of the one-hot indicator), `sample_size` (#parsed, may be 0), `predicted`. |
 
 Levels run per prompt according to `SesgoQueryConfig` (`do_non_thinking`,
-`do_thinking`).
+`do_two_option`, `do_thinking`). The 2-option readout reuses the SAME loaded
+weights via `BinaryChoiceRunner.from_runner(runner)` (no second model load).
+
+## Accuracy / correctness (per context condition)
+
+`sesgo_correctness.py` is the single source of truth: `is_correct(pred, gold)`
+compares a prediction against the per-condition `gold_label` (ambiguous → UNKNOWN;
+disambiguated → ground-truth role). `SesgoSample.correct_non_thinking` /
+`correct_thinking` use it; `correct_2opt` uses `two_option_correct(...)` which
+returns `None` for ambiguous items (no UNKNOWN to score) and the forced-choice
+match for disambiguated items.
 
 ## The position → meaning remap
 
@@ -43,12 +55,14 @@ result is invariant to ordering, which is exactly what defeats position bias.
 ## Color-by axes on `SesgoSample`
 
 Every axis is a flat field for slicing without a re-join: `sample_idx`,
-`question_id`, `scaffold_id`, `question_polarity`, `bias_category`, `language`,
-`label_style`, `gold_label`, plus the provenance / social-group axes `bbq`
-(origin: `False` original vs `True` BBQ-adapted), `target_identity` (the ans1
-group string) and `other_identity` (the ans0 group string). `GeometrySample`
-carries the same set so the geometry viz can colour the projection by any of
-them.
+`question_id`, `scaffold_id`, `question_polarity`, `bias_category`,
+`context_condition` (ambig vs disambig), `language`, `label_style`, `gold_label`,
+plus the provenance / social-group axes `bbq` (origin: `False` original vs `True`
+BBQ-adapted), `target_identity` (the ans1 group string) and `other_identity` (the
+ans0 group string). `GeometrySample` carries the same set (plus a derived
+`accuracy` correct/incorrect axis in the projection) so the geometry viz can
+colour the PCA projection by any of them — including `context_condition` and
+`accuracy`.
 
 ## Per-option non-thinking vectors (`SesgoNonThinking`)
 
@@ -89,11 +103,13 @@ skip-thinking prefix and the `<think>` markers are no-ops for Llama/Gemma/Mistra
 
 | Symbol | Purpose |
 |--------|---------|
-| `SesgoQueryConfig` | Query knobs (samples, temperature, tokens, which levels, subsample). |
+| `SesgoQueryConfig` | Query knobs (samples, temperature, tokens, which levels incl. `do_two_option`, subsample). |
 | `SesgoQuerier` | `query_sample(prompt_sample, runner)` and `query_dataset(prompt_dataset, model_name)`. |
-| `SesgoSample` | Per-prompt record: color-by axes + `non_thinking` + `thinking`. |
+| `SesgoSample` | Per-prompt record: color-by axes (+`context_condition`) + `non_thinking` + `non_thinking_2opt` + `thinking`; `correct_*`, `picked_2opt`. |
 | `SesgoNonThinking` | Per-option vectors (`prob`/`logprob`/`logit`/`normalized_logit`/`inv_ppl`) + `entropy`/`diversity`/`predicted`; `from_ternary(choice, position_labels)`. |
+| `SesgoTwoOption` | 2-option forced-choice readout `prob`/`logprob` [OTHER, TARGET] + `picked`; `from_binary(choice, position_labels_2opt)`. |
 | `SesgoThinking` | Per-role `mean`/`std` + `sample_size` + `predicted`; `summarize_labels(labels)`. |
+| `is_correct` / `two_option_correct` | Per-condition correctness against `gold_label`. |
 | `parse_chosen_label` | Parse one generation into a chosen `SesgoLabel` (or `None`). |
 | `SesgoDataset` | `model` + `config` + `samples`; `save_as_json` / inherited `from_json`. |
 

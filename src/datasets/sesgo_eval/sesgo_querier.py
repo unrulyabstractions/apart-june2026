@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import math
 
+from src.binary_choice import BinaryChoiceRunner
 from src.common.device_utils import ProgressTracker, clear_gpu_memory
 from src.common.logging import log
 from src.datasets.prompt import SesgoPromptDataset, SesgoPromptSample
@@ -23,6 +24,7 @@ from .sesgo_query_config import SesgoQueryConfig
 from .sesgo_response_parsing import parse_chosen_label
 from .sesgo_sample import SesgoSample
 from .sesgo_thinking import SesgoThinking, summarize_labels
+from .sesgo_two_option import SesgoTwoOption
 
 # Periodically free accelerator memory so long runs don't accumulate caches.
 _GPU_CLEAR_EVERY = 25
@@ -34,6 +36,13 @@ class SesgoQuerier:
     def __init__(self, config: SesgoQueryConfig):
         self.config = config
         self._runner: TernaryChoiceRunner | None = None
+        self._binary: BinaryChoiceRunner | None = None
+
+    def _binary_runner(self, runner: TernaryChoiceRunner) -> BinaryChoiceRunner:
+        """A BinaryChoiceRunner over the SAME loaded weights (no second load)."""
+        if self._binary is None or self._binary.model_name != runner.model_name:
+            self._binary = BinaryChoiceRunner.from_runner(runner)
+        return self._binary
 
     def _load_model(self, name: str) -> TernaryChoiceRunner:
         """Construct (and cache) the runner; reuse it across samples/datasets.
@@ -86,6 +95,20 @@ class SesgoQuerier:
             )
         return nt
 
+    def _non_thinking_2opt(
+        self, sample: SesgoPromptSample, runner: TernaryChoiceRunner
+    ) -> SesgoTwoOption:
+        """Teacher-forced 2-way forced-choice readout (target vs other, no UNKNOWN).
+
+        Runs choose2 over the 2-option prompt's two group markers, then remaps the
+        binary preference through position_labels_2opt into [OTHER, TARGET] roles.
+        Reuses the loaded weights via a wrapping BinaryChoiceRunner.
+        """
+        prefix = sample.choice_prefix or "Answer: "
+        binary = self._binary_runner(runner)
+        choice = binary.choose2(sample.text_2opt, prefix, sample.option_labels_2opt)
+        return SesgoTwoOption.from_binary(choice, sample.position_labels_2opt)
+
     def _thinking(
         self, sample: SesgoPromptSample, runner: TernaryChoiceRunner
     ) -> tuple[SesgoThinking, list[str]]:
@@ -114,6 +137,11 @@ class SesgoQuerier:
             if self.config.do_non_thinking
             else None
         )
+        non_thinking_2opt = (
+            self._non_thinking_2opt(prompt_sample, runner)
+            if self.config.do_two_option
+            else None
+        )
         thinking = completions = None
         if self.config.do_thinking:
             thinking, completions = self._thinking(prompt_sample, runner)
@@ -124,6 +152,7 @@ class SesgoQuerier:
             scaffold_id=prompt_sample.scaffold_id,
             question_polarity=prompt_sample.question_polarity,
             bias_category=prompt_sample.bias_category,
+            context_condition=prompt_sample.context_condition,
             language=prompt_sample.language,
             label_style=prompt_sample.label_style,
             gold_label=prompt_sample.gold_label,
@@ -132,6 +161,7 @@ class SesgoQuerier:
             target_identity=prompt_sample.target_identity,
             other_identity=prompt_sample.other_identity,
             non_thinking=non_thinking,
+            non_thinking_2opt=non_thinking_2opt,
             thinking=thinking,
             _thinking_completions=completions,
         )

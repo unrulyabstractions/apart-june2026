@@ -19,19 +19,34 @@ from src.datasets.sesgo import SesgoLabel
 
 @dataclass
 class SesgoPromptSample(BaseSchema):
-    """One prompt in the SESGO grid, with its role-decoding metadata."""
+    """One prompt in the SESGO grid, with its role-decoding metadata.
+
+    Carries TWO rendered forms: the 3-option prompt (`text`, target+other+UNKNOWN)
+    and a 2-option forced-choice prompt (`text_2opt`, target+other only, no
+    UNKNOWN). Each has its own option markers and position->role decoding tuple;
+    the 2-option form drops the UNKNOWN role entirely.
+    """
 
     sample_idx: int
     question_id: str
     bias_category: str
     question_polarity: str
+    context_condition: str  # "ambig" or "disambig"
     language: str
     scaffold_id: str | None
     label_style: str
-    text: str  # fully rendered prompt
+    text: str  # fully rendered 3-option prompt
     option_labels: tuple[str, str, str]  # the 3 position markers (m0,m1,m2)
     position_labels: tuple[SesgoLabel, SesgoLabel, SesgoLabel]  # pos i -> role shown
     choice_prefix: str
+    # 2-option forced-choice rendering (target+other only, no UNKNOWN). Its two
+    # markers and position->role tuple decode a binary readout the same way.
+    text_2opt: str = ""
+    option_labels_2opt: tuple[str, str] = ("a)", "b)")
+    position_labels_2opt: tuple[SesgoLabel, SesgoLabel] = (
+        SesgoLabel.OTHER,
+        SesgoLabel.TARGET,
+    )
     gold_label: SesgoLabel = SesgoLabel.UNKNOWN
     # Provenance / social-group axes carried so any downstream record can colour
     # by them without re-joining the source item. bbq: original vs BBQ-adapted;
@@ -41,9 +56,16 @@ class SesgoPromptSample(BaseSchema):
     other_identity: str = ""
 
     @property
-    def gold_position(self) -> int:
-        """Index of the displayed position holding the UNKNOWN (gold) option."""
-        return self.position_labels.index(SesgoLabel.UNKNOWN)
+    def gold_position(self) -> int | None:
+        """Displayed position holding the gold role, or None if not shown.
+
+        For ambiguous items the gold is UNKNOWN; for disambiguated items it is the
+        ground-truth role. Returns None when that role is absent from the 3-option
+        display (should not happen for the 3-option form).
+        """
+        if self.gold_label in self.position_labels:
+            return self.position_labels.index(self.gold_label)
+        return None
 
     def label_for_position(self, i: int) -> SesgoLabel:
         """Which role (target/other/unknown) is displayed at position `i`."""

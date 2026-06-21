@@ -25,22 +25,28 @@ _CANONICAL_ROLES = (SesgoLabel.OTHER, SesgoLabel.TARGET, SesgoLabel.UNKNOWN)
 
 
 def _render(scaffold: Scaffold | None, item: SesgoItem, markers, roles, prefix) -> str:
-    """Render one prompt: optional scaffold, then context/question/3 options.
+    """Render one prompt: optional scaffold, then context/question/N options.
 
     Section markers are localized to the item's language so a Spanish item reads
     as one coherent Spanish prompt; the option text itself is already authored
-    in that language.
+    in that language. ``roles``/``markers`` may hold 2 (forced-choice) or 3
+    options — the option block is built over however many positions are passed.
     """
     preamble = f"{scaffold.text(item.language)}\n\n" if scaffold else ""
     ctx_marker, q_marker, opt_marker = sesgo_markers(item.language)
     texts = _role_texts(item)
-    options = "\n".join(f"{markers[i]} {texts[roles[i]]}" for i in range(3))
+    options = "\n".join(f"{markers[i]} {texts[roles[i]]}" for i in range(len(roles)))
     return (
         f"{preamble}{ctx_marker}\n{item.context}\n"
         f"{q_marker}\n{item.question}\n"
         f"{opt_marker}\n{options}\n"
         f"{prefix}"
     )
+
+
+# The 2-option forced choice drops UNKNOWN, presenting only the two groups in the
+# corpus' canonical order (OTHER, then TARGET).
+_TWO_OPTION_ROLES = (SesgoLabel.OTHER, SesgoLabel.TARGET)
 
 
 def _role_texts(item: SesgoItem) -> dict[SesgoLabel, str]:
@@ -91,16 +97,24 @@ class SesgoPromptDatasetGenerator:
         yield from product(conditions, orderings, self.config.label_styles)
 
     def _build(self, item, scaffold, roles, markers, idx) -> SesgoPromptSample:
-        """Render one cell and capture its role-decoding metadata."""
+        """Render one cell and capture its role-decoding metadata.
+
+        Renders BOTH forms from the same cell: the 3-option prompt (the permuted
+        roles/markers) and a 2-option forced-choice prompt (target+other only, no
+        UNKNOWN) using the cell's first two markers in canonical group order.
+        """
         # Default to the language-derived cue so es prompts teacher-force
         # "Respuesta: "; an explicit config override wins if one is set.
         prefix = self.config.choice_prefix or sesgo_choice_prefix(item.language)
         text = _render(scaffold, item, markers, roles, prefix)
+        markers_2opt = (markers[0], markers[1])
+        text_2opt = _render(scaffold, item, markers_2opt, _TWO_OPTION_ROLES, prefix)
         return SesgoPromptSample(
             sample_idx=idx,
             question_id=item.question_id,
             bias_category=item.category.value,
             question_polarity=item.polarity,
+            context_condition=item.context_condition,
             language=item.language,
             scaffold_id=scaffold.scaffold_id if scaffold else None,
             label_style="".join(markers),
@@ -108,6 +122,9 @@ class SesgoPromptDatasetGenerator:
             option_labels=tuple(markers),
             position_labels=tuple(roles),
             choice_prefix=prefix,
+            text_2opt=text_2opt,
+            option_labels_2opt=markers_2opt,
+            position_labels_2opt=_TWO_OPTION_ROLES,
             gold_label=item.gold_label,
             bbq=item.bbq,
             # answer_info convention: ans1=TARGET group, ans0=OTHER group.

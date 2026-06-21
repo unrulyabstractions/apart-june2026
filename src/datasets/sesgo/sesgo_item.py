@@ -20,18 +20,22 @@ def origin_label(bbq: bool) -> str:
 
 @dataclass
 class SesgoItem(BaseSchema):
-    """One SESGO ambiguous prompt with its three role-labelled answer options.
+    """One SESGO prompt with its three role-labelled answer options.
 
     `question_id` is shared by the negative/non-negative phrasing pair so callers
     can recover the polarity pair from a flattened list; it is a stable hash of
     (category, language, context), which is invariant across the polarity flip.
-    For ambiguous contexts the gold answer is always UNKNOWN ("not enough info").
+
+    `context_condition` ("ambig"|"disambig") fixes the gold answer: AMBIGUOUS
+    items have no evidence so gold is always UNKNOWN ("not enough info");
+    DISAMBIGUATED items name the ground-truth role, captured in `gold_label`.
     """
 
     question_id: str
     category: SesgoCategory
     language: str
     polarity: str  # "neg" or "nonneg"
+    context_condition: str  # "ambig" or "disambig"
     context: str
     question: str
     target_text: str

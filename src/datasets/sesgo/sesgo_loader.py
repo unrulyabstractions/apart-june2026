@@ -1,8 +1,11 @@
-"""Load the SESGO benchmark's ambiguous-context prompts into SesgoItem objects.
+"""Load SESGO benchmark prompts into SesgoItem objects.
 
-Reads the per-(category, language) Excel prompt files, keeps only the AMBIGUOUS
-rows, and unpacks each `answer_info` dict into role-labelled option texts using
-the corpus' positional convention (ans0=OTHER, ans1=TARGET, ans2=UNKNOWN).
+Reads the per-(category, language) Excel prompt files and unpacks each
+`answer_info` dict into role-labelled option texts using the corpus' positional
+convention (ans0=OTHER, ans1=TARGET, ans2=UNKNOWN). Both context conditions are
+kept: AMBIGUOUS items (gold = UNKNOWN, no evidence) and DISAMBIGUATED items
+(gold = the role named by the `label` index). For now only Spanish ORIGINAL rows
+are loaded — English and BBQ-adapted (bbq==True) rows are dropped at read time.
 """
 
 from __future__ import annotations
@@ -43,47 +46,68 @@ def _find_prompt_file(sesgo_dir: Path, category: SesgoCategory, language: str) -
     return None
 
 
+def _gold_label(row: pd.Series, condition: str) -> SesgoLabel:
+    """Ground-truth role per condition: ambiguous -> UNKNOWN; else the `label`.
+
+    AMBIGUOUS contexts give no evidence, so the correct answer is always UNKNOWN
+    (abstention). DISAMBIGUATED contexts name the ground-truth role through the
+    `label` index (0=other, 1=target, 2=unknown).
+    """
+    if condition == "ambig":
+        return SesgoLabel.UNKNOWN
+    return SesgoLabel.from_answer_index(row["label"])
+
+
 def _row_to_item(row: pd.Series, category: SesgoCategory, language: str) -> SesgoItem:
-    """Build one SesgoItem from an ambiguous prompt row."""
+    """Build one SesgoItem from a prompt row (either context condition)."""
     # answer_info is a stringified Python dict; ans0/ans1/ans2 are fixed roles.
     info = ast.literal_eval(row["answer_info"])
     context = str(row["context"])
+    condition = str(row["context_condition"])
     return SesgoItem(
         question_id=_question_id(category, language, context),
         category=category,
         language=language,
         polarity=str(row["question_polarity"]),
+        context_condition=condition,
         context=context,
         question=str(row["question"]),
         other_text=str(info["ans0"]),
         target_text=str(info["ans1"]),
         unknown_text=str(info["ans2"]),
         bbq=bool(row["bbq"]),
-        gold_label=SesgoLabel.UNKNOWN,  # ambiguous gold is always "unknown"
+        gold_label=_gold_label(row, condition),
     )
 
 
 def _load_file(path: Path, category: SesgoCategory, language: str, limit: int | None) -> list[SesgoItem]:
-    """Read one prompt file, keep AMBIGUOUS rows only, cap at `limit`."""
+    """Read one prompt file, keep ORIGINAL (bbq==False) rows, cap at `limit`.
+
+    Both context conditions (ambig + disambig) are retained; only the BBQ-adapted
+    provenance is filtered out so the loaded set is Spanish-original SESGO.
+    """
     df = pd.read_excel(path)
-    ambiguous = df[df["context_condition"] == "ambig"]
+    original = df[~df["bbq"].astype(bool)]
     if limit is not None:
-        ambiguous = ambiguous.head(limit)
-    return [_row_to_item(row, category, language) for _, row in ambiguous.iterrows()]
+        original = original.head(limit)
+    return [_row_to_item(row, category, language) for _, row in original.iterrows()]
 
 
 def load_items(
     sesgo_dir: Path | str = "datasets/SESGO",
     categories: list[SesgoCategory] | None = None,
-    languages: tuple[str, ...] = ("es", "en"),
+    languages: tuple[str, ...] = ("es",),
     limit: int | None = None,
 ) -> list[SesgoItem]:
-    """Load SESGO ambiguous-context items as typed SesgoItem objects.
+    """Load SESGO items (both context conditions) as typed SesgoItem objects.
+
+    Only ORIGINAL (bbq==False) rows are loaded; BBQ-adapted rows are dropped at
+    read time. The default language is Spanish only — English is disabled for now.
 
     Args:
         sesgo_dir: Root containing the `prompts/` directory of `.xlsx` files.
         categories: Subset of bias categories to load (default: all).
-        languages: Language codes to load (default: Spanish then English).
+        languages: Language codes to load (default: Spanish only).
         limit: Cap on items per (category, language) — useful for smoke tests.
 
     Returns:

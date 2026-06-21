@@ -105,8 +105,8 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "--languages",
-        default="es,en",
-        help="Comma list of language codes (default: es,en == all)",
+        default="es",
+        help="Comma list of language codes (default: es; English disabled for now)",
     )
     parser.add_argument(
         "--limit",

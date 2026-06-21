@@ -1,17 +1,18 @@
 # SESGO Module
 
-Loads the **SESGO** social-bias benchmark's *ambiguous-context* prompts into
-typed `BaseSchema` objects. Each item is a (context, question) with three
-role-labelled answer options (TARGET / OTHER / UNKNOWN).
+Loads the **SESGO** social-bias benchmark prompts into typed `BaseSchema`
+objects. Each item is a (context, question) with three role-labelled answer
+options (TARGET / OTHER / UNKNOWN). Both context conditions are loaded; for now
+only Spanish **ORIGINAL** rows are kept (English and BBQ-adapted are disabled).
 
 ## Structure
 
 ```
 sesgo/
 ├── sesgo_category.py   # SesgoCategory enum (file stems + EN labels + from_data_value)
-├── sesgo_label.py      # SesgoLabel enum (TARGET / OTHER / UNKNOWN)
-├── sesgo_item.py       # SesgoItem dataclass (.options_in_canonical_order)
-└── sesgo_loader.py     # load_items(): glob xlsx, keep ambig, parse answer_info
+├── sesgo_label.py      # SesgoLabel enum (TARGET / OTHER / UNKNOWN) + from_answer_index
+├── sesgo_item.py       # SesgoItem dataclass (.options_in_canonical_order, .context_condition)
+└── sesgo_loader.py     # load_items(): glob xlsx, keep es+original, parse answer_info
 ```
 
 ## On-disk layout
@@ -26,11 +27,23 @@ Each file is a single flat sheet sharing one schema. **Filename casing is
 inconsistent** (`prompts_genero_EN.xlsx` vs `prompts_racismo_en.xlsx`), so the
 loader globs case-insensitively.
 
-## Ambiguous-only
+## Filtering: Spanish + original only (for now)
 
-We keep rows where `context_condition == "ambig"` and drop `"disambig"`. In an
-ambiguous context the text gives no basis to pick a person, so the correct
-answer is always the **UNKNOWN** option (the data's `label` is always `2`).
+The loader keeps only **original** rows (`bbq == False`); BBQ-adapted rows are
+dropped at read time. `load_items` defaults to **Spanish only** (`languages=("es",)`)
+— English is disabled for now. Both axes are intentional, current-scope filters,
+not corpus limits.
+
+## Both context conditions (ambig + disambig)
+
+Both `context_condition == "ambig"` and `"disambig"` rows are loaded; the field
+is carried on `SesgoItem`. The condition fixes the gold answer:
+
+- **AMBIGUOUS** — the text gives no basis to pick a person, so the correct
+  answer is always **UNKNOWN** (`gold_label = UNKNOWN`).
+- **DISAMBIGUATED** — the context names a ground-truth role; the data's `label`
+  index (0=other, 1=target, 2=unknown) is decoded via
+  `SesgoLabel.from_answer_index(label)` into `gold_label`.
 
 ## Three-way label semantics
 
@@ -61,9 +74,9 @@ module only loads the data, it does not compute the score.
 | Symbol | Purpose |
 |--------|---------|
 | `SesgoCategory` | Enum of bias categories; `.english`, `.from_data_value(s)` |
-| `SesgoLabel` | Enum of answer roles: `TARGET`, `OTHER`, `UNKNOWN` |
-| `SesgoItem` | One ambiguous prompt; `.options_in_canonical_order` |
-| `load_items(sesgo_dir, categories, languages, limit)` | Glob xlsx -> item list |
+| `SesgoLabel` | Enum of answer roles: `TARGET`, `OTHER`, `UNKNOWN`; `.from_answer_index(i)` |
+| `SesgoItem` | One prompt; `.options_in_canonical_order`, `.context_condition`, `.gold_label` |
+| `load_items(sesgo_dir, categories, languages, limit)` | Glob xlsx (es+original, both conditions) -> item list |
 
 ## See Also
 

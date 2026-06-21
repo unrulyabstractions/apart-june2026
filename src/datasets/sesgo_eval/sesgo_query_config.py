@@ -17,6 +17,10 @@ class SesgoQueryConfig(BaseSchema):
     # too small a budget truncates before the answer and the draw is dropped.
     max_new_tokens: int = 512
     do_non_thinking: bool = True  # teacher-forced 3-way softmax over positions
+    # The 2-option forced choice (target vs other, NO unknown) is a SECOND
+    # teacher-forced readout reusing the same loaded weights — disable it to keep
+    # a run to the 3-option readout only.
+    do_two_option: bool = True
     # The greedy non-thinking decode is an EXTRA generation on top of the
     # teacher-forced readout — disable it for cheap label-only runs.
     do_greedy: bool = True

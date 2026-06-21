@@ -298,11 +298,14 @@ def main() -> None:
     prompt_dataset = load_prompt_dataset(args.prompt_dataset, args.subsample)
     log(f"[geom] loaded {len(prompt_dataset.samples)} prompts")
 
-    # n_thinking=0 disables the thinking level (skips its sampling cost).
+    # n_thinking=0 disables the thinking level (skips its sampling cost). The
+    # 2-option forced-choice readout is a behavioural probe, not a geometry one,
+    # so it is left off here (the geometry half captures the 3-option answer path).
     config = SesgoQueryConfig(
         n_thinking_samples=args.n_thinking,
         max_new_tokens=args.max_new_tokens,
         do_thinking=args.n_thinking > 0,
+        do_two_option=False,
         subsample=1.0,
     )
     querier = SesgoQuerier(config)
@@ -344,6 +347,7 @@ def main() -> None:
                 scaffold_id=prompt.scaffold_id,
                 bias_category=prompt.bias_category,
                 question_polarity=prompt.question_polarity,
+                context_condition=prompt.context_condition,
                 language=prompt.language,
                 gold_label=prompt.gold_label,
                 prompt_text=prompt.text,
