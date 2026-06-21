@@ -131,8 +131,14 @@ class Backend(ABC):
         input_ids: torch.Tensor,
         names_filter: Optional[callable],
         past_kv_cache: Any = None,
+        attention_mask: Optional[torch.Tensor] = None,
     ) -> tuple[torch.Tensor, dict]:
-        """Run forward pass and return activation cache."""
+        """Run forward pass and return activation cache.
+
+        ``attention_mask`` (1=real, 0=pad) is REQUIRED for a padded multi-sample
+        batch so padding does not leak into attention; ``None`` is the single,
+        unpadded fast path.
+        """
         ...
 
     @abstractmethod
@@ -164,11 +170,17 @@ class Backend(ABC):
     def forward(
         self,
         input_ids: torch.Tensor,
+        attention_mask: Optional[torch.Tensor] = None,
     ) -> torch.Tensor:
         """Run forward pass and return logits.
 
         Args:
             input_ids: Token IDs tensor of shape [batch, seq_len]
+            attention_mask: Optional [batch, seq_len] mask (1=real, 0=pad). REQUIRED
+                for correct logits when ``input_ids`` is a padded multi-sample
+                batch — without it the model attends to pad tokens and the real
+                logits are corrupted. ``None`` (single, unpadded sequence) is the
+                fast path and behaves exactly as before.
 
         Returns:
             Logits tensor of shape [batch, seq_len, vocab_size]

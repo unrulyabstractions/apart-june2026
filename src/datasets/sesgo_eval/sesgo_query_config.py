@@ -22,3 +22,7 @@ class SesgoQueryConfig(BaseSchema):
     do_greedy: bool = True
     do_thinking: bool = True  # sampled free-form reasoning, parsed per draw
     subsample: float = 1.0  # fraction of prompts to query (1.0 == all)
+    # Prompts processed per batched forward pass. 1 == the exact single-sample
+    # path (safe fallback); >1 batches choose3 / greedy / thinking draws across
+    # prompts for higher throughput. Identical results within fp tolerance.
+    batch_size: int = 1

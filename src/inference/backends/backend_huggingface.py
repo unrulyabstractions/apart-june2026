@@ -235,6 +235,57 @@ class HuggingFaceBackend(Backend):
 
         return self.decode(generated[0, prompt_len:])
 
+    def generate_batch(
+        self,
+        prompts: Sequence[str],
+        max_new_tokens: int,
+        temperature: float,
+    ) -> list[str]:
+        """Decode many prompts in ONE padded ``model.generate`` call.
+
+        Left-pads the prompts (so every sequence ends at the same column and the
+        decoder starts from a shared position) and passes the attention mask so
+        pad tokens never enter attention. Greedy (temperature 0) is bit-for-bit
+        the per-prompt path; sampling differs only by RNG draw, as expected.
+        Returns the generated continuation for each prompt, padding stripped.
+        """
+        if not prompts:
+            return []
+        tok = self._tokenizer
+        # Left padding keeps the real prompt flush-right; restore afterwards so a
+        # single-sample generate elsewhere is unaffected.
+        prev_side = tok.padding_side
+        if tok.pad_token_id is None:
+            tok.pad_token = tok.eos_token
+        tok.padding_side = "left"
+        try:
+            enc = tok(
+                list(prompts), return_tensors="pt", padding=True, add_special_tokens=True
+            )
+        finally:
+            tok.padding_side = prev_side
+        input_ids = enc.input_ids.to(self.runner.device)
+        attention_mask = enc.attention_mask.to(self.runner.device)
+        prompt_len = input_ids.shape[1]
+
+        gen_kwargs = {
+            "max_new_tokens": max_new_tokens,
+            "do_sample": temperature > 0,
+            "pad_token_id": tok.eos_token_id,
+            "repetition_penalty": 1.0,
+            "num_beams": 1,
+        }
+        if temperature > 0:
+            gen_kwargs["temperature"] = temperature
+
+        with torch.no_grad():
+            output_ids = self.runner._model.generate(
+                input_ids, attention_mask=attention_mask, **gen_kwargs
+            )
+        # Every row shares prompt_len (left padding), so the continuation is the
+        # tail after prompt_len for each sample.
+        return [self.decode(row[prompt_len:]) for row in output_ids]
+
     def get_next_token_probs(
         self, prompt: str, target_tokens: Sequence[str], past_kv_cache: Any = None
     ) -> dict[str, float]:
@@ -615,6 +666,7 @@ class HuggingFaceBackend(Backend):
         input_ids: torch.Tensor,
         names_filter: Optional[callable],
         past_kv_cache: Any = None,
+        attention_mask: Optional[torch.Tensor] = None,
     ) -> tuple[torch.Tensor, dict]:
         cache = {}
         hooks = []
@@ -709,7 +761,12 @@ class HuggingFaceBackend(Backend):
 
         try:
             with torch.no_grad():
-                outputs = self.runner._model(input_ids)
+                if attention_mask is not None:
+                    outputs = self.runner._model(
+                        input_ids, attention_mask=attention_mask
+                    )
+                else:
+                    outputs = self.runner._model(input_ids)
             logits = outputs.logits
 
         finally:
@@ -869,10 +926,20 @@ class HuggingFaceBackend(Backend):
     def forward(
         self,
         input_ids: torch.Tensor,
+        attention_mask: Optional[torch.Tensor] = None,
     ) -> torch.Tensor:
-        """Run forward pass and return logits."""
+        """Run forward pass and return logits.
+
+        With ``attention_mask`` set (padded batch) the model ignores pad tokens,
+        so the real logits match the single-sample path within fp tolerance.
+        """
         with torch.no_grad():
-            outputs = self.runner._model(input_ids)
+            if attention_mask is not None:
+                outputs = self.runner._model(
+                    input_ids, attention_mask=attention_mask
+                )
+            else:
+                outputs = self.runner._model(input_ids)
         return outputs.logits
 
     def run_with_intervention(

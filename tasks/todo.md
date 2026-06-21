@@ -76,3 +76,32 @@ Turn token verified per family: `<|start_header_id|>` (Llama),
   faithful capture, just a model-specific quirk worth noting downstream.
 - A pre-existing verbose debug print lives in `choice_utils.py`
   (`encode_into_trajectory_ids`); not in scope, left untouched.
+
+---
+
+# Batching workstream: batched generation + parallel cloud fleet
+
+## Goal
+Batched within-box generation (vLLM CUDA fast path, HF batched verified locally)
++ maximally-parallel per-model cloud fleet with safe concurrent sync-back.
+
+## Plan
+- [ ] `src/inference/batched_generation.py` — reusable batched-HF primitives
+      (LEFT-pad + attention mask; batched generate; batched teacher-forced forward).
+- [ ] HuggingFaceBackend: honor an attention mask in `forward` / `run_with_cache`
+      (padding currently contaminates logits in a batch). Single-sample unchanged.
+- [ ] `src/inference/vllm_batched_backend.py` — vLLM CUDA backend (generation +
+      teacher-forced scoring). Import guarded; raises clearly off-CUDA.
+- [ ] ModelRunner: `generate_batch`, `compute_trajectories_batch` (mask-aware),
+      `run_with_cache_batch` (LEFT-pad, per-sample position offsets).
+- [ ] TernaryChoiceRunner: `choose3_batch` — ONE batched forward over 3N continuations.
+- [ ] SesgoQuerier: `query_dataset` batches over samples; `--batch-size` plumbed.
+- [ ] `--batch-size` on baseline/selection/divergence/geometry collect scripts.
+- [ ] Geometry: batched capture; confirm `--n-thinking 0` short-circuits sampling.
+- [ ] Cloud: model->GPU sizing map (BaseSchema), `cloud/fleet_launch.sh`,
+      `cloud/fleet_run.sh`, `cloud/fleet_sync_back.sh`, sharding, self-destruct.
+- [ ] `cloud/Dockerfile` + `cloud/prefetch_model_weights.py`; vLLM CUDA-only extra.
+- [ ] VERIFY locally on Qwen3-0.6B: batched==single + faster. Cost/wall-clock table.
+
+## Review (batching)
+(filled in at end)

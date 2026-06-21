@@ -18,6 +18,7 @@ from .generated_trajectory import (
     GeneratedTrajectory,
     calculate_trajectories_for_batch,
 )
+from .batched_padding_helpers import left_pad_batch, unpad_row
 
 
 # Claude model aliases → full model IDs
@@ -597,6 +598,13 @@ class ModelRunner:
         self,
         token_ids_batch: list[list[int]],
     ) -> list[GeneratedTrajectory]:
+        """Teacher-forced logprobs/logits for a batch in ONE forward pass.
+
+        Left-pads the ragged batch and passes the attention mask so pad tokens
+        never leak into attention; each sample's real logits are then sliced back
+        out at its left-pad offset, giving per-sample trajectories identical to
+        the single-sample path within fp tolerance.
+        """
         if self.is_cloud_api:
             raise NotImplementedError(
                 "Cloud API backends don't support compute_trajectories_batch. "
@@ -607,18 +615,97 @@ class ModelRunner:
         if not token_ids_batch:
             return []
 
-        input_ids_batch = self._pad_token_ids_batch(token_ids_batch)
+        # A single sequence needs no padding/mask — keep the exact original path.
+        if len(token_ids_batch) == 1:
+            input_ids = torch.tensor([token_ids_batch[0]], device=self.device)
+            with self._inference_context():
+                logits_batch = self._backend.forward(input_ids)
+            trajs = calculate_trajectories_for_batch(
+                token_ids_batch, logits_batch, self.device
+            )
+            del logits_batch, input_ids
+            return trajs
 
-        with self._inference_context():
-            logits_batch = self._backend.forward(
-                input_ids_batch
-            )  # [batch, seq_len, vocab_size]
-
-        trajs = calculate_trajectories_for_batch(
-            token_ids_batch, logits_batch, self.device
+        pad_id = self.pad_token_id or 0
+        input_ids, attention_mask, offsets = left_pad_batch(
+            token_ids_batch, pad_id, self.device
         )
-        del logits_batch, input_ids_batch
+        with self._inference_context():
+            logits_batch = self._backend.forward(input_ids, attention_mask)
+
+        # Slice each sample's real logits back out at its left-pad offset.
+        trajs = [
+            GeneratedTrajectory.from_inference(
+                ids, unpad_row(logits_batch, row, len(ids), offsets[row]), self.device
+            )
+            for row, ids in enumerate(token_ids_batch)
+        ]
+        del logits_batch, input_ids, attention_mask
         return trajs
+
+    @profile
+    def generate_batch(
+        self,
+        prompts: list[str],
+        max_new_tokens: int = 256,
+        temperature: float = 0.0,
+        prefillings: list[str] | None = None,
+    ) -> list[str]:
+        """Generate continuations for many prompts in one batched decode call.
+
+        Chat-templates + prefills each prompt (same as ``generate``), then defers
+        to the backend's batched decode. ``prefillings`` may be per-sample (e.g.
+        the skip-thinking + choice prefix differs per SESGO prompt); ``None`` means
+        no prefill. Falls back to looping ``generate`` for backends without a
+        ``generate_batch`` (so behaviour is never worse).
+        """
+        if not prompts:
+            return []
+        prefills = prefillings if prefillings is not None else [""] * len(prompts)
+        formatted = [
+            self.apply_chat_template(p) + pre for p, pre in zip(prompts, prefills)
+        ]
+        if hasattr(self._backend, "generate_batch"):
+            return self._backend.generate_batch(
+                formatted, max_new_tokens, temperature
+            )
+        return [
+            self._backend.generate(f, max_new_tokens, temperature, None, None)
+            for f in formatted
+        ]
+
+    @profile
+    def run_with_cache_batch(
+        self,
+        token_ids_batch: list[list[int]],
+        names_filter: Optional[callable] = None,
+    ) -> list[dict]:
+        """Capture activations for many pre-tokenized sequences in ONE forward pass.
+
+        Each returned per-sample cache is sliced back to the sample's REAL length
+        (left padding removed), batch dim kept at 1 to match the single-sample
+        ``run_with_cache`` contract. After slicing, an UNPADDED token position
+        indexes the activation directly — no offset bookkeeping leaks to callers.
+        """
+        if not token_ids_batch:
+            return []
+        pad_id = self.pad_token_id or 0
+        input_ids, attention_mask, offsets = left_pad_batch(
+            token_ids_batch, pad_id, self.device
+        )
+        with self._inference_context():
+            _, cache = self._backend.run_with_cache(
+                input_ids, names_filter, None, attention_mask
+            )
+        per_sample: list[dict] = []
+        for row, ids in enumerate(token_ids_batch):
+            sliced = {
+                name: unpad_row(tensor, row, len(ids), offsets[row]).unsqueeze(0)
+                for name, tensor in cache.items()
+            }
+            per_sample.append(sliced)
+        del input_ids, attention_mask, cache
+        return per_sample
 
     # Basic Interpretability APIs
 

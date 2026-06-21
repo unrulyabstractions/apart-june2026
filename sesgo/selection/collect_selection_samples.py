@@ -124,6 +124,12 @@ def parse_args() -> argparse.Namespace:
         help="Fraction of prompts to query, 0-1 (default: 1.0 == all)",
     )
     parser.add_argument(
+        "--batch-size",
+        type=int,
+        default=1,
+        help="Prompts per batched forward pass (default: 1 == single-sample path)",
+    )
+    parser.add_argument(
         "--out-dir",
         type=Path,
         default=Path("out"),
@@ -203,6 +209,7 @@ def main() -> None:
         temperature=args.temperature,
         do_greedy=True,
         subsample=1.0,
+        batch_size=args.batch_size,
     )
     with P("query_dataset"):
         dataset = SesgoQuerier(config).query_dataset(prompt_dataset, args.model)
