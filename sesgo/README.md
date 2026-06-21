@@ -77,6 +77,30 @@ Common flags: `--model <hf-id>` (default `Qwen/Qwen3-0.6B`), `--subsample 0..1`,
 Collection checkpoints to `response_samples.json` as it goes — re-run the same
 command to **resume** after a crash.
 
+### forking — per-token forking-paths dynamics on ONE ambiguous item
+A different shape from the five batch studies above: instead of one readout per
+item, this tracks how a SINGLE ambiguous item's outcome distribution `O_t`
+evolves token-by-token along the thinking trajectory, locates the **forking
+token** (Bayesian change point) where the committed answer locks in, and derives
+the pull/drift/potential states, outcome diversity, and survival series. Run the
+four drivers in order (each persists its artifact under
+`out/sesgo/forking/<MODEL>/`); see `sesgo/forking/README.md` for the full method.
+```bash
+# 0. pick the highest-outcome-entropy ambiguous item (most likely to FLIP)
+uv run python sesgo/forking/select_forking_item.py     --model Qwen/Qwen3-0.6B --categories gender --n-pilot 12 --max-new-tokens 600
+# 1-3. capture {O_t}: greedy base path + batched branch sampling at every token
+uv run python sesgo/forking/collect_forking_rollouts.py --model Qwen/Qwen3-0.6B --n-samples 40 --n-prior 300 --max-new-tokens 512
+# 4. analyze: change-point + pull/drift/potential + diversity + survival
+uv run python sesgo/forking/analyze_forking_dynamics.py --model Qwen/Qwen3-0.6B
+# 5. plot: stacked-area O_t + token strip + companion dynamics panels
+uv run python sesgo/forking/plot_forking_dynamics.py    --model Qwen/Qwen3-0.6B
+```
+Writes `selected_item.json`, `forking_trajectory.json`, `forking_analysis.json`,
+and the headline `forking_dynamics.png`. The cloud run is the SAME commands with
+`--max-positions 0` (every token, not a pilot subset); the branch decode rides
+vLLM continuous batching on CUDA, and the HF backend micro-batches the forking
+set (`HF_GEN_MICRO_BATCH`, default 64) so a 32B model fits an 80 GB GPU.
+
 ## 2. Cross-model size sweep (headline figure)
 ```bash
 uv run python sesgo/baseline/visualize_baseline_cross_model.py   # accuracy vs model size
