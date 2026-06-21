@@ -89,6 +89,33 @@ def load_prompt_dataset(path: Path, subsample: float) -> SesgoPromptDataset:
     )
 
 
+def load_prompt_dataset_by_item(path: Path, n_items: int) -> SesgoPromptDataset:
+    """Keep ALL variants of the first ``n_items`` distinct items (by question_id).
+
+    The stability study measures consistency ACROSS the surface-form variations of
+    the SAME item, so a stride/leading subsample (which keeps ~one variant per
+    item) leaves per-item consistency undefined and the histogram empty. Selecting
+    whole items keeps every variation of a handful of items -- exactly what the
+    consistency metric needs.
+    """
+    data = load_json(Path(path))
+    raw = data["samples"]
+    keep_ids: set[str] = set()
+    for d in raw:
+        if len(keep_ids) >= n_items:
+            break
+        keep_ids.add(d["question_id"])
+    kept = [
+        SesgoPromptSample.from_dict(d) for d in raw if d["question_id"] in keep_ids
+    ]
+    return SesgoPromptDataset(
+        dataset_id=data["dataset_id"],
+        config=SesgoPromptConfig.from_dict(data["config"]),
+        scaffold_ids=data.get("scaffold_ids", []),
+        samples=kept,
+    )
+
+
 def parse_args() -> argparse.Namespace:
     """Parse command-line arguments for stability-sample collection."""
     parser = argparse.ArgumentParser(
@@ -122,6 +149,16 @@ def parse_args() -> argparse.Namespace:
         type=float,
         default=1.0,
         help="Fraction of prompts to query, 0-1 (default: 1.0 == all)",
+    )
+    parser.add_argument(
+        "--items",
+        type=int,
+        default=None,
+        help=(
+            "Keep ALL variants of the first N distinct items (by question_id) "
+            "instead of a flat --subsample. Use this for a small but VALID "
+            "stability run: per-item consistency needs many variants per item."
+        ),
     )
     parser.add_argument(
         "--out-dir",
@@ -162,8 +199,12 @@ def main() -> None:
     do_greedy = _METHOD_DO_GREEDY[args.method]
     log_header(f"COLLECT STABILITY SAMPLES ({args.model}, method={args.method})")
 
-    # Stride the raw json before deserializing when subsampling (fast path).
-    prompt_dataset = load_prompt_dataset(args.prompt_dataset, args.subsample)
+    # --items keeps whole items (every variant of N question_ids) -- required for
+    # a valid stability subsample; otherwise stride the raw json (fast path).
+    if args.items is not None:
+        prompt_dataset = load_prompt_dataset_by_item(args.prompt_dataset, args.items)
+    else:
+        prompt_dataset = load_prompt_dataset(args.prompt_dataset, args.subsample)
     log(f"[collect] loaded {len(prompt_dataset.samples)} prompts")
 
     # Cheapest answer: non-thinking teacher-forced readout only. With method

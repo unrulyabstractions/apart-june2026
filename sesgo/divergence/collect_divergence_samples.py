@@ -110,16 +110,19 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--temperature",
         type=float,
-        default=0.7,
-        help="Sampling temperature for thinking draws (default: 0.7)",
+        default=1.0,
+        # DIVERGENCE wants WIDE diversity across draws so the reasoning
+        # distribution is well characterized, so it runs hotter than the
+        # stability/selection default (0.7). Push to ~1.1 for even more spread.
+        help="Sampling temperature for thinking draws (default: 1.0 — tuned hot for wider diversity)",
     )
     parser.add_argument(
         "--max-new-tokens",
         type=int,
-        default=256,
+        default=512,
         # Qwen3 burns budget inside <think>; too small truncates before the
-        # answer and the draw is dropped, so keep this generous.
-        help="Max new tokens per thinking generation (default: 256)",
+        # answer and the draw is dropped (no parsed role), so keep this generous.
+        help="Max new tokens per thinking generation (default: 512)",
     )
     parser.add_argument(
         "--subsample",
