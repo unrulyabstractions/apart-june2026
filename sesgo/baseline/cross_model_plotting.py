@@ -17,7 +17,11 @@ import numpy as np
 
 from src.common.math import wilson_err
 
-from sesgo.baseline.cross_model_aggregation import CONDITIONS, CrossModelPoint
+from sesgo.baseline.cross_model_aggregation import (
+    COND_TITLES,
+    CONDITIONS,
+    CrossModelPoint,
+)
 
 # Okabe–Ito colorblind-safe hues, one per family (stable across panels/series).
 _FAMILY_COLORS = {
@@ -28,12 +32,6 @@ _SERIES_STYLE = {
     "ambig": ("o", "-", "abstention (ambig, gold=unknown)"),
     "disambig-target": ("^", "--", "disambig acc · gold=TARGET"),
     "disambig-other": ("s", ":", "disambig acc · gold=OTHER"),
-}
-# Human-readable panel titles for each generation condition.
-_COND_TITLES = {
-    "non_thinking": "3-option (non_thinking, teacher-forced)",
-    "non_thinking_2opt": "2-option (non_thinking_2opt, forced choice)",
-    "greedy_thinking": "greedy_thinking (single reasoning decode)",
 }
 
 
@@ -73,7 +71,7 @@ def _panel(ax, cond: str, points: list[CrossModelPoint]) -> None:
     ax.set_xscale("log")
     ax.set_ylim(-0.03, 1.08)
     ax.set_ylabel("accuracy")
-    ax.set_title(_COND_TITLES.get(cond, cond), fontsize=11, loc="left")
+    ax.set_title(COND_TITLES.get(cond, cond), fontsize=11, loc="left")
     ax.grid(True, which="both", axis="x", ls=":", alpha=0.4)
     # 3-way chance baseline (1/3); abstention/3-opt sit against this. Light dashed
     # so it reads as a reference without competing with the data lines.

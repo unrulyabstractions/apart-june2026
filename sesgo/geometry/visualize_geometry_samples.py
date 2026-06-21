@@ -1,28 +1,30 @@
-"""Plot SESGO geometry: behavioral scaffold effect + representational geometry.
+"""Plot SESGO geometry: behavioural readouts + representational geometry.
 
-Run-by-path driver. Renders into out/sesgo/geometry/<MODEL>/plots/:
+Run-by-path driver. Renders publication-quality PNGs into
+out/sesgo/geometry/<MODEL>/plots/. Every plot carries uncertainty (Wilson score
+CIs on proportion bars, bootstrap CIs on centroid shifts / silhouette) and the
+sample size n is annotated on every bar, panel, and title.
 
-  BEHAVIORAL - non-thinking (and thinking) abstention accuracy by scaffold. On
-    ambiguous SESGO items the gold is UNKNOWN, so accuracy = fraction predicted
-    UNKNOWN; the no-scaffold baseline anchors the with/without comparison.
-  GEOMETRY   - the actual representational-geometry plots, read from the PCA
-    analysis in analysis/projections.json (run analyze_geometry.py first):
-      * pca_scatter_<position>.png : PC1-PC2 scatter at a representative layer,
-        points coloured by scaffold ((baseline) vs interpretive_direction),
-        per-class centroids marked, and an arrow drawn for the centroid SHIFT.
-      * pca_by_<axis>.png : the SAME PCA projection (answer position, representative
-        layer) recoloured by EVERY per-sample axis — scaffold, origin, language,
-        bias_category, question_polarity, context_condition (ambig vs disambig),
-        accuracy (correct vs incorrect), target_identity, other_identity,
-        gold_label, label_style — each with a compact legend. High-cardinality
-        identity axes are capped at the top-K values + an "(other)" bucket.
-      * pca_axes_grid.png : all those axis panels in one small-multiples grid.
-      * centroid_shift_by_position.png : centroid-shift magnitude across every
-        (layer, position) cell.
-      * explained_variance.png : EV%(PC1..3) context per position.
+BEHAVIOURAL (read directly from response_samples.json):
+  accuracy_by_condition.png : per-condition (ambiguous vs disambiguated) accuracy
+    with the 3-OPTION readout (top) and the 2-OPTION forced choice (bottom)
+    STACKED in one figure. Gold is per-condition (ambiguous -> UNKNOWN abstention;
+    disambiguated -> the ground-truth role); the 2-option has no abstention so its
+    ambiguous cell is N/A.
+  accuracy_by_readout.png   : non-thinking vs greedy-thinking vs sampled-thinking
+    accuracy STACKED as subfigures, each split by context condition.
 
-Robust to missing data: positions absent from projections.json are skipped, and
-the behavioural plots fall back to the response_samples.json dataset directly.
+GEOMETRY (from analysis/projections.json; run analyze_geometry.py first):
+  pca_scatter_<position>.png : PC1-PC2 scatter coloured by scaffold, centroids +
+    baseline->interpretive shift arrow, at every structural position.
+  pca_by_<axis>.png / pca_axes_grid.png : the SAME answer-position projection
+    recoloured by EVERY per-sample axis (scaffold, origin, language, bias category,
+    question polarity, context condition, accuracy, identities, gold, label style).
+  centroid_shift_by_position.png : centroid-shift magnitude per (layer, position)
+    with bootstrap 95% CIs.
+  silhouette_separability.png : per-axis silhouette separability with bootstrap CI
+    on the scaffold axis.
+  explained_variance.png : EV%(PC1-3) per structural position.
 
 Usage:
   uv run python sesgo/geometry/analyze_geometry.py \
@@ -36,8 +38,6 @@ from __future__ import annotations
 import argparse
 import pathlib
 import sys
-import textwrap
-from collections import Counter, defaultdict
 from pathlib import Path
 
 import matplotlib
@@ -46,21 +46,28 @@ matplotlib.use("Agg")  # headless: write PNGs, never open a window
 import matplotlib.pyplot as plt  # noqa: E402
 import numpy as np  # noqa: E402
 
-# Bootstrap the repo root onto sys.path so `from src... import ...` resolves.
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[2]))
 
 from src.common.file_io import load_json  # noqa: E402
 from src.common.logging import log, log_header, log_section  # noqa: E402
 from src.datasets.sesgo_eval import GeometryDataset  # noqa: E402
 
-_BASELINE = "(baseline)"
+from sesgo.geometry.geometry_plot_helpers import (  # noqa: E402
+    BASELINE,
+    PALETTE,
+    apply_style,
+    axis_caption,
+    draw_axis_scatter,
+    finish,
+    plot_accuracy_by_condition,
+    plot_accuracy_by_readout,
+    robust_limits,
+    wrapped,
+)
+
 _SCATTER_LAYER = "mean"  # representative layer for the PCA scatter panels
 _POSITIONS = ("turn", "think_open", "think_close", "answer")
-# The structural position whose PCA panel the per-axis scatters colour. "answer"
-# is the most behaviourally meaningful (the residual over the chosen token).
-_AXIS_PANEL_POSITION = "answer"
-# Every per-sample axis we render a coloured PCA panel for, in display order. The
-# pretty names are the panel titles / filename stems.
+_AXIS_PANEL_POSITION = "answer"  # the projection the per-axis scatters recolour
 _AXES: tuple[tuple[str, str], ...] = (
     ("scaffold_id", "scaffold"),
     ("origin", "origin (BBQ-adapted vs original)"),
@@ -74,336 +81,119 @@ _AXES: tuple[tuple[str, str], ...] = (
     ("gold_label", "gold label"),
     ("label_style", "label style"),
 )
-# High-cardinality axes: cap the legend at the top-K most frequent values, fold
-# the rest into a single "(other)" bucket so the legend stays legible.
-_TOP_K = 8
-_OTHER_BUCKET = "(other)"
-# Colourblind-safe (Okabe-Ito) extended for higher-cardinality axes; first entry
-# anchors the scaffold baseline, last is reserved for the "(other)" bucket.
-_PALETTE = ("#0072B2", "#D55E00", "#009E73", "#CC79A7", "#E69F00", "#56B4E9")
-_AXIS_PALETTE = (
-    "#0072B2", "#D55E00", "#009E73", "#CC79A7", "#E69F00",
-    "#56B4E9", "#F0E442", "#999999", "#7E2F8E", "#4DBEEE",
-)
-_OTHER_COLOUR = "#bbbbbb"  # neutral grey for the folded-in "(other)" bucket
-_SAVE = dict(dpi=150, bbox_inches="tight")  # consistent crisp export
 
 
 def parse_args() -> argparse.Namespace:
     """Parse command-line arguments for geometry visualization."""
     parser = argparse.ArgumentParser(
-        description="Plot SESGO geometry (behavioral + representational geometry)"
+        description="Plot SESGO geometry (behavioural + representational geometry)"
     )
     parser.add_argument("samples", type=Path, help="response_samples.json (a GeometryDataset)")
-    parser.add_argument(
-        "--out-dir", type=Path, default=Path("out"), help="Base output directory"
-    )
+    parser.add_argument("--out-dir", type=Path, default=Path("out"), help="Base output dir")
     return parser.parse_args()
 
 
-def _apply_style() -> None:
-    """A clean, legible, seaborn-ish global style for every figure."""
-    plt.rcParams.update(
-        {
-            "figure.constrained_layout.use": True,
-            "axes.grid": True,
-            "grid.color": "#e6e6e6",
-            "grid.linewidth": 0.8,
-            "axes.axisbelow": True,
-            "axes.edgecolor": "#555555",
-            "axes.titlesize": 13,
-            "axes.titleweight": "bold",
-            "axes.labelsize": 11,
-            "xtick.labelsize": 9.5,
-            "ytick.labelsize": 9.5,
-            "legend.fontsize": 9.5,
-            "font.family": "DejaVu Sans",
-            "figure.facecolor": "white",
-        }
-    )
-
-
 def _colour(label: str, ordered: list[str]) -> str:
-    """Stable colour per label; baseline always the first palette entry."""
-    if label == _BASELINE:
-        return _PALETTE[0]
-    rest = [l for l in ordered if l != _BASELINE]
-    return _PALETTE[(rest.index(label) + 1) % len(_PALETTE)]
-
-
-def _wrapped_title(text: str, width: int = 58) -> str:
-    """Wrap long titles so the model name never clips off the right edge."""
-    return "\n".join(textwrap.wrap(text, width=width))
-
-
-def _finish(fig: plt.Figure, out_path: Path) -> Path:
-    """Save with crisp, tightly-cropped settings and close the figure."""
-    fig.savefig(out_path, **_SAVE)
-    plt.close(fig)
-    return out_path
-
-
-# ── Behavioral ───────────────────────────────────────────────────────────────
+    """Stable scaffold colour; the baseline always takes the first palette entry."""
+    if label == BASELINE:
+        return PALETTE[0]
+    rest = [l for l in ordered if l != BASELINE]
+    return PALETTE[(rest.index(label) + 1) % len(PALETTE)]
 
 
 def _ordered_scaffolds(labels: set[str]) -> list[str]:
     """Scaffold labels with the baseline first, the rest sorted after it."""
-    rest = sorted(labels - {_BASELINE})
-    return ([_BASELINE] if _BASELINE in labels else []) + rest
+    rest = sorted(labels - {BASELINE})
+    return ([BASELINE] if BASELINE in labels else []) + rest
 
 
-def plot_accuracy_by_scaffold(
-    dataset: GeometryDataset, level: str, out_path: Path
-) -> tuple[Path, dict[str, float]]:
-    """Bar chart of abstention accuracy by scaffold; also returns the rates."""
-    flags: dict[str, list[bool]] = defaultdict(list)
-    for s in dataset.samples:
-        label = s.scaffold_id or _BASELINE
-        if level == "non_thinking" and s.predicted_non_thinking is not None:
-            flags[label].append(s.correct_non_thinking)
-        elif level == "thinking" and s.predicted_thinking is not None:
-            flags[label].append(s.predicted_thinking.value == "unknown")
-    scaffolds = _ordered_scaffolds(set(flags))
-    accs = {sc: (sum(f) / len(f) if f else 0.0) for sc, f in flags.items()}
-    ns = [len(flags[sc]) for sc in scaffolds]
-
-    fig, ax = plt.subplots(figsize=(7.5, 5))
-    colours = [_colour(sc, scaffolds) for sc in scaffolds]
-    bars = ax.bar(range(len(scaffolds)), [accs[sc] for sc in scaffolds], color=colours)
-    for bar, sc, n in zip(bars, scaffolds, ns):
-        ax.text(
-            bar.get_x() + bar.get_width() / 2,
-            bar.get_height() + 0.015,
-            f"{accs[sc]:.0%}\n(n={n})",
-            ha="center",
-            va="bottom",
-            fontsize=9.5,
-            fontweight="bold",
-        )
-    ax.set_xticks(range(len(scaffolds)))
-    ax.set_xticklabels([w.replace("_", "\n") for w in scaffolds], fontsize=10)
-    ax.set_ylim(0, 1.18)  # headroom so the value labels never collide with title
-    ax.set_yticks(np.linspace(0, 1.0, 6))
-    ax.set_ylabel("abstention accuracy\n(fraction predicted UNKNOWN)")
-    ax.set_axisbelow(True)
-    pretty = level.replace("_", "-")
-    n_total = sum(ns)
-    ax.set_title(
-        _wrapped_title(
-            f"SESGO {pretty} abstention accuracy by scaffold  "
-            f"({dataset.model_name}, n={n_total})"
-        )
-    )
-    return _finish(fig, out_path), accs
-
-
-# ── Representational geometry (from projections.json) ─────────────────────────
-
-
-def _scatter_arrays(block: dict) -> tuple[np.ndarray, list[str]]:
-    """Return the [n,2] PC1-PC2 coords and parallel scaffold labels for a cell."""
-    coords, labels = [], []
-    for s in block["samples"]:
-        coords.append(s["coord2d"])
-        labels.append(s["scaffold_id"] or _BASELINE)
-    return np.asarray(coords, dtype=float), labels
-
-
-def _robust_limits(
-    coords: np.ndarray, centroids: np.ndarray, pad: float = 0.18
-) -> tuple[tuple, tuple]:
-    """Tukey-fence x/y limits that keep the cluster + both centroids in frame.
-
-    A handful of PCA outliers can stretch the raw range by an order of magnitude
-    (n=25), so we clip to median ± 2.5·IQR per axis, then widen to guarantee every
-    centroid (and thus the shift arrow) sits inside.
-    """
-    q1, med, q3 = np.percentile(coords, [25, 50, 75], axis=0)
-    iqr = np.maximum(q3 - q1, 1e-6)
-    lo = med - 2.5 * iqr
-    hi = med + 2.5 * iqr
-    if centroids.size:  # never crop a centroid out of the frame
-        lo = np.minimum(lo, centroids.min(axis=0))
-        hi = np.maximum(hi, centroids.max(axis=0))
-    span = np.maximum(hi - lo, 1e-6)
-    return (lo[0] - pad * span[0], hi[0] + pad * span[0]), (
-        lo[1] - pad * span[1],
-        hi[1] + pad * span[1],
-    )
+# ── PCA scatter (coloured by scaffold, with shift arrow) ──────────────────────
 
 
 def _draw_centroid_shift(ax, stats: dict, ordered: list[str]) -> None:
-    """Plot each centroid as a diamond and draw the baseline→intervention arrow."""
+    """Plot each centroid as a diamond and draw the baseline->intervention arrow."""
     cents = stats["centroids"]
     for lab in ordered:
         if lab not in cents:
             continue
         cx, cy = cents[lab]["coord2d"]
-        ax.scatter(
-            cx, cy, s=320, marker="D", facecolor=_colour(lab, ordered),
-            edgecolor="black", linewidth=1.6, zorder=6,
-        )
-    base = cents.get(_BASELINE)
+        ax.scatter(cx, cy, s=320, marker="D", facecolor=_colour(lab, ordered),
+                   edgecolor="black", linewidth=1.6, zorder=6)
+    base = cents.get(BASELINE)
     for lab, sh in stats.get("shifts", {}).items():
         if base is None or lab not in cents:
             continue
         bx, by = base["coord2d"]
         tx, ty = cents[lab]["coord2d"]
-        ax.annotate(
-            "", xy=(tx, ty), xytext=(bx, by),
-            arrowprops=dict(arrowstyle="-|>", lw=2.4, color="#333333",
-                            shrinkA=10, shrinkB=10), zorder=5,
-        )
-        mx, my = (bx + tx) / 2, (by + ty) / 2
-        ax.annotate(
-            f"shift = {sh['shift_magnitude']:.1f}", xy=(mx, my),
-            fontsize=9, fontweight="bold", color="#333333",
-            ha="center", va="bottom",
-            bbox=dict(boxstyle="round,pad=0.25", fc="white", ec="#999999", alpha=0.85),
-            zorder=7,
-        )
+        ax.annotate("", xy=(tx, ty), xytext=(bx, by),
+                    arrowprops=dict(arrowstyle="-|>", lw=2.4, color="#333333",
+                                    shrinkA=10, shrinkB=10), zorder=5)
+        ci = ""
+        if "shift_ci_low" in sh:
+            ci = f"\n[{sh['shift_ci_low']:.1f}, {sh['shift_ci_high']:.1f}]"
+        ax.annotate(f"shift = {sh['shift_magnitude']:.1f}{ci}",
+                    xy=((bx + tx) / 2, (by + ty) / 2), fontsize=8.5,
+                    fontweight="bold", color="#333333", ha="center", va="bottom",
+                    bbox=dict(boxstyle="round,pad=0.25", fc="white", ec="#999999",
+                              alpha=0.85), zorder=7)
 
 
 def plot_pca_scatter(block: dict, ptype: str, model: str, out_path: Path) -> Path:
     """PC1-PC2 scatter coloured by scaffold, with centroids + shift arrow."""
-    coords, labels = _scatter_arrays(block)
+    coords = np.asarray([s["coord2d"] for s in block["samples"]], dtype=float)
+    labels = [s["scaffold_id"] or BASELINE for s in block["samples"]]
     ordered = _ordered_scaffolds(set(labels))
     evr = block["explained_variance_ratio"]
     stats = block["scaffold_stats"]
-    cent_xy = np.asarray(
-        [c["coord2d"] for c in stats["centroids"].values()], dtype=float
-    )
+    cent_xy = np.asarray([c["coord2d"] for c in stats["centroids"].values()], dtype=float)
 
     fig, ax = plt.subplots(figsize=(7.5, 6.5))
     for lab in ordered:
         idx = [i for i, l in enumerate(labels) if l == lab]
-        ax.scatter(
-            coords[idx, 0], coords[idx, 1], s=70, alpha=0.8,
-            color=_colour(lab, ordered), edgecolor="white", linewidth=0.6,
-            label=f"{lab} (n={len(idx)})", zorder=4,
-        )
+        ax.scatter(coords[idx, 0], coords[idx, 1], s=70, alpha=0.8,
+                   color=_colour(lab, ordered), edgecolor="white", linewidth=0.6,
+                   label=f"{lab} (n={len(idx)})", zorder=4)
     _draw_centroid_shift(ax, stats, ordered)
 
-    xlim, ylim = _robust_limits(coords, cent_xy)
+    xlim, ylim = robust_limits(coords, cent_xy)
     ax.set_xlim(*xlim)
     ax.set_ylim(*ylim)
-    # Equal aspect (adjustable='datalim') so PC1/PC2 distances and the shift arrow
-    # are read truthfully, while matplotlib only *grows* the shorter axis to fill
-    # the panel — no wasteful square padding when PC1 variance dominates.
     ax.set_aspect("equal", adjustable="datalim")
-    fig.canvas.draw()  # realise the aspect-adjusted limits before reading them
+    fig.canvas.draw()
     xlim, ylim = ax.get_xlim(), ax.get_ylim()
-    # Honest note: count points actually outside the final (equal-aspect) frame.
-    inside = (
-        (coords[:, 0] >= xlim[0]) & (coords[:, 0] <= xlim[1])
-        & (coords[:, 1] >= ylim[0]) & (coords[:, 1] <= ylim[1])
-    )
+    inside = ((coords[:, 0] >= xlim[0]) & (coords[:, 0] <= xlim[1])
+              & (coords[:, 1] >= ylim[0]) & (coords[:, 1] <= ylim[1]))
     n_off = int((~inside).sum())
     if n_off:
-        ax.text(
-            0.99, 0.01, f"{n_off} outlier point(s) off-view",
-            transform=ax.transAxes, ha="right", va="bottom", fontsize=8,
-            color="#777777", style="italic",
-        )
+        ax.text(0.99, 0.01, f"{n_off} outlier point(s) off-view",
+                transform=ax.transAxes, ha="right", va="bottom", fontsize=8,
+                color="#777777", style="italic")
     ax.axhline(0, color="#cccccc", lw=0.8, zorder=1)
     ax.axvline(0, color="#cccccc", lw=0.8, zorder=1)
     ax.set_xlabel(f"PC1  ({evr[0]:.0%} explained variance)")
     ax.set_ylabel(f"PC2  ({evr[1]:.0%} explained variance)" if len(evr) > 1 else "PC2")
 
-    ss = block["scaffold_stats"]
-    sil = ss.get("silhouette")
+    sil = stats.get("silhouette")
     subtitle = f"layer={_SCATTER_LAYER}, n={block['n_samples']}"
     if sil is not None:
+        lo, hi = stats.get("silhouette_ci_low"), stats.get("silhouette_ci_high")
         subtitle += f", scaffold silhouette={sil:.2f}"
-    ax.set_title(
-        _wrapped_title(
-            f"SESGO representational geometry @ {ptype}  ({model})"
-        ) + f"\n{subtitle}",
-        fontsize=12,
-    )
+        if lo is not None:
+            subtitle += f" [{lo:.2f}, {hi:.2f}]"
+    ax.set_title(wrapped(f"SESGO representational geometry @ {ptype}  ({model})")
+                 + f"\n{subtitle}", fontsize=12)
     ax.legend(loc="best", frameon=True, framealpha=0.92)
-    return _finish(fig, out_path)
+    return finish(fig, out_path)
 
 
-# ── Per-axis PCA scatters (colour the SAME projection by every label) ─────────
+# ── Per-axis PCA panels ───────────────────────────────────────────────────────
 
 
 def _axis_value(sample: dict, axis: str) -> str:
     """Read one per-sample axis as a display string (scaffold None -> baseline)."""
     if axis == "scaffold_id":
-        return sample.get("scaffold_id") or _BASELINE
+        return sample.get("scaffold_id") or BASELINE
     return str(sample.get(axis, "(missing)"))
-
-
-def _legend_order(values: list[str]) -> list[str]:
-    """Most-frequent-first ordering, capped at top-K + an "(other)" bucket.
-
-    High-cardinality identity axes can have many distinct group strings; folding
-    the long tail into "(other)" keeps the legend legible. The baseline scaffold
-    label, when present, is pinned first for a stable reading.
-    """
-    counts = Counter(values)
-    ranked = [v for v, _ in counts.most_common()]
-    if _BASELINE in ranked:  # pin the scaffold baseline first
-        ranked = [_BASELINE] + [v for v in ranked if v != _BASELINE]
-    if len(ranked) <= _TOP_K:
-        return ranked
-    return ranked[:_TOP_K] + [_OTHER_BUCKET]
-
-
-def _axis_colour(label: str, ordered: list[str]) -> str:
-    """Stable colour per axis value; the folded "(other)" bucket is neutral grey."""
-    if label == _OTHER_BUCKET:
-        return _OTHER_COLOUR
-    return _AXIS_PALETTE[ordered.index(label) % len(_AXIS_PALETTE)]
-
-
-def _bucket(label: str, kept: set[str]) -> str:
-    """Map a raw value to its legend bucket (itself, or "(other)" if folded)."""
-    return label if label in kept else _OTHER_BUCKET
-
-
-def _draw_axis_scatter(ax, coords: np.ndarray, values: list[str], evr: list[float]) -> int:
-    """Scatter the PCA cloud coloured by one axis; return the off-view count.
-
-    Shared by the standalone per-axis figures and the small-multiples grid so the
-    capping / colouring / framing logic lives in exactly one place.
-    """
-    ordered = _legend_order(values)
-    kept = {v for v in ordered if v != _OTHER_BUCKET}
-    centroids: list[list[float]] = []
-    for lab in ordered:
-        idx = [i for i, v in enumerate(values) if _bucket(v, kept) == lab]
-        if not idx:
-            continue
-        # Anchor each group's centroid so the Tukey-fence framing can never clip
-        # an entire minority group out of view (e.g. the smaller language group).
-        centroids.append(coords[idx].mean(axis=0).tolist())
-        ax.scatter(
-            coords[idx, 0], coords[idx, 1], s=60, alpha=0.8,
-            color=_axis_colour(lab, ordered), edgecolor="white", linewidth=0.5,
-            label=f"{lab} (n={len(idx)})", zorder=4,
-        )
-    xlim, ylim = _robust_limits(coords, np.asarray(centroids, dtype=float))
-    ax.set_xlim(*xlim)
-    ax.set_ylim(*ylim)
-    ax.axhline(0, color="#cccccc", lw=0.8, zorder=1)
-    ax.axvline(0, color="#cccccc", lw=0.8, zorder=1)
-    ax.set_xlabel(f"PC1  ({evr[0]:.0%} EV)")
-    ax.set_ylabel(f"PC2  ({evr[1]:.0%} EV)" if len(evr) > 1 else "PC2")
-    inside = (
-        (coords[:, 0] >= xlim[0]) & (coords[:, 0] <= xlim[1])
-        & (coords[:, 1] >= ylim[0]) & (coords[:, 1] <= ylim[1])
-    )
-    return int((~inside).sum())
-
-
-def _axis_caption(values: list[str]) -> str | None:
-    """Note capping when a high-cardinality axis was folded to top-K + (other)."""
-    n_distinct = len(set(values))
-    if n_distinct <= _TOP_K:
-        return None
-    return f"{n_distinct} distinct values; legend shows top {_TOP_K} + (other)"
 
 
 def plot_pca_by_axis(block: dict, axis: str, pretty: str, model: str, out_path: Path) -> Path:
@@ -416,7 +206,7 @@ def plot_pca_by_axis(block: dict, axis: str, pretty: str, model: str, out_path: 
            else sep.get("silhouette"))
 
     fig, ax = plt.subplots(figsize=(8, 6.5))
-    n_off = _draw_axis_scatter(ax, coords, values, evr)
+    n_off = draw_axis_scatter(ax, coords, values, evr)
     if n_off:
         ax.text(0.99, 0.01, f"{n_off} outlier point(s) off-view",
                 transform=ax.transAxes, ha="right", va="bottom", fontsize=8,
@@ -424,16 +214,14 @@ def plot_pca_by_axis(block: dict, axis: str, pretty: str, model: str, out_path: 
     subtitle = f"@ {_AXIS_PANEL_POSITION}, layer={_SCATTER_LAYER}, n={block['n_samples']}"
     if sil is not None:
         subtitle += f", silhouette={sil:.2f}"
-    cap = _axis_caption(values)
+    cap = axis_caption(values)
     if cap:
         subtitle += f"\n{cap}"
-    ax.set_title(
-        _wrapped_title(f"SESGO geometry coloured by {pretty}  ({model})") + f"\n{subtitle}",
-        fontsize=12,
-    )
+    ax.set_title(wrapped(f"SESGO geometry coloured by {pretty}  ({model})")
+                 + f"\n{subtitle}", fontsize=12)
     ax.legend(loc="best", frameon=True, framealpha=0.92, fontsize=8, title=pretty,
               title_fontsize=9)
-    return _finish(fig, out_path)
+    return finish(fig, out_path)
 
 
 def plot_axes_grid(block: dict, model: str, out_path: Path) -> Path:
@@ -447,66 +235,105 @@ def plot_axes_grid(block: dict, model: str, out_path: Path) -> Path:
     flat = axes.ravel()
     for ax, (axis, pretty) in zip(flat, _AXES):
         values = [_axis_value(s, axis) for s in block["samples"]]
-        _draw_axis_scatter(ax, coords, values, evr)
-        cap = _axis_caption(values)
+        draw_axis_scatter(ax, coords, values, evr)
+        cap = axis_caption(values)
         ax.set_title(pretty + (f"\n({cap})" if cap else ""), fontsize=10)
         ax.legend(loc="best", frameon=True, framealpha=0.9, fontsize=6.5,
                   markerscale=0.8, handletextpad=0.3, borderpad=0.3)
-    for ax in flat[n:]:  # blank any unused grid cells
+    for ax in flat[n:]:
         ax.axis("off")
-    fig.suptitle(
-        _wrapped_title(
-            f"SESGO answer-position geometry by every axis  ({model}, "
-            f"layer={_SCATTER_LAYER}, n={block['n_samples']})", 78
-        ),
-        fontsize=13, fontweight="bold",
-    )
-    return _finish(fig, out_path)
+    fig.suptitle(wrapped(f"SESGO answer-position geometry by every axis  ({model}, "
+                         f"layer={_SCATTER_LAYER}, n={block['n_samples']})", 78),
+                 fontsize=13, fontweight="bold")
+    return finish(fig, out_path)
+
+
+# ── Centroid shift / silhouette / EV bars ─────────────────────────────────────
 
 
 def plot_centroid_shift_bars(results: dict, model: str, out_path: Path) -> Path:
-    """Grouped bars: centroid-shift magnitude per (layer, position) cell."""
+    """Grouped bars: centroid-shift magnitude per (layer, position) + bootstrap CI."""
     layers = list(results.keys())
-    rows = []  # (position, layer, magnitude) for the only non-baseline scaffold
+    rows = []  # (position, layer, magnitude, ci_lo, ci_hi)
     for layer in layers:
         for ptype in _POSITIONS:
             block = results[layer].get(ptype)
             if block is None:
                 continue
-            for lab, sh in block["scaffold_stats"].get("shifts", {}).items():
-                rows.append((ptype, layer, sh["shift_magnitude"]))
+            for sh in block["scaffold_stats"].get("shifts", {}).values():
+                rows.append((ptype, layer, sh["shift_magnitude"],
+                             sh.get("shift_ci_low", sh["shift_magnitude"]),
+                             sh.get("shift_ci_high", sh["shift_magnitude"])))
     positions = [p for p in _POSITIONS if any(r[0] == p for r in rows)]
-    by_cell = {(p, L): m for p, L, m in rows}
+    by_cell = {(p, L): (m, lo, hi) for p, L, m, lo, hi in rows}
+    n_by_pos = {p: max((results[L][p]["n_samples"] for L in layers if p in results[L]),
+                       default=0) for p in positions}
 
-    fig, ax = plt.subplots(figsize=(9, 5.5))
+    fig, ax = plt.subplots(figsize=(9.5, 5.8))
     width = 0.8 / max(len(layers), 1)
     x = np.arange(len(positions))
     for j, layer in enumerate(layers):
-        vals = [by_cell.get((p, layer), 0.0) for p in positions]
-        bars = ax.bar(
-            x + j * width - 0.4 + width / 2, vals, width,
-            color=_PALETTE[(j + 1) % len(_PALETTE)], label=f"layer={layer}",
-        )
-        for bar, v in zip(bars, vals):
-            if v > 0:
-                ax.text(
-                    bar.get_x() + bar.get_width() / 2, bar.get_height(),
-                    f"{v:.1f}", ha="center", va="bottom", fontsize=8.5,
-                    fontweight="bold",
-                )
-    top = max((m for *_, m in rows), default=1.0)
-    ax.set_ylim(0, top * 1.18)
+        vals = [by_cell.get((p, layer), (0.0, 0.0, 0.0)) for p in positions]
+        mags = [v[0] for v in vals]
+        elo = [max(0.0, v[0] - v[1]) for v in vals]
+        ehi = [max(0.0, v[2] - v[0]) for v in vals]
+        xpos = x + j * width - 0.4 + width / 2
+        ax.bar(xpos, mags, width, color=PALETTE[(j + 1) % len(PALETTE)],
+               label=f"layer={layer}", zorder=3)
+        ax.errorbar(xpos, mags, yerr=[elo, ehi], fmt="none", ecolor="#333333",
+                    elinewidth=1.4, capsize=4, capthick=1.4, zorder=4)
+        for xi, (m, _lo, hi) in zip(xpos, vals):
+            if m > 0:
+                ax.text(xi, hi + 0.02 * max(r[2] for r in rows), f"{m:.1f}",
+                        ha="center", va="bottom", fontsize=8.5, fontweight="bold")
+    top = max((r[4] for r in rows), default=1.0)
+    ax.set_ylim(0, top * 1.22)
     ax.set_xticks(x)
-    ax.set_xticklabels([p.replace("_", "\n") for p in positions])
+    ax.set_xticklabels([f"{p}\n(n={n_by_pos[p]})".replace("_", " ") for p in positions])
     ax.set_xlabel("structural position")
-    ax.set_ylabel("centroid shift magnitude\n(full-dim L2, baseline → interpretive)")
-    ax.set_title(
-        _wrapped_title(
-            f"How far the interpretive scaffold moves the representation  ({model})"
-        )
-    )
+    ax.set_ylabel("centroid shift magnitude\n(full-dim L2, baseline -> interpretive)")
+    ax.set_title(wrapped("How far the interpretive scaffold moves the representation "
+                         f"(bootstrap 95% CI)  ({model})", 64))
     ax.legend(title="layer reduction", frameon=True)
-    return _finish(fig, out_path)
+    return finish(fig, out_path)
+
+
+def plot_silhouette_separability(results: dict, model: str, out_path: Path) -> Path:
+    """Per-axis silhouette separability at the representative layer/position."""
+    layer = _SCATTER_LAYER if _SCATTER_LAYER in results else next(iter(results))
+    block = results[layer].get(_AXIS_PANEL_POSITION) or next(
+        (results[layer][p] for p in _POSITIONS if p in results[layer]), None)
+    if block is None:
+        return out_path
+    pairs = [("scaffold", block["scaffold_stats"].get("silhouette"),
+              block["scaffold_stats"].get("silhouette_ci_low"),
+              block["scaffold_stats"].get("silhouette_ci_high"))]
+    for axis, sep in block.get("axis_separation", {}).items():
+        pairs.append((axis, sep.get("silhouette"), None, None))
+    pairs = [(a, s, lo, hi) for a, s, lo, hi in pairs if s is not None]
+    pairs.sort(key=lambda t: t[1], reverse=True)
+
+    fig, ax = plt.subplots(figsize=(9.5, 5.5))
+    x = np.arange(len(pairs))
+    vals = [p[1] for p in pairs]
+    colours = [PALETTE[0] if p[0] == "scaffold" else "#999999" for p in pairs]
+    ax.bar(x, vals, color=colours, zorder=3)
+    for xi, (_a, s, lo, hi) in zip(x, pairs):
+        if lo is not None:
+            ax.errorbar(xi, s, yerr=[[max(0.0, s - lo)], [max(0.0, hi - s)]],
+                        fmt="none", ecolor="#333333", elinewidth=1.6, capsize=5,
+                        capthick=1.6, zorder=4)
+        ax.text(xi, max(s, hi or s) + 0.005, f"{s:.2f}", ha="center", va="bottom",
+                fontsize=8.5, fontweight="bold")
+    ax.axhline(0, color="#888888", lw=1.0, zorder=2)
+    ax.set_xticks(x)
+    ax.set_xticklabels([p[0].replace("_", "\n") for p in pairs], fontsize=8.5)
+    ax.set_ylabel("silhouette separability\n(full PCA space)")
+    ax.set_title(wrapped(f"Which axis separates the representation @ "
+                         f"{_AXIS_PANEL_POSITION}, layer={layer}  "
+                         f"({model}, n={block['n_samples']})", 64)
+                 + "\nscaffold axis shows bootstrap 95% CI")
+    return finish(fig, out_path)
 
 
 def plot_explained_variance(results: dict, model: str, out_path: Path) -> Path:
@@ -515,84 +342,57 @@ def plot_explained_variance(results: dict, model: str, out_path: Path) -> Path:
     cells = results[layer]
     positions = [p for p in _POSITIONS if p in cells]
     n_pc = 3
-
     fig, ax = plt.subplots(figsize=(8.5, 5.5))
     x = np.arange(len(positions))
     width = 0.8 / n_pc
     for c in range(n_pc):
         vals = [cells[p]["explained_variance_ratio"][c] for p in positions]
-        bars = ax.bar(
-            x + c * width - 0.4 + width / 2, vals, width,
-            color=_PALETTE[(c + 1) % len(_PALETTE)], label=f"PC{c + 1}",
-        )
+        bars = ax.bar(x + c * width - 0.4 + width / 2, vals, width,
+                      color=PALETTE[(c + 1) % len(PALETTE)], label=f"PC{c + 1}")
         for bar, v in zip(bars, vals):
-            ax.text(
-                bar.get_x() + bar.get_width() / 2, bar.get_height(),
-                f"{v:.0%}", ha="center", va="bottom", fontsize=8.5,
-            )
+            ax.text(bar.get_x() + bar.get_width() / 2, bar.get_height(),
+                    f"{v:.0%}", ha="center", va="bottom", fontsize=8.5)
     cum3 = [sum(cells[p]["explained_variance_ratio"][:3]) for p in positions]
     tallest = max(cells[p]["explained_variance_ratio"][0] for p in positions)
-    ax.set_ylim(0, min(1.0, tallest + 0.12))  # headroom for the PC1 value labels
+    ax.set_ylim(0, min(1.0, tallest + 0.12))
     ax.set_xticks(x)
-    ax.set_xticklabels([p.replace("_", "\n") for p in positions])
+    ax.set_xticklabels([f"{p}\n(n={cells[p]['n_samples']})".replace("_", " ")
+                        for p in positions])
     ax.set_xlabel("structural position")
     ax.set_ylabel("explained variance ratio")
     cum_note = ",  ".join(f"{p} {c:.0%}" for p, c in zip(positions, cum3))
-    ax.set_title(
-        _wrapped_title(f"PCA explained variance (PC1-3) @ layer={layer}  ({model})", 64)
-        + "\n" + _wrapped_title(f"cumulative PC1-3:  {cum_note}", 70),
-        fontsize=11.5,
-    )
+    ax.set_title(wrapped(f"PCA explained variance (PC1-3) @ layer={layer}  ({model})", 64)
+                 + "\n" + wrapped(f"cumulative PC1-3:  {cum_note}", 70), fontsize=11.5)
     ax.legend(title="component", frameon=True)
-    return _finish(fig, out_path)
+    return finish(fig, out_path)
 
 
 # ── Orchestration ─────────────────────────────────────────────────────────────
 
 
 def _behavioral_plots(dataset: GeometryDataset, plots_dir: Path) -> list[Path]:
-    """Render the non-thinking (always) + thinking (when parsed) accuracy bars."""
-    written = [
-        plot_accuracy_by_scaffold(
-            dataset, "non_thinking",
-            plots_dir / "accuracy_by_scaffold_non_thinking.png",
-        )[0]
+    """The per-condition 2-opt/3-opt figure + the readout-comparison figure."""
+    return [
+        plot_accuracy_by_condition(dataset, plots_dir / "accuracy_by_condition.png"),
+        plot_accuracy_by_readout(dataset, plots_dir / "accuracy_by_readout.png"),
     ]
-    if any(s.predicted_thinking is not None for s in dataset.samples):
-        written.append(
-            plot_accuracy_by_scaffold(
-                dataset, "thinking",
-                plots_dir / "accuracy_by_scaffold_thinking.png",
-            )[0]
-        )
-    else:
-        log("[viz] no parsed thinking draws; skipping thinking-accuracy chart")
-    return written
 
 
 def _per_axis_plots(cells: dict, model: str, plots_dir: Path) -> list[Path]:
-    """Recolour the answer-position PCA projection by EVERY per-sample axis.
-
-    One ``pca_by_<axis>.png`` per axis plus a single small-multiples grid; all
-    share the same projection so the cloud is identical and only the colouring
-    changes. Falls back to any present position if "answer" is missing.
-    """
+    """Recolour the answer-position projection by EVERY per-sample axis."""
     panel = cells.get(_AXIS_PANEL_POSITION) or next(
-        (cells[p] for p in _POSITIONS if p in cells), None
-    )
+        (cells[p] for p in _POSITIONS if p in cells), None)
     if panel is None:
         log("[viz] no projection cell available; skipping per-axis panels")
         return []
-    written = [
-        plot_pca_by_axis(panel, axis, pretty, model, plots_dir / f"pca_by_{axis}.png")
-        for axis, pretty in _AXES
-    ]
+    written = [plot_pca_by_axis(panel, axis, pretty, model, plots_dir / f"pca_by_{axis}.png")
+               for axis, pretty in _AXES]
     written.append(plot_axes_grid(panel, model, plots_dir / "pca_axes_grid.png"))
     return written
 
 
 def _geometry_plots(results: dict, model: str, plots_dir: Path) -> list[Path]:
-    """Render the PCA scatters, per-axis panels, centroid-shift bars, EV% context."""
+    """PCA scatters, per-axis panels, centroid-shift, silhouette, EV%."""
     written: list[Path] = []
     scatter_layer = _SCATTER_LAYER if _SCATTER_LAYER in results else next(iter(results))
     cells = results[scatter_layer]
@@ -601,16 +401,15 @@ def _geometry_plots(results: dict, model: str, plots_dir: Path) -> list[Path]:
         if block is None:
             log(f"[viz] no projection for position '{ptype}'; skipping its scatter")
             continue
-        written.append(
-            plot_pca_scatter(block, ptype, model, plots_dir / f"pca_scatter_{ptype}.png")
-        )
+        written.append(plot_pca_scatter(block, ptype, model,
+                                        plots_dir / f"pca_scatter_{ptype}.png"))
     written += _per_axis_plots(cells, model, plots_dir)
-    written.append(
-        plot_centroid_shift_bars(results, model, plots_dir / "centroid_shift_by_position.png")
-    )
-    written.append(
-        plot_explained_variance(results, model, plots_dir / "explained_variance.png")
-    )
+    written.append(plot_centroid_shift_bars(results, model,
+                                            plots_dir / "centroid_shift_by_position.png"))
+    written.append(plot_silhouette_separability(results, model,
+                                                plots_dir / "silhouette_separability.png"))
+    written.append(plot_explained_variance(results, model,
+                                            plots_dir / "explained_variance.png"))
     return written
 
 
@@ -618,7 +417,7 @@ def main() -> None:
     """Load samples + the PCA projections and render every plot."""
     args = parse_args()
     log_header("VISUALIZE SESGO GEOMETRY")
-    _apply_style()
+    apply_style()
 
     dataset = GeometryDataset.from_json(args.samples)
     log(f"[viz] loaded {len(dataset.samples)} samples (model={dataset.model_name})")
@@ -636,7 +435,7 @@ def main() -> None:
     else:
         log_section("missing projections.json")
         log(f"[viz] {proj_path} not found — run analyze_geometry.py first for the "
-            "PCA geometry plots (only the behavioural bars were written)")
+            "PCA geometry plots (only the behavioural plots were written)")
 
     log(f"[viz] wrote {len(written)} plot(s):")
     for p in written:

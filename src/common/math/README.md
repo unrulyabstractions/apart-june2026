@@ -16,6 +16,7 @@ math/
 ├── fork_metrics.py             # Binary choice metrics (diversity, margin, odds)
 ├── vector_utils.py             # Vector operations (orientation, L2 norm)
 ├── faithfulness_scores.py      # Intervention faithfulness scores (sufficiency, etc.)
+├── confidence_intervals.py     # Wilson proportion CIs, SEM, percentile bootstrap CIs
 └── logit_kde.py                # Logit-transformed KDE for densities on (0, 1)
 ```
 
@@ -61,6 +62,17 @@ from src.common.math import (
 from src.common.math import (
     AggregationMethod, aggregate,
     normalize_log_probs, compute_inv_perplexity_weights,
+)
+```
+
+### Uncertainty / Confidence Intervals
+
+```python
+from src.common.math import (
+    wilson_interval, wilson_err,        # Wilson score CI for a binomial proportion
+    sem,                                # Standard error of the mean
+    bootstrap_ci,                       # Percentile bootstrap CI for any statistic
+    bootstrap_labelled_ci,              # Bootstrap CI of a statistic over a labelled cloud
 )
 ```
 

@@ -34,6 +34,13 @@ CONDITIONS: tuple[tuple[str, str], ...] = (
     ("non_thinking_2opt", "correct_2opt"),
     ("greedy_thinking", "correct_greedy_thinking"),
 )
+# Human-readable subplot titles for each condition, shared across baseline plots
+# so the single-model and cross-model figures label their readouts identically.
+COND_TITLES: dict[str, str] = {
+    "non_thinking": "3-option (non_thinking, teacher-forced)",
+    "non_thinking_2opt": "2-option (non_thinking_2opt, forced choice)",
+    "greedy_thinking": "greedy_thinking (single reasoning decode)",
+}
 # Disambiguated gold roles we split accuracy by (the target-vs-other gap signal).
 DISAMBIG_GOLDS: tuple[tuple[str, SesgoLabel], ...] = (
     ("target", SesgoLabel.TARGET),
