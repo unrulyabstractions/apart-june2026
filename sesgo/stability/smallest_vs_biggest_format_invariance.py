@@ -36,10 +36,15 @@ from src.datasets.sesgo_eval import SesgoDataset  # noqa: E402
 from stability_metrics_helpers import CONDITIONS, consistency_set  # noqa: E402
 from stability_plot_style import COND_COLOR, COND_LABEL, save_figure, titled  # noqa: E402
 
-# Two models to contrast, smallest first; their plain display names.
-_MODELS = ("Qwen3-0.6B", "Llama-3.1-70B-Instruct")
-_MODEL_LABEL = {"Qwen3-0.6B": "Smallest model\n(Qwen3 0.6B)",
-                "Llama-3.1-70B-Instruct": "Biggest model\n(Llama 3.1 70B)"}
+# Four models: within EACH family the smallest vs the largest, so the scale effect
+# is isolated from the family. Grouped Qwen (small->large) then Llama (small->large).
+_MODELS = ("Qwen3-0.6B", "Qwen3-32B", "Llama-3.2-1B-Instruct", "Llama-3.1-70B-Instruct")
+_MODEL_LABEL = {"Qwen3-0.6B": "Qwen\n0.6B", "Qwen3-32B": "Qwen\n32B",
+                "Llama-3.2-1B-Instruct": "Llama\n1B", "Llama-3.1-70B-Instruct": "Llama\n70B"}
+# Colour by family; the larger model is the darker shade, so "does scale help?" reads
+# as light->dark within each family (Qwen greens, Llama blues; Okabe-Ito anchors).
+_MODEL_COLOR = {"Qwen3-0.6B": "#9bd5c6", "Qwen3-32B": "#009E73",
+                "Llama-3.2-1B-Instruct": "#a6cee8", "Llama-3.1-70B-Instruct": "#0072B2"}
 _DATA = _HERE.parents[2] / "out" / "sesgo" / "stability"
 
 
@@ -104,11 +109,11 @@ def _bar_positions() -> tuple[dict[tuple[str, str], float], dict[str, float]]:
 
 def plot_invariance(rates: list[InvarianceRate], out_path: pathlib.Path) -> pathlib.Path:
     """Grouped bars: per-model format-invariance rate, split by context condition."""
-    fig, ax = plt.subplots(figsize=(9.2, 6.6), layout="constrained")
+    fig, ax = plt.subplots(figsize=(12.5, 6.6), layout="constrained")
     pos, centres = _bar_positions()
     by_key = {(r.condition, r.model): r for r in rates}
     for (cond, model), x in pos.items():
-        _bar_with_ci(ax, x, by_key[(cond, model)], COND_COLOR[cond])
+        _bar_with_ci(ax, x, by_key[(cond, model)], _MODEL_COLOR[model])
 
     ax.set_xticks([pos[(c, m)] for c in CONDITIONS for m in _MODELS])
     ax.set_xticklabels([_MODEL_LABEL[m] for _ in CONDITIONS for m in _MODELS],
@@ -133,10 +138,10 @@ def plot_invariance(rates: list[InvarianceRate], out_path: pathlib.Path) -> path
     last = centres[CONDITIONS[-1]]
     ax.set_xlim(-1.7, last + (len(_MODELS) - 1) * _BAR_DX / 2 + 0.7)
     titled(ax,
-           "The biggest model keeps its answer when only the wording changes; "
-           "the smallest one flips",
-           "taller bar = the answer stayed the same across 18 reworded formats "
-           "(more robust). Items are the Racism category.")
+           "Does scale make answers robust to wording? Smallest vs largest within each family",
+           "taller bar = the answer stayed the same across 18 reworded formats (more robust); "
+           "within Qwen and within Llama the larger model (darker) is far more format-invariant. "
+           "Items are the Racism category.")
     return save_figure(fig, out_path)
 
 
