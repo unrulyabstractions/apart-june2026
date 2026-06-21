@@ -26,8 +26,10 @@ uv run python sesgo/baseline/visualize_baseline_samples.py <RS>
 uv run python sesgo/stability/collect_stability_samples.py --items 12
 uv run python sesgo/stability/visualize_stability_samples.py <RS>
 
-# selection — per-scaffold accuracy, non-thinking + thinking
+# selection — per-scaffold accuracy, non-thinking + thinking (all 5 scaffold conditions)
 uv run python sesgo/selection/collect_selection_samples.py  [--subsample 0.05 --n-thinking 4]
+# when run sharded across cloud boxes, fold the shard slices back into one dataset first:
+uv run python sesgo/selection/combine_selection_shards.py Qwen3-0.6B  [--sync-dir sync --out-dir out]
 uv run python sesgo/selection/visualize_selection_samples.py <RS>
 
 # divergence — system-default distribution over hot-sampled thinking draws

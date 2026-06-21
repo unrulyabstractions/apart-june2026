@@ -16,6 +16,7 @@ single big model parallelizes across K boxes; default 1 (small models).
 
 from __future__ import annotations
 
+import os
 from dataclasses import dataclass
 
 # NOTE: plain dataclasses (NOT BaseSchema) on purpose — this planning helper runs
@@ -87,10 +88,35 @@ _DEFAULT_MODELS: list[tuple[str, float, int]] = [
 ]
 
 
+def _parse_model_filter(spec: str | None) -> set[str] | None:
+    """A comma list of repo ids OR bare names to keep (None == keep all)."""
+    if not spec:
+        return None
+    return {s.strip() for s in spec.split(",") if s.strip()}
+
+
+def _keep_member(model: str, keep: set[str] | None) -> bool:
+    """Match a model against the filter by full repo id OR bare last segment."""
+    if keep is None:
+        return True
+    return model in keep or model.split("/")[-1] in keep
+
+
 def default_fleet() -> list[FleetMember]:
-    """Build the default fleet, right-sizing each model's GPU + price ceiling."""
+    """Build the fleet, right-sizing each model's GPU + price ceiling.
+
+    Two env overrides let a SINGLE-study run target one model without editing the
+    default ladder (so a selection-only Qwen run never disturbs the size sweep):
+      * FLEET_MODELS — comma list of repo ids / bare names to keep (default: all).
+      * FLEET_SHARDS — override the shard count for every kept model (e.g. split
+        the heavier thinking grid across K disjoint boxes). 0/unset == per-model.
+    """
+    keep = _parse_model_filter(os.environ.get("FLEET_MODELS"))
+    shard_override = int(os.environ.get("FLEET_SHARDS", "0") or "0")
     members: list[FleetMember] = []
     for model, params_b, shards in _DEFAULT_MODELS:
+        if not _keep_member(model, keep):
+            continue
         gpu, price, disk = _gpu_for(params_b)
         members.append(
             FleetMember(
@@ -99,7 +125,7 @@ def default_fleet() -> list[FleetMember]:
                 gpu_name=gpu,
                 max_price=price,
                 disk_gb=disk,
-                shards=max(1, shards),
+                shards=shard_override if shard_override > 0 else max(1, shards),
             )
         )
     return members
