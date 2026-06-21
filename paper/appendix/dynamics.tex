@@ -1,0 +1,41 @@
+\section{Dynamics: forking-paths}
+\label{app:dynamics}
+
+\paragraph{Methods.}
+Following the forking-paths method, we fork the greedy reasoning path of one
+representative ambiguous item at \emph{every} token position along the full chain
+of thought, parse each continuation to an outcome, and track the outcome
+distribution $O_t$ along the path. A Bayesian change-point posterior
+$p(\tau{=}t\mid y)$ tests for a single commitment token; a per-position diversity
+$H(O_t)$ (Shannon entropy of the live answers) measures how many answers are still
+in play; and a branching tree summarizes the root $\to$ trunk $\to$ identity-branch
+outcome mix. Every forked position retains its raw rollout generations, so the
+outcome at each step is auditable.
+
+\paragraph{Results.}
+\begin{itemize}[leftmargin=*,topsep=2pt,itemsep=1pt]
+  \item $O_t$ drifts along the path (a stereotyped-group excursion mid-reasoning,
+    then a swing toward abstention) but the change-point test finds \emph{no}
+    significant single commitment token (Bayes factor $0.023$, $p(m{=}0){=}0.98$):
+    on this small model the answer accretes gradually rather than snapping at one
+    token---an honest negative.
+  \item The strongest fork is the position where re-sampling a different token most
+    diverts the outcome (pull $0.284$, drift $0.341$, potential $0.285$).
+\end{itemize}
+
+\begin{figure}[htbp]\centering
+  \begin{subfigure}{0.62\linewidth}\centering
+    \plotsub{../out/sesgo/forking/Qwen3-0.6B/plots/forking_commit_dynamics.png}{forking_commit_dynamics.png}{\linewidth}
+    \caption{Outcome distribution $O_t$ over reasoning tokens (top) and the
+      change-point posterior (bottom; no single deciding token).}
+    \label{fig:forking-dynamics}
+  \end{subfigure}\hfill
+  \begin{subfigure}{0.36\linewidth}\centering
+    \plotsub{../out/sesgo/divergence/Qwen3-0.6B/plots/branching_tree.png}{branching_tree.png}{\linewidth}
+    \caption{Branching tree: root $\to$ trunk $\to$ named / abstain branches.}
+    \label{fig:branching-tree}
+  \end{subfigure}
+  \caption{\textbf{Dynamics (forking-paths)} on \texttt{Qwen3-0.6B}: how the answer
+    forms across the reasoning path (left) and the branching outcome tree (right).}
+  \label{fig:dynamics}
+\end{figure}
