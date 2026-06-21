@@ -49,6 +49,7 @@ from src.datasets.sesgo_eval import (  # noqa: E402
     SesgoQuerier,
     SesgoQueryConfig,
 )
+from sesgo.shard_output_paths import apply_shard, shard_out_dir  # noqa: E402
 
 
 def load_prompt_dataset(path: Path, subsample: float) -> SesgoPromptDataset:
@@ -107,6 +108,12 @@ def parse_args() -> argparse.Namespace:
         help="Prompts per batched forward pass (default: 1 == single-sample path)",
     )
     parser.add_argument(
+        "--shard-index", type=int, default=0, help="This box's shard index (0-based)"
+    )
+    parser.add_argument(
+        "--shard-count", type=int, default=1, help="Total shards (1 == full grid)"
+    )
+    parser.add_argument(
         "--out-dir",
         type=Path,
         default=Path("out"),
@@ -141,6 +148,7 @@ def main() -> None:
 
     # Stride the raw json before deserializing when subsampling (fast path).
     prompt_dataset = load_prompt_dataset(args.prompt_dataset, args.subsample)
+    prompt_dataset = apply_shard(prompt_dataset, args.shard_index, args.shard_count)
     log(f"[collect] loaded {len(prompt_dataset.samples)} prompts")
 
     # NON-THINKING ONLY: greedy decode on, sampled thinking off. Already
@@ -157,8 +165,10 @@ def main() -> None:
 
     log_summary(dataset)
 
-    # out/sesgo/baseline/<MODEL>/samples.json, keyed by bare name.
-    out_dir = args.out_dir / "sesgo" / "baseline" / dataset.model_name
+    # out/sesgo/baseline/<MODEL>/samples.json (per-shard subdir when sharded).
+    out_dir = shard_out_dir(
+        args.out_dir, "baseline", dataset.model_name, args.shard_index, args.shard_count
+    )
     out_dir.mkdir(parents=True, exist_ok=True)
     out_path = out_dir / "samples.json"
     dataset.save_as_json(out_path)

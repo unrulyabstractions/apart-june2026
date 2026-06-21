@@ -62,6 +62,7 @@ from src.inference.backends import ModelBackend  # noqa: E402
 
 from src.common.device_utils import clear_gpu_memory  # noqa: E402
 from src.datasets.sesgo_eval.sesgo_batched_query import query_chunk  # noqa: E402
+from sesgo.shard_output_paths import apply_shard, shard_out_dir  # noqa: E402
 
 from sesgo.geometry.geometry_capture_helpers import (  # noqa: E402
     _POSITION_TYPES,
@@ -188,6 +189,12 @@ def parse_args() -> argparse.Namespace:
         help="Prompts per batched forward pass (default: 1 == single-sample path)",
     )
     parser.add_argument(
+        "--shard-index", type=int, default=0, help="This box's shard index (0-based)"
+    )
+    parser.add_argument(
+        "--shard-count", type=int, default=1, help="Total shards (1 == full grid)"
+    )
+    parser.add_argument(
         "--out-dir", type=Path, default=Path("out"), help="Base output directory"
     )
     parser.add_argument(
@@ -204,6 +211,7 @@ def main() -> None:
     log_header(f"COLLECT GEOMETRY SAMPLES ({args.model})")
 
     prompt_dataset = load_prompt_dataset(args.prompt_dataset, args.subsample)
+    prompt_dataset = apply_shard(prompt_dataset, args.shard_index, args.shard_count)
     log(f"[geom] loaded {len(prompt_dataset.samples)} prompts")
 
     # n_thinking=0 disables the thinking level (skips its sampling cost).
@@ -229,7 +237,13 @@ def main() -> None:
         [int(x) for x in args.layers.split(",")] if args.layers else all_layers
     )
 
-    out_root = args.out_dir / "sesgo" / "geometry" / runner.model_name.split("/")[-1]
+    out_root = shard_out_dir(
+        args.out_dir,
+        "geometry",
+        runner.model_name.split("/")[-1],
+        args.shard_index,
+        args.shard_count,
+    )
     act_dir = out_root / "activations"
     act_dir.mkdir(parents=True, exist_ok=True)
 
