@@ -81,9 +81,12 @@ wait_running() {
 # produces 0 items -> collect writes an EMPTY response_samples.json. So after
 # wait_running we PROBE actual SSH connectivity (a trivial remote `true`) and only
 # proceed once the box really answers. Bounded; returns non-zero if it never does.
+# Big H100 boxes (200 GB disk, image pull, cold sshd) can take well past 6 min to
+# open their DIRECT port — a 400s window destroyed otherwise-fine boxes — so the
+# wait is generous: 60×15s = 15 min. WAIT_SSH_TRIES overrides for a slow region.
 wait_ssh() {
   local iid="$1" i
-  for i in $(seq 1 40); do
+  for i in $(seq 1 "${WAIT_SSH_TRIES:-60}"); do
     if INSTANCE="$iid" bash "$HERE/at_vast.sh" "true" >/dev/null 2>&1; then
       return 0
     fi
