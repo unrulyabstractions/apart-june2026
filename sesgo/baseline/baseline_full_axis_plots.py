@@ -67,8 +67,12 @@ def _axis_panel(ax, cond: str, axis: str, cells: list[AccuracyCell], values: lis
 def plot_full_axes(cells_by_axis: dict, axis_vals: dict, model: str, n: int, out_path):
     """Grid figure: rows = readouts, columns = the three new axes. Returns out_path."""
     conds = [c for c, _ in CONDITIONS]
+    # Width per column scales with how many bars it holds (scaffold has 4, the
+    # binary axes have 2) so no panel is cramped and the figure stays compact.
+    widths = [max(2.0, 1.1 * len(axis_vals[axis])) for axis in AXES]
     fig, axes = plt.subplots(
-        len(conds), len(AXES), figsize=(5.0 * len(AXES), 3.2 * len(conds)), squeeze=False
+        len(conds), len(AXES), figsize=(sum(widths) + 1.5, 3.2 * len(conds)),
+        squeeze=False, gridspec_kw={"width_ratios": widths},
     )
     for ri, cond in enumerate(conds):
         for ci, axis in enumerate(AXES):
@@ -86,7 +90,7 @@ def plot_full_axes(cells_by_axis: dict, axis_vals: dict, model: str, n: int, out
         "dashed line = 1/3 chance",
         fontsize=13, fontweight="bold",
     )
-    fig.tight_layout(rect=(0, 0, 1, 0.95))
+    fig.subplots_adjust(left=0.07, right=0.99, top=0.90, bottom=0.08, wspace=0.18, hspace=0.30)
     fig.savefig(out_path, dpi=150, bbox_inches="tight")
     plt.close(fig)
     return out_path
