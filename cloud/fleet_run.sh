@@ -87,9 +87,14 @@ sync_and_setup() {
 # Run ONE box end-to-end, then destroy it. Backgrounded by the caller.
 run_one() {
   local tag="$1"
-  local iid model sidx scount log
+  local iid model sidx scount ngpu hf_device_map log
   iid="$(cat "$FLEET_DIR/$tag.id")"
-  IFS=$'\t' read -r model sidx scount < "$FLEET_DIR/$tag.job"
+  IFS=$'\t' read -r model sidx scount ngpu < "$FLEET_DIR/$tag.job"
+  # MULTI-GPU box (e.g. Llama-3.1-70B on 2× H100): tell the on-box HF backend to
+  # shard the weights across every visible GPU via device_map="auto". 1-GPU boxes
+  # (and older 3-field .job files where ngpu is empty) keep the single-device path.
+  hf_device_map=""
+  [ "${ngpu:-1}" -gt 1 ] 2>/dev/null && hf_device_map="auto"
   log="$FLEET_DIR/$tag.log"
   { echo "[$tag] instance=$iid model=$model shard=$sidx/$scount"
 
@@ -111,11 +116,13 @@ run_one() {
       return 1
     fi
 
-    # Step 4: run THIS box's model+shard pipeline (batched) on the box.
+    # Step 4: run THIS box's model+shard pipeline (batched) on the box. On a
+    # multi-GPU box HF_DEVICE_MAP=auto makes the HF backend shard the model across
+    # every GPU (empty == single-device path, unchanged for 1-GPU boxes).
     INSTANCE="$iid" MODEL="$model" SHARD_INDEX="$sidx" SHARD_COUNT="$scount" \
       STUDIES="$STUDIES" BATCH_SIZE="$BATCH_SIZE" N_THINKING="$N_THINKING" \
       bash "$HERE/at_vast.sh" \
-      "HF_TOKEN='$HF_TOKEN' MODEL='$model' SHARD_INDEX=$sidx SHARD_COUNT=$scount STUDIES='$STUDIES' BATCH_SIZE=$BATCH_SIZE N_THINKING=$N_THINKING bash cloud/fleet_model_run.sh"
+      "HF_TOKEN='$HF_TOKEN' HF_DEVICE_MAP='$hf_device_map' MODEL='$model' SHARD_INDEX=$sidx SHARD_COUNT=$scount STUDIES='$STUDIES' BATCH_SIZE=$BATCH_SIZE N_THINKING=$N_THINKING bash cloud/fleet_model_run.sh"
 
     # Step 5: pull THIS box's results into ITS OWN sync/box-<tag>/ quarantine.
     INSTANCE="$iid" SYNC_SUBDIR="box-$tag" bash "$HERE/sync_back.sh"

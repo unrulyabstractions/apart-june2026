@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 from typing import Any, Optional
 
 import torch
@@ -1252,10 +1253,28 @@ class ModelRunner:
         from .backends import HuggingFaceBackend
         from transformers import AutoModelForCausalLM, AutoTokenizer
 
-        print(f"Loading {self.model_name} on {self.device} (HuggingFace)...")
-        self._model = AutoModelForCausalLM.from_pretrained(
-            self.model_name, torch_dtype=self.dtype, trust_remote_code=True
-        ).to(self.device)
+        # MULTI-GPU sharding for models too large for one GPU (e.g. Llama-3.1-70B
+        # in bf16 ≈ 140 GB needs 2× H100 80GB). Setting HF_DEVICE_MAP=auto makes
+        # Accelerate shard the weights across every visible GPU and insert hooks
+        # that move activations between devices — so a single box runs tensor-
+        # parallel HF with no code change at the call site. When sharded we MUST
+        # NOT call .to(device): that would collapse the whole model onto one GPU
+        # and OOM. The input embeddings live on cuda:0 under device_map="auto",
+        # and self.device == "cuda" (== cuda:0), so inputs still land correctly.
+        device_map = os.environ.get("HF_DEVICE_MAP") or None
+        print(
+            f"Loading {self.model_name} on "
+            f"{device_map or self.device} (HuggingFace"
+            f"{', device_map=' + device_map if device_map else ''})..."
+        )
+        model = AutoModelForCausalLM.from_pretrained(
+            self.model_name,
+            torch_dtype=self.dtype,
+            trust_remote_code=True,
+            device_map=device_map,
+        )
+        # Only pin to a single device when NOT sharding across GPUs.
+        self._model = model if device_map else model.to(self.device)
         self._model.eval()
         tokenizer = AutoTokenizer.from_pretrained(
             self.model_name, trust_remote_code=True

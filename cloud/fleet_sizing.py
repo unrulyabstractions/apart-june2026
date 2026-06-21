@@ -7,9 +7,12 @@ A SINGLE source of truth, consumed two ways:
   * as importable ``FleetMember`` / ``fleet_plan`` for tests and tooling.
 
 Sizing rule (right-size the GPU to the model so every box runs cheaply):
-  <= 8B params  -> RTX 4090 (24 GB) — Llama-3.2-1B, gemma-2-2b, Mistral-7B, Qwen-0.6B
-  <= 16B        -> A100 40GB
-  else          -> H100 80GB
+  <= 8B params  -> 1× RTX 4090 (24 GB) — Llama-3.2-1B, gemma-2-2b, Mistral-7B, Qwen-0.6B
+  <= 16B        -> 1× A100 40GB
+  <= 40B        -> 1× H100 80GB (a 32B in bf16 fits one 80 GB card)
+  else          -> 2× H100 SXM 80GB (≈160 GB) — Llama-3.1-70B (bf16 ≈ 140 GB) needs
+                   MULTI-GPU; the HF backend shards it with device_map="auto"
+                   (HF_DEVICE_MAP=auto), i.e. tensor/pipeline parallelism on one box.
 ``shards`` splits the 2040-item grid into K disjoint contiguous slices so even a
 single big model parallelizes across K boxes; default 1 (small models).
 """
@@ -33,6 +36,7 @@ class FleetMember:
     gpu_name: str  # vast GPU_NAME, e.g. RTX_4090
     max_price: float  # $/hr ceiling for the offer search
     disk_gb: int  # disk to provision (must fit the HF weights download + xet cache)
+    num_gpus: int = 1  # GPUs per box (>1 -> multi-GPU box, HF device_map="auto")
     shards: int = 1  # disjoint contiguous grid slices (boxes) for THIS model
 
     @property
@@ -41,26 +45,37 @@ class FleetMember:
         return self.model.split("/")[-1]
 
 
-def _gpu_for(params_b: float) -> tuple[str, float, int]:
-    """Right-size GPU class + price ceiling + DISK GB to a model's param count.
+def _gpu_for(params_b: float) -> tuple[str, float, int, int]:
+    """Right-size GPU class + price ceiling + DISK GB + #GPUs to a param count.
 
     Disk must hold the HF weights download (bf16 ≈ 2 GB/B params) PLUS the
     huggingface xet cache's temp copy, so it needs to be comfortably larger than
     the weights. A fixed 60 GB box ran the 24-32B downloads out of space mid-pull
     ("OSError: No space left on device"), so the big tier gets 200 GB.
+
+    A 70B in bf16 (≈ 140 GB weights) does NOT fit one 80 GB card: the huge tier
+    provisions 2× H100 SXM (≈ 160 GB) and a 320 GB disk (weights + xet temp copy),
+    and the HF backend shards it with device_map="auto" (HF_DEVICE_MAP=auto).
     """
     # Price ceilings are GENEROUS on purpose: fleet_launch.sh selects offers
     # reliability-first (not cheapest-first), so the ceiling only needs to be high
     # enough that datacenter-grade, high-reliability hosts clear it. Uptime >> a few
-    # cents/hr here.
+    # cents/hr here. Returns (gpu_name, max_price, disk_gb, num_gpus).
     if params_b <= 8:
-        return "RTX_4090", 1.20, 60
+        return "RTX_4090", 1.20, 60, 1
     if params_b <= 16:
-        return "A100_PCIE", 3.00, 120
+        return "A100_PCIE", 3.00, 120, 1
     # H100_PCIE is frequently sold out on Vast; H100_SXM is always 80 GB (fits a
     # 32B in bf16). Reliability-first selection needs price headroom to land a
     # solid host, so the big tier gets a generous ceiling.
-    return "H100_SXM", 7.00, 200
+    if params_b <= 40:
+        return "H100_SXM", 7.00, 200, 1
+    # HUGE tier (>40B): a 70B in bf16 needs ≈ 140 GB of VRAM, so split it across
+    # 2× H100 SXM 80GB (≈ 160 GB). dph is PER-GPU on Vast, so a 2-GPU box at this
+    # ceiling clears ~$14/hr of datacenter H100s — fine (money is not the
+    # constraint here, landing a reliable multi-GPU host is). Disk 320 GB holds the
+    # 140 GB weights plus the xet cache's temp copy with headroom.
+    return "H100_SXM", 7.00, 320, 2
 
 
 # The SESGO baseline size-sweep fleet: size ladders per family so we can read the
@@ -74,10 +89,12 @@ _DEFAULT_MODELS: list[tuple[str, float, int]] = [
     ("Qwen/Qwen3-8B", 8.0, 1),
     ("Qwen/Qwen3-14B", 14.0, 1),
     ("Qwen/Qwen3-32B", 32.0, 1),
-    # Llama 3.x
+    # Llama 3.x — the 70B is the big Llama: bf16 ≈ 140 GB, so the huge tier puts
+    # it on 2× H100 SXM and the HF backend shards it (HF_DEVICE_MAP=auto).
     ("meta-llama/Llama-3.2-1B-Instruct", 1.2, 1),
     ("meta-llama/Llama-3.2-3B-Instruct", 3.2, 1),
     ("meta-llama/Llama-3.1-8B-Instruct", 8.0, 1),
+    ("meta-llama/Llama-3.1-70B-Instruct", 70.0, 1),
     # Gemma 2
     ("google/gemma-2-2b-it", 2.6, 1),
     ("google/gemma-2-9b-it", 9.2, 1),
@@ -117,7 +134,7 @@ def default_fleet() -> list[FleetMember]:
     for model, params_b, shards in _DEFAULT_MODELS:
         if not _keep_member(model, keep):
             continue
-        gpu, price, disk = _gpu_for(params_b)
+        gpu, price, disk, ngpu = _gpu_for(params_b)
         members.append(
             FleetMember(
                 model=model,
@@ -125,6 +142,7 @@ def default_fleet() -> list[FleetMember]:
                 gpu_name=gpu,
                 max_price=price,
                 disk_gb=disk,
+                num_gpus=ngpu,
                 shards=shard_override if shard_override > 0 else max(1, shards),
             )
         )
@@ -142,6 +160,7 @@ class FleetBox:
     disk_gb: int  # disk to provision for this box
     shard_index: int  # 0-based shard this box owns
     shard_count: int  # total shards for this model
+    num_gpus: int = 1  # GPUs to request for this box (>1 -> multi-GPU)
 
 
 def fleet_plan(members: list[FleetMember]) -> list[FleetBox]:
@@ -158,17 +177,22 @@ def fleet_plan(members: list[FleetMember]) -> list[FleetBox]:
                     disk_gb=m.disk_gb,
                     shard_index=k,
                     shard_count=m.shards,
+                    num_gpus=m.num_gpus,
                 )
             )
     return boxes
 
 
 def _print_tsv(boxes: list[FleetBox]) -> None:
-    """Emit one TAB-separated row per box for the fleet shell loops to read."""
+    """Emit one TAB-separated row per box for the fleet shell loops to read.
+
+    num_gpus is the LAST column so existing fleet shell readers (which read the
+    first seven fields) keep working unchanged; the launcher reads the 8th field.
+    """
     for b in boxes:
         print(
             f"{b.model}\t{b.bare_name}\t{b.gpu_name}\t{b.max_price}\t"
-            f"{b.disk_gb}\t{b.shard_index}\t{b.shard_count}"
+            f"{b.disk_gb}\t{b.shard_index}\t{b.shard_count}\t{b.num_gpus}"
         )
 
 

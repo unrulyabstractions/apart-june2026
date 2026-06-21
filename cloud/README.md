@@ -110,7 +110,7 @@ wall-clock ≈ the slowest single (model, shard) box, not the sum.
 
 | Script                    | Runs where | What it does |
 |---------------------------|------------|--------------|
-| `fleet_sizing.py`         | local      | Single source of truth: model→GPU sizing map (`<=8B`→RTX 4090, `<=16B`→A100, else H100) + shard plan. `python cloud/fleet_sizing.py plan` emits one TSV row per `(model, shard)` box. |
+| `fleet_sizing.py`         | local      | Single source of truth: model→GPU sizing map (`<=8B`→1× RTX 4090, `<=16B`→1× A100, `<=40B`→1× H100 80GB, else 2× H100 SXM) + shard plan. `python cloud/fleet_sizing.py plan` emits one TSV row per `(model, shard)` box; the trailing `num_gpus` column drives multi-GPU boxes (e.g. Llama-3.1-70B on 2× H100). |
 | `fleet_launch.sh`         | local      | Fires every `vast create` **in parallel** (background), polls concurrently. Records ids under `cloud/.fleet/<tag>.id`. **Spends money.** |
 | `fleet_run.sh`            | local      | Drives all boxes **concurrently**: per box → `sync_up` → `at_setup` → run its model+shard pipeline → safe sync-back to its own quarantine → **self-destruct**. Per-box log at `cloud/.fleet/<tag>.log`. |
 | `fleet_model_run.sh`      | **remote** | On-box per-`(model, shard)` driver: runs the batched, sharded studies (`--batch-size` drives vLLM continuous batching). |
@@ -185,7 +185,19 @@ list comes from the fleet plan so the two never drift.
   `fleet_model_run` aborts if a prompt dataset has 0 prompts.
 - **Disk too small for big weights.** 24-32B bf16 weights + the HF xet cache's
   temp copy overflow a 60 GB box (`No space left on device` mid-download). Disk is
-  sized per model in `fleet_sizing.py` (60/120/200 GB).
+  sized per model in `fleet_sizing.py` (60/120/200/320 GB).
+- **Models too big for one GPU (70B).** A 70B in bf16 (≈ 140 GB) does NOT fit a
+  single 80 GB card. `fleet_sizing.py`'s huge tier requests **2× H100 SXM**
+  (`num_gpus` column → `num_gpus>=2` in the offer query), and `fleet_run.sh`
+  forwards **`HF_DEVICE_MAP=auto`** so the HuggingFace backend shards the weights
+  across both GPUs (Accelerate device hooks). The SESGO querier forces the HF
+  backend, so this is the multi-GPU path; the single-device `.to(device)` is
+  skipped whenever `HF_DEVICE_MAP` is set (it would otherwise collapse the model
+  onto one GPU and OOM). Use a small `BATCH_SIZE` (≈8) for the 70B — the cross-GPU
+  activations leave little headroom.
+- **OOM on undersized GPU.** Baseline's greedy-decode trajectory step at
+  `BATCH_SIZE=32` OOM'd an 8B on a 24 GB RTX 4090. Put borderline 8B runs on a
+  40 GB A100 and/or drop `BATCH_SIZE` — reliability over throughput.
 - **Vast preemption.** Cheap interruptible offers get outbid mid-run
   (`intended_status` flips to `stopped`); the box stops and only a partial
   checkpoint survives. Prefer `reliability>=0.95` offers and just re-launch the
