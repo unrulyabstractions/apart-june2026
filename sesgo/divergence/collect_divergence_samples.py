@@ -19,7 +19,7 @@ fraction of predictions that abstain (predict UNKNOWN) rather than pick a group.
 Here we just log a one-line abstention summary plus the MEAN per-item thinking
 ENTROPY as a sanity check that the draws actually disperse.
 
-Output lands at out/sesgo/divergence/<MODEL>/samples.json (MODEL == bare name).
+Output lands at out/sesgo/divergence/<MODEL>/response_samples.json (MODEL == bare name).
 
 Usage:
   uv run python sesgo/divergence/collect_divergence_samples.py
@@ -209,10 +209,10 @@ def main() -> None:
 
     log_summary(dataset)
 
-    # out/sesgo/divergence/<MODEL>/samples.json, keyed by bare model name.
+    # out/sesgo/divergence/<MODEL>/response_samples.json, keyed by bare model name.
     out_dir = args.out_dir / "sesgo" / "divergence" / dataset.model_name
     out_dir.mkdir(parents=True, exist_ok=True)
-    out_path = out_dir / "samples.json"
+    out_path = out_dir / "response_samples.json"
     dataset.save_as_json(out_path)
     log(f"[collect] wrote {out_path}")
 

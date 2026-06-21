@@ -1,6 +1,6 @@
 """Compute and plot ALL NON_THINKING_BASELINE statistics for a SesgoDataset.
 
-Run-by-path driver for the NON_THINKING_BASELINE study. Loads a samples.json
+Run-by-path driver for the NON_THINKING_BASELINE study. Loads a response_samples.json
 produced by collect_baseline_samples.py (a SesgoDataset) and answers
 one question: at the NON-THINKING level, on the single un-varied, un-scaffolded
 rendering of each item, how often does the model ABSTAIN (predict UNKNOWN, the
@@ -19,7 +19,7 @@ logged. Robust to subsampled data — a slice may hold only a few items.
 
 Usage:
   uv run python sesgo/baseline/visualize_baseline_samples.py \
-      out/sesgo/baseline/Qwen3-0.6B/samples.json
+      out/sesgo/baseline/Qwen3-0.6B/response_samples.json
   uv run python sesgo/baseline/visualize_baseline_samples.py \
       SAMPLES.json --out-dir out
 """
@@ -71,7 +71,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "samples",
         type=Path,
-        help="Path to samples.json (a SesgoDataset) from collect_baseline_samples.py",
+        help="Path to response_samples.json (a SesgoDataset) from collect_baseline_samples.py",
     )
     parser.add_argument(
         "--out-dir",

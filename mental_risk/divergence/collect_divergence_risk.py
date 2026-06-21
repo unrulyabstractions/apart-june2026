@@ -8,7 +8,7 @@ risk-score distribution is well characterized. SESGO measured the spread of the
 diversity over the sampled risk scores), so divergence is just baseline collection
 with a big n_thinking and the thinking level forced on.
 
-Output lands at out/mental_risk/divergence/<MODEL>/samples.json (MODEL == bare name).
+Output lands at out/mental_risk/divergence/<MODEL>/response_samples.json (MODEL == bare name).
 
 Usage:
   uv run python mental_risk/divergence/collect_divergence_risk.py
@@ -97,7 +97,7 @@ def main() -> None:
 
     out_dir = args.out_dir / "mental_risk" / "divergence" / dataset.model_name
     out_dir.mkdir(parents=True, exist_ok=True)
-    out_path = out_dir / "samples.json"
+    out_path = out_dir / "response_samples.json"
     dataset.save_as_json(out_path)
     log(f"[divergence] wrote {out_path}")
 

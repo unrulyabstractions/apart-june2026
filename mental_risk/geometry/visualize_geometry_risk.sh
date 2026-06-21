@@ -4,7 +4,7 @@
 # Usage:
 #   mental_risk/geometry/visualize_geometry_risk.sh [SAMPLES_JSON]
 #   PORT=8006 mental_risk/geometry/visualize_geometry_risk.sh \
-#       out/mental_risk/geometry/Qwen3-0.6B/samples.json
+#       out/mental_risk/geometry/Qwen3-0.6B/response_samples.json
 #
 # Ensures the PCA projection exists (runs analyze_geometry_risk.py on every launch
 # so the served data is fresh), opens the browser, then serves the app.
@@ -13,7 +13,7 @@ set -euo pipefail
 # Repo root = two levels up from this script (mental_risk/geometry/<here>).
 cd "$(dirname "$0")/../.."
 
-SAMPLES="${1:-out/mental_risk/geometry/Qwen3-0.6B/samples.json}"
+SAMPLES="${1:-out/mental_risk/geometry/Qwen3-0.6B/response_samples.json}"
 PORT="${PORT:-8003}"
 
 # 1) Produce / refresh projections.json (writes to <MODEL>/analysis/).

@@ -14,7 +14,7 @@ Plots:
 Usage:
   uv run python mental_risk/geometry/visualize_geometry_risk.py
   uv run python mental_risk/geometry/visualize_geometry_risk.py \
-      out/mental_risk/geometry/Qwen3-0.6B/samples.json
+      out/mental_risk/geometry/Qwen3-0.6B/response_samples.json
 """
 
 from __future__ import annotations
@@ -47,8 +47,8 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Plot a geometry RiskDataset")
     parser.add_argument(
         "samples", type=Path, nargs="?",
-        default=Path("out/mental_risk/geometry/Qwen3-0.6B/samples.json"),
-        help="Path to a geometry samples.json (a RiskGeometryDataset)",
+        default=Path("out/mental_risk/geometry/Qwen3-0.6B/response_samples.json"),
+        help="Path to a geometry response_samples.json (a RiskGeometryDataset)",
     )
     parser.add_argument("--out-dir", type=Path, default=Path("out"))
     return parser.parse_args()

@@ -13,7 +13,7 @@ risk ranks FRAMINGS by how well their predicted risk tracks the continuous gold
 Usage:
   uv run python mental_risk/selection/visualize_selection_risk.py
   uv run python mental_risk/selection/visualize_selection_risk.py \
-      out/mental_risk/selection/Qwen3-0.6B/samples.json
+      out/mental_risk/selection/Qwen3-0.6B/response_samples.json
 """
 
 from __future__ import annotations
@@ -47,8 +47,8 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Plot a selection RiskDataset")
     parser.add_argument(
         "samples", type=Path, nargs="?",
-        default=Path("out/mental_risk/selection/Qwen3-0.6B/samples.json"),
-        help="Path to a selection samples.json (a RiskDataset)",
+        default=Path("out/mental_risk/selection/Qwen3-0.6B/response_samples.json"),
+        help="Path to a selection response_samples.json (a RiskDataset)",
     )
     parser.add_argument("--out-dir", type=Path, default=Path("out"))
     return parser.parse_args()

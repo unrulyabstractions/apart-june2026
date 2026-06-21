@@ -4,7 +4,7 @@ Run-by-path FastAPI app (risk analogue of sesgo/geometry/geometry_viz_server.py)
 Serves the precomputed PCA projection (analyze_geometry_risk.py ->
 out/mental_risk/geometry/<MODEL>/analysis/projections.json) as an interactive
 Plotly scatter, plus a per-sample DETAIL panel backed by the RiskGeometryDataset
-(samples.json). The projection is fully precomputed, so the frontend GETs it once
+(response_samples.json). The projection is fully precomputed, so the frontend GETs it once
 and re-slices client-side; per-sample detail (prompt + the risk readouts) is too
 heavy to ship in the blob, so it is fetched lazily by sample_idx.
 
@@ -14,7 +14,7 @@ routes. Endpoints mirror SESGO's: / , /api/projections , /api/sample/{idx} ,
 
 Usage (run as a script, NOT a module path):
   uv run python mental_risk/geometry/geometry_viz_server_risk.py \
-      --samples out/mental_risk/geometry/Qwen3-0.6B/samples.json --port 8003
+      --samples out/mental_risk/geometry/Qwen3-0.6B/response_samples.json --port 8003
 """
 
 from __future__ import annotations
@@ -41,7 +41,7 @@ _STATE: dict = {"projections": {}, "by_idx": {}, "model_name": ""}
 
 
 def _projections_path(samples: Path) -> Path:
-    """Locate projections.json for a given samples.json (sibling analysis/ dir)."""
+    """Locate projections.json for a given response_samples.json (sibling analysis/ dir)."""
     return samples.resolve().parent / "analysis" / "projections.json"
 
 
@@ -115,8 +115,8 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "--samples", type=Path,
-        default=Path("out/mental_risk/geometry/Qwen3-0.6B/samples.json"),
-        help="samples.json (a RiskGeometryDataset); projections.json is read from "
+        default=Path("out/mental_risk/geometry/Qwen3-0.6B/response_samples.json"),
+        help="response_samples.json (a RiskGeometryDataset); projections.json is read from "
         "its sibling analysis/ dir",
     )
     parser.add_argument("--port", type=int, default=8003, help="server port (default 8003)")

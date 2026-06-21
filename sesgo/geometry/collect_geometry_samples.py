@@ -18,7 +18,7 @@ For non-reasoning families the think_* positions simply don't exist, so each
 sample captures turn + answer; reasoning models additionally capture think_*.
 
 Each snapshot is torch.save'd under out/sesgo/geometry/<MODEL>/activations/ and
-referenced (by relative path only) from a GeometrySample, so the samples.json
+referenced (by relative path only) from a GeometrySample, so the response_samples.json
 stays small. The headline downstream question is geometric: how far does each
 scaffold move these representations versus the no-scaffold baseline.
 
@@ -368,7 +368,7 @@ def main() -> None:
         config=config,
         samples=samples,
     )
-    out_path = out_root / "samples.json"
+    out_path = out_root / "response_samples.json"
     dataset.save_as_json(out_path)
 
     log_section("geometry collection summary")

@@ -9,7 +9,7 @@ best tracks the gold risk — the framing-selection analogue of SESGO scaffold
 selection. Unlike SESGO there is NO no-op baseline framing, so framings are
 ranked against gold rather than against a baseline condition.
 
-Output lands at out/mental_risk/selection/<MODEL>/samples.json (MODEL == bare name).
+Output lands at out/mental_risk/selection/<MODEL>/response_samples.json (MODEL == bare name).
 
 Usage:
   uv run python mental_risk/selection/collect_selection_risk.py
@@ -90,7 +90,7 @@ def main() -> None:
 
     out_dir = args.out_dir / "mental_risk" / "selection" / dataset.model_name
     out_dir.mkdir(parents=True, exist_ok=True)
-    out_path = out_dir / "samples.json"
+    out_path = out_dir / "response_samples.json"
     dataset.save_as_json(out_path)
     log(f"[selection] wrote {out_path}")
 

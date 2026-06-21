@@ -10,8 +10,8 @@
 # Steps (writes ONLY to the remote out/sesgo/...):
 #   1. Regenerate all five prompt datasets from datasets/SESGO/prompts/*.xlsx
 #      -> out/sesgo/{...}/prompt_dataset.json
-#   2. FULL divergence run (NO subsample) -> out/sesgo/divergence/<MODEL>/samples.json
-#   3. FULL stability run  (NO subsample) -> out/sesgo/stability/<MODEL>/samples.json
+#   2. FULL divergence run (NO subsample) -> out/sesgo/divergence/<MODEL>/response_samples.json
+#   3. FULL stability run  (NO subsample) -> out/sesgo/stability/<MODEL>/response_samples.json
 #
 # These are the FULL collections: no --subsample flag is passed, so every prompt
 # in the regenerated datasets is queried. Pull the results back with

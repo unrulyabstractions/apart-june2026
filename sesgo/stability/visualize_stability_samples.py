@@ -1,6 +1,6 @@
 """Compute and plot ALL STABILITY statistics for a collected SesgoDataset.
 
-Run-by-path driver for the STABILITY half. Loads a samples.json produced by
+Run-by-path driver for the STABILITY half. Loads a response_samples.json produced by
 collect_stability_samples.py (a SesgoDataset of the cheapest, max-logprob /
 non-thinking answers) and answers one question: how CONSISTENT is the model's
 answer across the superficial FORMAT variations of the SAME item (question_id)?
@@ -28,7 +28,7 @@ variations survived.
 
 Usage:
   uv run python sesgo/stability/visualize_stability_samples.py \
-      out/sesgo/stability/Qwen3-0.6B/samples.json
+      out/sesgo/stability/Qwen3-0.6B/response_samples.json
   uv run python sesgo/stability/visualize_stability_samples.py SAMPLES.json --out-dir out
 """
 
@@ -70,7 +70,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "samples",
         type=Path,
-        help="Path to samples.json (a SesgoDataset) from collect_stability_samples.py",
+        help="Path to response_samples.json (a SesgoDataset) from collect_stability_samples.py",
     )
     parser.add_argument(
         "--out-dir",

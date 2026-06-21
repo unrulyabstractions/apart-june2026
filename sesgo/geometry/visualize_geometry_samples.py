@@ -22,13 +22,13 @@ Run-by-path driver. Renders into out/sesgo/geometry/<MODEL>/plots/:
       * explained_variance.png : EV%(PC1..3) context per position.
 
 Robust to missing data: positions absent from projections.json are skipped, and
-the behavioural plots fall back to the samples.json dataset directly.
+the behavioural plots fall back to the response_samples.json dataset directly.
 
 Usage:
   uv run python sesgo/geometry/analyze_geometry.py \
-      out/sesgo/geometry/Qwen3-0.6B/samples.json   # writes projections.json
+      out/sesgo/geometry/Qwen3-0.6B/response_samples.json   # writes projections.json
   uv run python sesgo/geometry/visualize_geometry_samples.py \
-      out/sesgo/geometry/Qwen3-0.6B/samples.json
+      out/sesgo/geometry/Qwen3-0.6B/response_samples.json
 """
 
 from __future__ import annotations
@@ -94,7 +94,7 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="Plot SESGO geometry (behavioral + representational geometry)"
     )
-    parser.add_argument("samples", type=Path, help="samples.json (a GeometryDataset)")
+    parser.add_argument("samples", type=Path, help="response_samples.json (a GeometryDataset)")
     parser.add_argument(
         "--out-dir", type=Path, default=Path("out"), help="Base output directory"
     )

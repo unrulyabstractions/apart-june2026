@@ -1,7 +1,7 @@
 """PCA / projection analysis of mental_risk geometry activations.
 
 Run-by-path driver (risk analogue of sesgo/geometry/analyze_geometry.py). Loads a
-RiskGeometryDataset (samples.json) and the per-position residual tensors it points
+RiskGeometryDataset (response_samples.json) and the per-position residual tensors it points
 at, then runs a separate PCA per (layer x position), measuring how each FRAMING
 moves the representation relative to the canonical anchor framing. All the heavy
 lifting lives in src.datasets.risk_geometry.risk_geometry_analysis so this stays a
@@ -10,7 +10,7 @@ out/mental_risk/geometry/<MODEL>/analysis/projections.json.
 
 Usage:
   uv run python mental_risk/geometry/analyze_geometry_risk.py \
-      out/mental_risk/geometry/Qwen3-0.6B/samples.json
+      out/mental_risk/geometry/Qwen3-0.6B/response_samples.json
 """
 
 from __future__ import annotations
@@ -38,7 +38,7 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="PCA / projection analysis of mental_risk geometry activations"
     )
-    parser.add_argument("samples", type=Path, help="samples.json (a RiskGeometryDataset)")
+    parser.add_argument("samples", type=Path, help="response_samples.json (a RiskGeometryDataset)")
     parser.add_argument("--out-dir", type=Path, default=Path("out"))
     parser.add_argument(
         "--layer", type=str, default="last,mean",

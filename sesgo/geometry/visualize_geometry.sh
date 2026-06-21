@@ -3,7 +3,7 @@
 #
 # Usage:
 #   sesgo/geometry/visualize_geometry.sh [SAMPLES_JSON]
-#   PORT=8005 sesgo/geometry/visualize_geometry.sh out/sesgo/geometry/Qwen3-0.6B/samples.json
+#   PORT=8005 sesgo/geometry/visualize_geometry.sh out/sesgo/geometry/Qwen3-0.6B/response_samples.json
 #
 # Ensures the PCA projection exists (runs analyze_geometry.py if needed-on every
 # launch so the served data is fresh), opens the browser, then serves the app.
@@ -12,7 +12,7 @@ set -euo pipefail
 # Repo root = two levels up from this script (sesgo/geometry/<here>).
 cd "$(dirname "$0")/../.."
 
-SAMPLES="${1:-out/sesgo/geometry/Qwen3-0.6B/samples.json}"
+SAMPLES="${1:-out/sesgo/geometry/Qwen3-0.6B/response_samples.json}"
 PORT="${PORT:-8002}"
 
 # 1) Produce / refresh projections.json (writes to <MODEL>/analysis/).

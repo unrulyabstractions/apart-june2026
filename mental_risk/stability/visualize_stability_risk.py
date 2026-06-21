@@ -23,7 +23,7 @@ the metadata that survives collection rather than a fabricated one.
 Usage:
   uv run python mental_risk/stability/visualize_stability_risk.py
   uv run python mental_risk/stability/visualize_stability_risk.py \
-      out/mental_risk/stability/Qwen3-0.6B/samples.json
+      out/mental_risk/stability/Qwen3-0.6B/response_samples.json
 """
 
 from __future__ import annotations
@@ -54,8 +54,8 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Plot a stability RiskDataset")
     parser.add_argument(
         "samples", type=Path, nargs="?",
-        default=Path("out/mental_risk/stability/Qwen3-0.6B/samples.json"),
-        help="Path to a stability samples.json (a RiskDataset)",
+        default=Path("out/mental_risk/stability/Qwen3-0.6B/response_samples.json"),
+        help="Path to a stability response_samples.json (a RiskDataset)",
     )
     parser.add_argument("--out-dir", type=Path, default=Path("out"))
     return parser.parse_args()

@@ -11,7 +11,7 @@ surface form, the downstream question (visualize_stability_risk.py) is how
 CONSISTENT the risk answer is across those format-only rewrites. Here we just log
 a one-line spread summary as a sanity check.
 
-Output lands at out/mental_risk/stability/<MODEL>/samples.json (MODEL == bare name).
+Output lands at out/mental_risk/stability/<MODEL>/response_samples.json (MODEL == bare name).
 
 Usage:
   uv run python mental_risk/stability/collect_stability_risk.py
@@ -110,7 +110,7 @@ def main() -> None:
 
     out_dir = args.out_dir / "mental_risk" / "stability" / dataset.model_name
     out_dir.mkdir(parents=True, exist_ok=True)
-    out_path = out_dir / "samples.json"
+    out_path = out_dir / "response_samples.json"
     dataset.save_as_json(out_path)
     log(f"[stability] wrote {out_path}")
 

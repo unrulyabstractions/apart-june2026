@@ -1,6 +1,6 @@
 """Plot the model's SYSTEM DEFAULT distribution for a collected SesgoDataset.
 
-Run-by-path driver for the DIVERGENCE study. Loads a samples.json produced by
+Run-by-path driver for the DIVERGENCE study. Loads a response_samples.json produced by
 collect_divergence_samples.py (a SesgoDataset, NO scaffold) and characterizes the
 model's SYSTEM DEFAULT over sampled thinking draws on each base ambiguous prompt
 (concept from arXiv:2601.06116 — "system default / default uncertainty").
@@ -31,7 +31,7 @@ data and to items whose draws never parsed (sample_size == 0 — excluded everyw
 
 Usage:
   uv run python sesgo/divergence/visualize_divergence_samples.py \
-      out/sesgo/divergence/Qwen3-0.6B/samples.json
+      out/sesgo/divergence/Qwen3-0.6B/response_samples.json
   uv run python sesgo/divergence/visualize_divergence_samples.py SAMPLES.json --out-dir out
 """
 
@@ -78,7 +78,7 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "samples", type=Path,
-        help="Path to samples.json (a SesgoDataset) from collect_divergence_samples.py",
+        help="Path to response_samples.json (a SesgoDataset) from collect_divergence_samples.py",
     )
     parser.add_argument(
         "--out-dir", type=Path, default=Path("out"),

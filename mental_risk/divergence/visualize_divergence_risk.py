@@ -18,7 +18,7 @@ ScoreSummary, so we plot the cloud's spread directly. Plots:
 Usage:
   uv run python mental_risk/divergence/visualize_divergence_risk.py
   uv run python mental_risk/divergence/visualize_divergence_risk.py \
-      out/mental_risk/divergence/Qwen3-0.6B/samples.json
+      out/mental_risk/divergence/Qwen3-0.6B/response_samples.json
 """
 
 from __future__ import annotations
@@ -48,8 +48,8 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Plot a divergence RiskDataset")
     parser.add_argument(
         "samples", type=Path, nargs="?",
-        default=Path("out/mental_risk/divergence/Qwen3-0.6B/samples.json"),
-        help="Path to a divergence samples.json (a RiskDataset)",
+        default=Path("out/mental_risk/divergence/Qwen3-0.6B/response_samples.json"),
+        help="Path to a divergence response_samples.json (a RiskDataset)",
     )
     parser.add_argument("--out-dir", type=Path, default=Path("out"))
     return parser.parse_args()

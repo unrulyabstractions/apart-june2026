@@ -1,6 +1,6 @@
 """PCA / projection analysis of SESGO geometry activations.
 
-Run-by-path driver. Loads a GeometryDataset (samples.json from
+Run-by-path driver. Loads a GeometryDataset (response_samples.json from
 collect_geometry_samples.py) and the per-position residual tensors it points at,
 then runs a separate PCA per (layer-choice x position_type), measuring how each
 scaffold condition moves the representation away from the no-scaffold baseline in
@@ -28,7 +28,7 @@ groups simply emit empty shifts / a null silhouette, and the JSON always loads.
 
 Usage:
   uv run python sesgo/geometry/analyze_geometry.py \
-      out/sesgo/geometry/Qwen3-0.6B/samples.json
+      out/sesgo/geometry/Qwen3-0.6B/response_samples.json
 """
 
 from __future__ import annotations
@@ -436,7 +436,7 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="PCA / projection analysis of SESGO geometry activations"
     )
-    parser.add_argument("samples", type=Path, help="samples.json (a GeometryDataset)")
+    parser.add_argument("samples", type=Path, help="response_samples.json (a GeometryDataset)")
     parser.add_argument(
         "--out-dir", type=Path, default=Path("out"), help="Base output directory"
     )

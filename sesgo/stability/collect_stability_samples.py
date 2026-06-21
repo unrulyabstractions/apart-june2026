@@ -23,7 +23,7 @@ downstream question is how CONSISTENT that abstention is across the variations â
 computed by visualize_stability_samples.py. Here we just log a one-line overall
 accuracy summary as a sanity check.
 
-Output lands at out/sesgo/stability/<MODEL>/samples.json (MODEL == bare name).
+Output lands at out/sesgo/stability/<MODEL>/response_samples.json (MODEL == bare name).
 
 Usage:
   uv run python sesgo/stability/collect_stability_samples.py
@@ -222,10 +222,10 @@ def main() -> None:
 
     log_summary(dataset)
 
-    # out/sesgo/stability/<MODEL>/samples.json, keyed by bare model name.
+    # out/sesgo/stability/<MODEL>/response_samples.json, keyed by bare model name.
     out_dir = args.out_dir / "sesgo" / "stability" / dataset.model_name
     out_dir.mkdir(parents=True, exist_ok=True)
-    out_path = out_dir / "samples.json"
+    out_path = out_dir / "response_samples.json"
     dataset.save_as_json(out_path)
     log(f"[collect] wrote {out_path}")
 

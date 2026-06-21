@@ -14,7 +14,7 @@ five scaffold conditions; the actual SELECT (pick the best scaffold) lives in
 visualize_selection_samples.py, but we log a per-scaffold non-thinking + thinking
 abstention table here as a sanity check.
 
-Output lands at out/sesgo/selection/<MODEL>/samples.json (MODEL == bare name).
+Output lands at out/sesgo/selection/<MODEL>/response_samples.json (MODEL == bare name).
 
 Usage:
   uv run python sesgo/selection/collect_selection_samples.py
@@ -209,10 +209,10 @@ def main() -> None:
 
     log_summary(dataset)
 
-    # out/sesgo/selection/<MODEL>/samples.json, keyed by bare model name.
+    # out/sesgo/selection/<MODEL>/response_samples.json, keyed by bare model name.
     out_dir = args.out_dir / "sesgo" / "selection" / dataset.model_name
     out_dir.mkdir(parents=True, exist_ok=True)
-    out_path = out_dir / "samples.json"
+    out_path = out_dir / "response_samples.json"
     dataset.save_as_json(out_path)
     log(f"[collect] wrote {out_path}")
 

@@ -11,7 +11,7 @@ Thinking is enabled by default too (so the bare grid also yields a sampled
 reasoning readout to contrast against), but --no-thinking drops it for the
 cheapest possible run.
 
-Output lands at out/mental_risk/baseline/<MODEL>/samples.json (MODEL == bare name).
+Output lands at out/mental_risk/baseline/<MODEL>/response_samples.json (MODEL == bare name).
 
 Usage:
   uv run python mental_risk/baseline/collect_baseline_risk.py
@@ -115,7 +115,7 @@ def main() -> None:
 
     out_dir = args.out_dir / "mental_risk" / "baseline" / dataset.model_name
     out_dir.mkdir(parents=True, exist_ok=True)
-    out_path = out_dir / "samples.json"
+    out_path = out_dir / "response_samples.json"
     dataset.save_as_json(out_path)
     log(f"[baseline] wrote {out_path}")
 

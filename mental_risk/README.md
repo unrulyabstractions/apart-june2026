@@ -56,12 +56,12 @@ uv run python mental_risk/selection/visualize_selection_risk.py
 
 # Geometry: PCA analysis + interactive Plotly viz.
 uv run python mental_risk/geometry/analyze_geometry_risk.py \
-    out/mental_risk/geometry/Qwen3-0.6B/samples.json
+    out/mental_risk/geometry/Qwen3-0.6B/response_samples.json
 mental_risk/geometry/visualize_geometry_risk.sh           # analyze + serve + open
 ```
 
 Output layout (per study, keyed by bare model name):
-`out/mental_risk/<study>/<MODEL>/{samples.json, plots/, activations/, analysis/}`.
+`out/mental_risk/<study>/<MODEL>/{response_samples.json, plots/, activations/, analysis/}`.
 
 ## Shared helpers (top-level modules, reused by the drivers)
 

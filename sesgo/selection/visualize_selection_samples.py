@@ -1,6 +1,6 @@
 """Compute, plot, and SELECT the best scaffold for a collected SesgoDataset.
 
-Run-by-path driver for the SELECTION study. Loads a samples.json produced by
+Run-by-path driver for the SELECTION study. Loads a response_samples.json produced by
 collect_selection_samples.py (a SesgoDataset) and answers one question: of the
 five scaffold conditions — the no-scaffold baseline (scaffold_id == None) plus
 the four debiasing scaffolds — which one best pushes the model toward abstaining
@@ -30,7 +30,7 @@ having no decodable answer.
 
 Usage:
   uv run python sesgo/selection/visualize_selection_samples.py \
-      out/sesgo/selection/Qwen3-0.6B/samples.json
+      out/sesgo/selection/Qwen3-0.6B/response_samples.json
   uv run python sesgo/selection/visualize_selection_samples.py SAMPLES.json --out-dir out
 """
 
@@ -115,7 +115,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "samples",
         type=Path,
-        help="Path to samples.json (a SesgoDataset) from collect_selection_samples.py",
+        help="Path to response_samples.json (a SesgoDataset) from collect_selection_samples.py",
     )
     parser.add_argument(
         "--out-dir",

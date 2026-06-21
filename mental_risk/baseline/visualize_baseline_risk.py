@@ -1,7 +1,7 @@
 """Plot the BASELINE RiskDataset into PNGs under .../baseline/<MODEL>/plots/.
 
 Run-by-path driver (risk analogue of sesgo/baseline/visualize_baseline_samples.py).
-Loads a baseline samples.json (a RiskDataset) and renders predicted-vs-gold
+Loads a baseline response_samples.json (a RiskDataset) and renders predicted-vs-gold
 scatter plots (non-thinking and thinking, colored by framing, annotated with
 Pearson r) plus mean-predicted-risk bar charts by framing and by language.
 Thinking predictions with no parsed draw (n == 0) are excluded.
@@ -9,7 +9,7 @@ Thinking predictions with no parsed draw (n == 0) are excluded.
 Usage:
   uv run python mental_risk/baseline/visualize_baseline_risk.py
   uv run python mental_risk/baseline/visualize_baseline_risk.py \
-      out/mental_risk/baseline/Qwen3-0.6B/samples.json
+      out/mental_risk/baseline/Qwen3-0.6B/response_samples.json
 """
 
 from __future__ import annotations
@@ -45,8 +45,8 @@ def parse_args() -> argparse.Namespace:
         "samples",
         type=Path,
         nargs="?",
-        default=Path("out/mental_risk/baseline/Qwen3-0.6B/samples.json"),
-        help="Path to a baseline samples.json (a RiskDataset)",
+        default=Path("out/mental_risk/baseline/Qwen3-0.6B/response_samples.json"),
+        help="Path to a baseline response_samples.json (a RiskDataset)",
     )
     parser.add_argument(
         "--out-dir", type=Path, default=Path("out"), help="Base output directory"

@@ -7,7 +7,7 @@ and (2) follows the model's GREEDY NON-THINKING answer path and snapshots the
 FULL per-layer residual stream at four structural token positions (turn /
 think_open / think_close / answer). Each snapshot is torch.save'd under
 out/mental_risk/geometry/<MODEL>/activations/ and referenced by relative path only
-from a RiskGeometrySample, so samples.json stays small.
+from a RiskGeometrySample, so response_samples.json stays small.
 
 The headline downstream question is geometric: how far does each FRAMING move
 these representations versus the others (analyze_geometry_risk.py).
@@ -136,7 +136,7 @@ def main() -> None:
         config=config,
         samples=samples,
     )
-    out_path = out_root / "samples.json"
+    out_path = out_root / "response_samples.json"
     dataset.save_as_json(out_path)
 
     log_section("geometry collection summary")

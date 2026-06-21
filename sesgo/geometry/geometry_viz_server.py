@@ -3,7 +3,7 @@
 Run-by-path FastAPI app. Serves the precomputed PCA projection (from
 analyze_geometry.py -> out/sesgo/geometry/<MODEL>/analysis/projections.json) as an
 interactive Plotly scatter, plus a per-sample DETAIL panel backed by the
-GeometryDataset (samples.json from collect_geometry_samples.py).
+GeometryDataset (response_samples.json from collect_geometry_samples.py).
 
 WHY a static server (no websockets): unlike the temporal-manifolds webapp, the
 data here is fully precomputed by analyze_geometry.py, so the frontend only needs
@@ -23,7 +23,7 @@ Endpoints:
 
 Usage (run as a script, NOT a module path):
   uv run python sesgo/geometry/geometry_viz_server.py \
-      --samples out/sesgo/geometry/Qwen3-0.6B/samples.json --port 8002
+      --samples out/sesgo/geometry/Qwen3-0.6B/response_samples.json --port 8002
 """
 
 from __future__ import annotations
@@ -56,10 +56,10 @@ _STATE: dict = {
 
 
 def _projections_path(samples: Path) -> Path:
-    """Locate projections.json for a given samples.json.
+    """Locate projections.json for a given response_samples.json.
 
     analyze_geometry.py writes it to a sibling ``analysis/`` directory:
-    out/sesgo/geometry/<MODEL>/{samples.json, analysis/projections.json}.
+    out/sesgo/geometry/<MODEL>/{response_samples.json, analysis/projections.json}.
     """
     return samples.resolve().parent / "analysis" / "projections.json"
 
@@ -825,8 +825,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--samples",
         type=Path,
-        default=Path("out/sesgo/geometry/Qwen3-0.6B/samples.json"),
-        help="samples.json (a GeometryDataset); projections.json is read from its "
+        default=Path("out/sesgo/geometry/Qwen3-0.6B/response_samples.json"),
+        help="response_samples.json (a GeometryDataset); projections.json is read from its "
         "sibling analysis/ dir",
     )
     parser.add_argument("--port", type=int, default=8002, help="server port (default 8002)")

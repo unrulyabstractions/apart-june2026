@@ -13,7 +13,7 @@ a group. Here we log a one-line overall non-thinking abstention summary as a san
 check; the full slice-by-axis breakdown lives in
 visualize_baseline_samples.py.
 
-Output lands at out/sesgo/baseline/<MODEL>/samples.json (MODEL == bare
+Output lands at out/sesgo/baseline/<MODEL>/response_samples.json (MODEL == bare
 name).
 
 Usage:
@@ -150,10 +150,10 @@ def main() -> None:
 
     log_summary(dataset)
 
-    # out/sesgo/baseline/<MODEL>/samples.json, keyed by bare name.
+    # out/sesgo/baseline/<MODEL>/response_samples.json, keyed by bare name.
     out_dir = args.out_dir / "sesgo" / "baseline" / dataset.model_name
     out_dir.mkdir(parents=True, exist_ok=True)
-    out_path = out_dir / "samples.json"
+    out_path = out_dir / "response_samples.json"
     dataset.save_as_json(out_path)
     log(f"[collect] wrote {out_path}")
 
