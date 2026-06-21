@@ -21,7 +21,11 @@ For high throughput, the runner batches a chunk of prompts into a single forward
 pass instead of looping one at a time:
 
 - `generate_batch(prompts, ...)` — one batched decode (HF `model.generate` over a
-  left-padded batch, or vLLM continuous batching).
+  left-padded batch, or vLLM continuous batching). Chat-templates each prompt as a
+  fresh user turn.
+- `continue_from_text_batch(prefixes, ...)` — same batched decode but passes
+  ALREADY-FORMATTED prefixes VERBATIM (no chat template re-wrap). The forking-paths
+  fast path: each branch prefix is a pre-rendered prompt + committed tokens.
 - `compute_trajectories_batch(token_ids_batch)` — teacher-forced logprobs/logits
   for many sequences in one pass; left-pads + attention-masks so padding never
   leaks into attention, then slices each sample's real logits back out.

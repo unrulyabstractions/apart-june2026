@@ -1,3 +1,75 @@
+# Forking-Paths Dynamics Pipeline (sesgo/forking/ + src/dynamics/forking_paths/)
+
+Branch: forking-paths-dynamics. ONE ambiguous SESGO item; track per-token outcome
+distribution O_t over a thinking trajectory; detect the forking token; compute the
+dynamic states (pull/drift/potential) + diversity + survival; plot.
+
+## Reuse (do NOT reimplement)
+- SESGO load: src.datasets.sesgo.load_items, SesgoPromptDatasetGenerator
+- thinking gen + parsing: parse_chosen_label, TernaryChoiceRunner.generate/generate_batch
+- backend: ModelRunner (HF local pilot, vLLM cloud generate_batch)
+- math: l2_distance/l2_norm; structure_aware orientation/deviance/core_entropy/
+  expected_deviance/deviance_variance; shannon_entropy; probs_to_logprobs
+- io: load_json/save_json_atomic, shard_out_dir, BaseSchema
+
+## BaseSchema types (src/dynamics/forking_paths/)
+- [x] ForkOutcomeSet, OutcomeHistogram (O_t), AltTokenRollouts, ForkPosition,
+      ForkingTrajectory, ChangePointResult, DynamicStatesSeries, DiversitySeries,
+      SurvivalSeries
+
+## Logic modules (src/dynamics/forking_paths/, <=150 lines, unique names)
+- [x] forking_outcome_mapping.py, outcome_histogram_builder.py,
+      forking_path_capture.py, semantic_drift_series.py, bayesian_change_point.py,
+      forking_dynamic_states.py, forking_diversity_series.py,
+      forking_survival_analysis.py
+
+## Run-by-path drivers (sesgo/forking/)
+- [x] select_forking_item.py, collect_forking_rollouts.py,
+      analyze_forking_dynamics.py, plot_forking_dynamics.py, forking_plot_styles.py
+
+## Docs
+- [x] sesgo/forking/{README,EXPLANATION}.md, src/dynamics/forking_paths/{README,EXPLANATION}.md
+
+## Verify
+- [x] uv sync ; TINY local pilot (Qwen3-0.6B, small N) end-to-end ; commit
+
+## Review (forking-paths)
+
+### What shipped
+- NEW package `src/dynamics/forking_paths/` (15 logic modules + types, all <=150
+  lines, globally-unique names, 3-line auto-export __init__): outcome set/mapping,
+  o_{t,w}/o_t histograms, top-K alternates, base-path branch plan, batched capture,
+  semantic drift, Bayesian RJ-MCMC change-point (self-contained BEAST replacement;
+  Rbeast not a dep), pull/drift/potential states, diversity, survival, item
+  selection, analysis bundle. README + EXPLANATION.
+- NEW `sesgo/forking/` drivers (run-by-path): select_forking_item,
+  collect_forking_rollouts, analyze_forking_dynamics, plot_forking_dynamics, plus
+  forking_plot_styles + forking_item_io. README + EXPLANATION.
+- `ModelRunner.continue_from_text_batch` — raw-continuation batched primitive
+  (no chat-template re-wrap) so every (t,w) branch rides vLLM continuous batching
+  on the cloud / HF batched decode locally. inference/README updated.
+
+### Reuse (no reimplementation)
+parse_chosen_label; src.dynamics pull/drift/potential/normalized_norm;
+l2_distance/normalize/shannon_entropy/probs_to_logprobs/expected_deviance/
+deviance_variance; load_items + SesgoPromptDatasetGenerator; save_json_atomic;
+shard_out_dir; BaseSchema.
+
+### CPD calibration
+NIG-marginal segment evidence (b0=0.005) + geometric prior (penalty 2.0): clean
+outcome step -> BF~18 at the true index; flat control -> p(m=0)~0.95.
+
+### Chosen sample (pilot, Qwen3-0.6B, gender/es)
+sample_idx=6 (q=28fa1cf1...), the highest pilot outcome-entropy item (1.099 nats);
+capture gave o_0=[0,.25,.25,.5] -> o_T=[0,1,0,0] (outcome collapse onto OTHER).
+
+### Verification
+All 5 stages ran end-to-end on the tiny pilot (6 branched positions, S=4, N=4);
+forking_dynamics.png rendered. ruff clean on all new+modified files. Pre-existing
+unrelated test_imports failure (src.datasets 'other'/'generate_dataset') untouched.
+
+---
+
 # Multimodel workstream: run SESGO with Llama, Gemma, Mistral (not just Qwen)
 
 ## Goal

@@ -677,6 +677,32 @@ class ModelRunner:
         ]
 
     @profile
+    def continue_from_text_batch(
+        self,
+        prefixes: list[str],
+        max_new_tokens: int = 256,
+        temperature: float = 1.0,
+    ) -> list[str]:
+        """Continue many ALREADY-FORMATTED prefixes in one batched decode call.
+
+        Unlike ``generate_batch`` (which chat-templates each prompt as a fresh
+        user turn), this passes ``prefixes`` to the backend's batched decode
+        VERBATIM — they are already the full templated prompt + committed tokens.
+        This is the forking-paths fast path: each (position, alternate-token)
+        branch prefix is a pre-rendered string and must NOT be re-wrapped. Falls
+        back to looping the single-prompt backend ``generate`` when the backend
+        has no ``generate_batch`` (behaviour never worse).
+        """
+        if not prefixes:
+            return []
+        if hasattr(self._backend, "generate_batch"):
+            return self._backend.generate_batch(prefixes, max_new_tokens, temperature)
+        return [
+            self._backend.generate(p, max_new_tokens, temperature, None, None)
+            for p in prefixes
+        ]
+
+    @profile
     def run_with_cache_batch(
         self,
         token_ids_batch: list[list[int]],
