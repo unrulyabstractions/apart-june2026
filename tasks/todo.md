@@ -263,3 +263,33 @@ PILOT (16 held-out ambiguous, raw v, L14): unknown_prob 0.383 (a=0) -> 0.509 (a=
 abstain_rate 0.50 -> 0.625; negative control a=-2 -> 0.068 (abstain 0.0); scaffold ref
 0.991. Raw divergent-token logits provably change under the hook. CAUSAL CLAIM
 CONFIRMED: +v raises abstention on untrained held-out items.
+
+---
+
+# HOURLY INTEGRATOR — 2026-06-21 (verified state)
+
+## 1. RECLAIM
+All 25 vastai instances cur_state=stopped/intended=stopped. Actual burn = storage only.
+gpu_util>0 on a few is STALE (stopped boxes don't compute). None actively running. -> destroy all.
+
+## 2. BASELINE (target 2310; prompt_dataset_id b203c952...)
+- Already complete in out/ (8): Qwen3-0.6B/1.7B/4B, Llama-3.2-1B/3B, gemma-2-2b, Mistral-7B/24B
+- Promote from sync box-* @2310 (verified REAL, non-empty):
+  - [ ] Qwen3-14B (out MISSING)
+  - [ ] gemma-2-9b-it (out MISSING)
+  - [ ] Llama-3.1-8B-Instruct (out=96 BROKEN -> rm then promote 2310)
+- Qwen3-32B(1376) & gemma-2-27b(1408): NO 2310 anywhere; sync/final-*==out/ partial EXACTLY.
+  Task premise FALSE -> leave partials, do NOT destroy-and-replace with identical data.
+- Missing everywhere: Qwen3-8B baseline, Llama-3.1-70B baseline.
+
+## 3. COMBINE SHARDS (scope: Qwen3-0.6B,Qwen3-32B,Llama-3.2-1B,Llama-3.1-70B)
+- Geometry: [ ] Qwen3-0.6B (6/6) [ ] Qwen3-32B (4/4) [ ] Llama-3.1-70B (single, NEW)
+  Llama-3.2-1B geometry shard1of4 MISSING -> SKIP.
+- Selection/Divergence: no complete box-* sets -> SKIP.
+- Then analyze + visualize each combined geometry.
+
+## 4. RE-RENDER: [ ] cross-model size sweep [ ] per-model viz (Qwen3-14B,gemma-2-9b,Llama-3.1-8B)
+
+## 5. PAPER: add Appendix H (Steering, figs+JSON on disk). Skip G (no forking figs). Rebuild+commit.
+
+## 6. SWEEP: Qwen3-8B still missing. 70B baseline missing. Boxes all stopped.
