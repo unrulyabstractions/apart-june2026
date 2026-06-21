@@ -38,6 +38,7 @@
   {images/}%
   {figures/}%
   {../out/sesgo/baseline/Qwen3-0.6B/plots/}%
+  {../out/sesgo/baseline/cross_model/plots/}%
   {../out/sesgo/stability/Qwen3-0.6B/plots/}%
   {../out/sesgo/selection/Qwen3-0.6B/plots/}%
   {../out/sesgo/divergence/Qwen3-0.6B/plots/}%
@@ -53,6 +54,17 @@
 \usepackage{caption}
 \usepackage{subcaption}
 \usepackage{float}
+
+%% Float-placement tuning: let a page mix text and floats freely instead of
+%% promoting tall figures to near-empty dedicated float pages. This packs the
+%% document tighter (reclaims whitespace) without changing any content.
+\renewcommand{\topfraction}{0.92}
+\renewcommand{\bottomfraction}{0.85}
+\renewcommand{\textfraction}{0.07}
+\renewcommand{\floatpagefraction}{0.80}
+\setcounter{topnumber}{3}
+\setcounter{bottomnumber}{2}
+\setcounter{totalnumber}{5}
 
 % --- Lists ---
 \usepackage{enumitem}
@@ -99,7 +111,7 @@
     \color{guidecolor}\itshape Plot pending --- will render automatically once
     \detokenize{#1} is produced by the run.}}}
 \newcommand{\plotfig}[5]{%
-  \begin{figure}[t]\centering
+  \begin{figure}[htbp]\centering
     \IfFileExists{#1}{\includegraphics[width=#3]{#2}}{\plotplaceholder{#2}}%
     \caption{#4}\label{#5}
   \end{figure}}
@@ -120,9 +132,9 @@
 \noindent\rule{\textwidth}{1.2pt}\par
 \vspace{0.8em}
 \begin{center}
-  {\LARGE\bfseries Scaffolding Fairer Abstention: Behavioral and\\
-    Representational Effects of Debiasing Preambles on\\
-    Ambiguous Spanish Social-Bias Questions%
+  {\LARGE\bfseries Abstain or Guess? A Per-Condition, Multi-Readout\\
+    Behavioral and Representational Audit of\\
+    Spanish Social-Bias Question Answering%
     \footnote{Research conducted at the \href{https://www.apartresearch.com/}{The Global South AI Safety Hackathon}, June 2026.}\par}
 \end{center}
 \vspace{0.6em}
@@ -147,30 +159,20 @@
 %% ABSTRACT
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 \begin{abstract}
-When a question names no specific person, the correct answer is
-\emph{unknown}. Large language models often fail this: under ambiguity they
-fill the gap with a stereotyped guess and present it as fact, most sharply in
-Global-South, Spanish-language settings where benchmarks and safety tuning are
-thin. We ask whether prepending a short \emph{scaffold}---a one-sentence
-debiasing preamble---makes a small open-weight model (\texttt{Qwen3-0.6B})
-abstain more often, comparing $\mathrm{LLM}(x)$ against $\mathrm{LLM}(x\oplus
-s)$ on the Spanish \textsc{SESGO} benchmark. We formalize a five-study framework
-that pairs two readouts---a teacher-forced three-way ``non-thinking''
-distribution over \{target, other, unknown\} roles, and a sampled ``thinking''
-distribution over parsed generations---with a representational analysis of how
-each scaffold shifts the model's residual-stream geometry. The studies measure
-baseline abstention, stability under surface variation, per-scaffold abstention
-accuracy (selecting a best scaffold $s^\star$), reasoning-distribution
-divergence from abstention, and each scaffold's activation-space shift. We
-release the design, notation, and harness, and report a minimal-sample pilot run
-of all five studies on \texttt{Qwen3-0.6B} that exercises the full pipeline:
-baseline abstention is already high ($0.95$) but only moderately stable across
-surface variants ($\bar{C}{=}0.54$), the selected
-$s^\star = \texttt{intent\_and\_register\_respect}$ is the only condition to
-abstain perfectly under both readouts, and a candidate scaffold leaves its
-largest residual-stream footprint at the answer position. The harness is
-model-agnostic---verified to run end-to-end on Llama, Gemma, and Mistral as
-well---and full-grid cross-model comparison is future work.
+On ambiguous questions naming no specific person the correct answer is
+\emph{unknown}; on disambiguated ones a specific role is correct. We audit this
+abstain-or-guess behavior on the Spanish \textsc{SESGO} benchmark with a
+five-study framework that scores every item under three readouts---a
+teacher-forced three-option distribution over \{target, other, unknown\}, a
+two-option forced choice, and a greedy reasoning decode---against a per-condition
+gold. On \texttt{Qwen3-0.6B} ($n{=}2310$, four bias categories) the model
+abstains well above chance under teacher forcing (71--87\%) but commits poorly
+once a role is required (28--46\%), leaking asymmetric mass onto the non-target
+group. A five-model Qwen/Llama/Mistral sweep shows abstention and disambiguated
+accuracy both rise monotonically with scale; the smallest substitutes confident
+stereotyped guessing for abstention. Probing answer-position activations
+($n{=}462$), the representation separates by context condition but collapses on
+social identity and bias category. We release the design and harness.
 \end{abstract}
 
 \bigskip
@@ -186,7 +188,14 @@ for the social groups in play, and they report that guess with the confidence of
 a fact. This is the failure that ambiguous-context social-bias benchmarks are
 built to expose. When the context is genuinely under-specified, the only correct
 answer is \emph{unknown}, so any confident pick of a specific person or group is,
-by construction, a stereotype-driven error.
+by construction, a stereotype-driven error. But abstention is only half of the
+behavior worth measuring. The same benchmark also presents \emph{disambiguated}
+items, where the text does name a specific person, and there the correct move
+flips: the model must commit to the labelled role rather than hide behind
+``unknown.'' A model is well-behaved only if it does \emph{both}---abstains when
+it should and answers when it should---so we measure the two conditions side by
+side, under a \emph{per-condition} gold (ambiguous: gold $=$ abstain/unknown;
+disambiguated: gold $=$ the labelled role).
 
 The failure is not evenly distributed. Safety tuning, red-teaming, and bias
 evaluation remain concentrated in English. The result is that we understand the
@@ -194,20 +203,23 @@ abstention behavior of widely deployed models least precisely where it matters
 most---where the social categories (racism, xenophobia, classism, gender) are
 culturally specific and the stereotypes are least represented in alignment data.
 At the same time, small open-weight models are becoming the practical default in
-resource-constrained settings. A cheap intervention that improves their
-abstention at inference time, without retraining, would be worth having.
+resource-constrained settings, so it is precisely these models, in precisely
+these settings, whose abstain-or-guess behavior we most need to characterize.
 
-We study one such intervention. A \emph{scaffold} is a single-sentence debiasing
-preamble, prepended to the question. We compare the model's behavior on a prompt
-$x$ against the same prompt with a scaffold $s$ prepended, $\LLM(x)$ versus
-$\LLM(x \oplus s)$, and ask whether the scaffold raises the rate at which the
-model abstains on ambiguous items. We pair that behavioral question with a
-representational one. \emph{How} does a scaffold move the model's internal state,
-and is the move that improves abstention visible in residual-stream geometry? Our
-scaffolds are not ad hoc; each instantiates a structure-aware diversity-pursuit
-methodology~\citep{riossialer2026structureaware}, realized in matched English and
-Spanish. We evaluate on the Spanish \textsc{SESGO}
-benchmark~\citep{robles2025sesgo}, running \texttt{Qwen3-0.6B} locally.
+We do so with a five-study framework, anchored on the Spanish \textsc{SESGO}
+benchmark~\citep{robles2025sesgo} and running open-weight instruction-tuned
+models locally. We score each item under \emph{three} readouts---a teacher-forced
+three-option distribution over the \{target, other, unknown\} roles, a two-option
+forced choice with the unknown option removed, and a greedy reasoning decode---and
+read all three against the per-condition gold. We then ask how the behavior scales:
+a cross-model sweep over five Qwen, Llama, and Mistral models spanning
+0.6--7.25\,B parameters. Finally we pair the behavioral picture with a
+representational one---probing answer-position residual-stream activations to ask
+\emph{what} the model encodes about an item when it answers. A short bilingual
+debiasing \emph{scaffold} (one-sentence preamble, comparing $\LLM(x)$ against
+$\LLM(x \oplus s)$), instantiating a structure-aware diversity-pursuit
+methodology~\citep{riossialer2026structureaware}, supplies the
+controlled-intervention axis used in two of the studies.
 
 \noindent\textbf{New in this work.} We build on two existing artifacts---the
 \textsc{SESGO} benchmark~\citep{robles2025sesgo} and the structure-aware diversity
@@ -215,18 +227,21 @@ method~\citep{riossialer2026structureaware}---and contribute, new for this
 hackathon, the following:
 \begin{enumerate}[leftmargin=*,topsep=2pt]
   \item A \textbf{five-study evaluation framework} (\Cref{tab:studies}) for
-    measuring scaffold-induced abstention on ambiguous social-bias prompts,
-    spanning baseline behavior, stability under superficial variation, scaffold
-    selection, reasoning-distribution divergence, and representational geometry.
-  \item A \textbf{dual-readout formalization} (\Cref{sec:methods}) that scores
-    the same item both with a teacher-forced three-way ``non-thinking''
-    distribution over answer roles---remapped from display positions to defeat
-    position bias---and with a sampled ``thinking'' distribution over parsed
-    free-form generations.
-  \item A \textbf{behavioral $+$ representational comparison} of four bilingual
-    debiasing scaffolds against a no-scaffold baseline, selecting a best scaffold
-    $s^\star$ by abstention accuracy and characterizing the activation-space
-    shift it induces.
+    auditing abstain-or-guess behavior on ambiguous \emph{and} disambiguated
+    social-bias prompts, spanning baseline behavior, stability under superficial
+    variation, scaffold selection, reasoning-distribution divergence, and
+    representational geometry.
+  \item A \textbf{multi-readout, per-condition formalization} (\Cref{sec:methods})
+    that scores the same item under a teacher-forced three-option ``non-thinking''
+    distribution (remapped from display positions to defeat position bias), a
+    two-option forced choice, and a greedy reasoning decode, each against a
+    per-condition gold.
+  \item A \textbf{cross-model size sweep} (\Cref{sec:cross-model}) across five
+    Qwen/Llama/Mistral instruction-tuned models, showing how both abstention and
+    disambiguated accuracy scale with model size.
+  \item A \textbf{behavioral $+$ representational comparison}: probing
+    answer-position activations to show that the geometry separates by context
+    condition but collapses on social identity and bias category.
 \end{enumerate}
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
@@ -234,28 +249,31 @@ hackathon, the following:
 
 \paragraph{Spanish social-bias evaluation.}
 \textsc{SESGO}~\citep{robles2025sesgo} is a Spanish, Latin-American-grounded
-benchmark in the ambiguous-context tradition. Each item presents an
-under-specified scenario and three answer options realizing the roles
-\emph{target}, \emph{other}, and \emph{unknown}, across the categories racism,
-xenophobia, classism, and gender. On ambiguous items the gold answer is
-\emph{unknown}, so a model's bias is read straight off how often it instead
-commits to the target or the other group. We adopt \textsc{SESGO} as our primary
-benchmark and run it bilingually, in both English and Spanish. The original work
-measures \emph{whether} a model is biased; we ask the next question, whether a
-lightweight inference-time scaffold \emph{reduces} that bias, and what
-representational change comes with any improvement.
+benchmark in the BBQ ambiguous/disambiguated tradition. Each item presents a
+scenario and three answer options realizing the roles \emph{target},
+\emph{other}, and \emph{unknown}, across the categories racism, xenophobia,
+classism, and gender. On \emph{ambiguous} items the text names no one and the
+gold answer is \emph{unknown}, so a model's bias is read off how often it instead
+commits to the target or the other group; on \emph{disambiguated} items the text
+does name a person, and the gold answer is that labelled role. We adopt
+\textsc{SESGO} as our primary benchmark. The original work measures
+\emph{whether} a model is biased on this benchmark; we ask how that behavior looks
+when the same item is read under several escalating readouts, how it scales across
+model families and sizes, and what the model's internal representation encodes
+about the item when it answers.
 
 \paragraph{Structure-aware diversity as a safety strategy.}
-The scaffolds instantiate the structure-aware diversity-pursuit methodology of
-\citet{riossialer2026structureaware}, which treats homogenization---a model
-collapsing a diverse space of valid responses onto a single dominant mode---as a
-safety problem, and proposes interventions that preserve structurally
-appropriate diversity. Stereotyped resolution of an ambiguous prompt is exactly
-such a collapse. The model homogenizes onto the prior-dominant group instead of
-holding the open ``unknown'' answer. We translate that methodology into four
-concrete bilingual debiasing preambles (\Cref{tab:scaffolds}) and test, both
-behaviorally and geometrically, whether they move the model back toward the
-abstaining response.
+Two of our studies use a bilingual debiasing \emph{scaffold} as a controlled
+intervention. The scaffolds instantiate the structure-aware diversity-pursuit
+methodology of \citet{riossialer2026structureaware}, which treats
+homogenization---a model collapsing a diverse space of valid responses onto a
+single dominant mode---as a safety problem, and proposes interventions that
+preserve structurally appropriate diversity. Stereotyped resolution of an
+ambiguous prompt is exactly such a collapse: the model homogenizes onto the
+prior-dominant group instead of holding the open ``unknown'' answer. We translate
+that methodology into four concrete bilingual debiasing preambles
+(\Cref{tab:scaffolds}) and use them as the intervention axis in the selection and
+geometry studies.
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 \section{Methods}
@@ -264,78 +282,82 @@ abstaining response.
 \subsection{Setup and notation}
 \label{sec:notation}
 
-We evaluate a single model, \texttt{Qwen3-0.6B}, run locally. The primary data
-are the ambiguous-context items of \textsc{SESGO}~\citep{robles2025sesgo}; each
-item is rendered into a prompt $x$ that poses an under-specified question and
-lists three answer options. The options realize the answer \emph{roles}
+Our primary subject is \texttt{Qwen3-0.6B}, run locally; the cross-model study
+(\Cref{sec:cross-model}) extends to four further models. The data are the
+\textsc{SESGO} items~\citep{robles2025sesgo}; each item is rendered into a prompt
+$x$ that poses a question and lists answer options realizing the \emph{roles}
 \[
-  y \in \{\, \mathrm{target}\;(t),\ \mathrm{other}\;(o),\ \mathrm{unknown}\;(u) \,\},
+  y \in \{\, \mathrm{target}\;(t),\ \mathrm{other}\;(o),\ \mathrm{unknown}\;(u) \,\}.
 \]
-and on every ambiguous item the gold role is the abstention $y^\star = u$. A
+The gold role $y^\star$ is set \emph{per condition}: on \emph{ambiguous} items the
+text names no one, so $y^\star = u$ (abstain); on \emph{disambiguated} items the
+text names a person, so $y^\star$ is the labelled role ($t$ or $o$). A
 \emph{scaffold} $s$ is a short debiasing preamble; we write $x \oplus s$ for the
-prompt with $s$ prepended, and compare the model's behavior on $x$ against
-$x \oplus s$. Throughout, $\mathbf{1}[\cdot]$ is the indicator and
-$\delta_u$ is the one-hot distribution placing all mass on the role $u$. The
-items are the Spanish / Latin-American BBQ-style ambiguous social-bias prompts of
-\textsc{SESGO}, spanning the categories racism, xenophobia, classism, and gender,
-rendered in matched English and Spanish (EN $+$ ES).
+prompt with $s$ prepended. Throughout, $\mathbf{1}[\cdot]$ is the indicator and
+$\delta_u$ is the one-hot distribution placing all mass on $u$. The items span
+the categories racism, xenophobia, classism, and gender.
 
-We read every item at \emph{two} complementary levels. The first is cheap and
-deterministic: a teacher-forced readout that scores the model's option
-preferences without letting it reason. The second is sampled: it lets the model
-reason freely and parses what it commits to.
+We read every item at \emph{three} complementary levels. The first two are cheap
+and deterministic: teacher-forced readouts that score the model's option
+preferences without letting it reason---once over all three roles, and once over
+just the two named roles ($t,o$) with the unknown option removed. The third is a
+greedy reasoning decode that lets the model think and parses what it commits to;
+a sampled variant of it drives the divergence study.
 
-\paragraph{Non-thinking readout (teacher-forced, three-way).}
+\paragraph{Teacher-forced readouts (three-option and two-option).}
 We forbid reasoning (we prefill a skip-thinking prefix and teacher-force each
 option) and, for each role $y$, read the option-label token's conditional
 log-probability at the answer position,
 \[
   \ell_y \;=\; \log P\!\left(\text{label}_y \given x\right).
 \]
-A ternary-choice runner scores the three forced continuations in one batched
-forward pass; because they share a prefix, the predicting row at the divergence
-position is identical across options, so the three $\ell_y$ are directly
-comparable. We renormalize them into a three-way distribution over roles,
+A choice runner scores the forced continuations in one batched forward pass;
+because they share a prefix, the predicting row at the divergence position is
+identical across options, so the $\ell_y$ are directly comparable. The
+\emph{three-option} readout renormalizes over all three roles,
 \begin{equation}
   p^{\mathrm{nt}}_y \;=\; \frac{\exp(\ell_y)}{\sum_{y'} \exp(\ell_{y'})},
-  \qquad y,y' \in \{t,o,u\}.
+  \qquad y,y' \in \{t,o,u\},
   \label{eq:pnt}
 \end{equation}
-We also retain the raw model logits and each option's inverse single-token
-perplexity $\exp(\ell_y)$ as absolute-confidence signals. Crucially, options are
-scored at \emph{display} positions and then remapped to roles through the item's
-position$\to$role permutation, which averages out position bias. The
-non-thinking prediction is $\hat{y}^{\mathrm{nt}} = \argmax_y p^{\mathrm{nt}}_y$
-(ties resolve to $u$). As a separate signal we also take a \emph{greedy}
-non-thinking decode $\hat{y}^{\mathrm{greedy}}$ (skip-thinking prefill,
-temperature $0$): the role the model actually emits when it answers without
-reasoning. A disagreement $\hat{y}^{\mathrm{greedy}} \neq \hat{y}^{\mathrm{nt}}$
-flags a decoding mismatch.
+with chance $1/3$; the \emph{two-option} forced-choice readout drops the unknown
+option and renormalizes over $\{t,o\}$ only (chance $1/2$), so it cannot abstain
+and is undefined ($N/A$) on ambiguous items. Crucially, options are scored at
+\emph{display} positions and then remapped to roles through the item's
+position$\to$role permutation, which averages out position bias. The prediction
+is $\hat{y} = \argmax_y p_y$ (ties resolve to $u$ in the three-option case).
 
-\paragraph{Thinking readout (sampled).}
-Here the model reasons freely. We draw $N$ generations $g_i \sim \LLM(x)$, strip
-the reasoning block, and parse the role each draw committed to,
-$r_i \in \{t,o,u,\varnothing\}$, where $\varnothing$ marks an undetectable or
-truncated draw (dropped). Over the $M \le N$ parsed draws we form the empirical
-role distribution
+\paragraph{Greedy-thinking readout (decoded).}
+The third readout lets the model reason. We take a greedy reasoning decode
+(temperature $0$), strip the reasoning block, and parse the role the model
+committed to, $r \in \{t,o,u,\varnothing\}$, where $\varnothing$ marks an
+undetectable or truncated draw (dropped). Its chance level is $1/3$. The
+\textbf{divergence} study uses a \emph{sampled} variant: we draw $N$ generations
+$g_i \sim \LLM(x)$, parse each to $r_i$, and over the $M \le N$ parsed draws form
+the empirical role distribution
 \begin{equation}
   p^{\mathrm{th}}_y \;=\; \frac{1}{M}\sum_{i=1}^{M} \mathbf{1}[\, r_i = y \,],
   \label{eq:pth}
 \end{equation}
-reporting each role's mean (pick fraction), its Bernoulli population standard
-deviation $\sqrt{p^{\mathrm{th}}_y(1-p^{\mathrm{th}}_y)}$, and the sample size
-$M$. The thinking prediction is
-$\hat{y}^{\mathrm{th}} = \argmax_y p^{\mathrm{th}}_y$ (ties resolve to $u$).
+reporting each role's pick fraction, its Bernoulli standard deviation
+$\sqrt{p^{\mathrm{th}}_y(1-p^{\mathrm{th}}_y)}$, and the sample size $M$. The
+sampled-thinking prediction is $\hat{y}^{\mathrm{th}} = \argmax_y p^{\mathrm{th}}_y$
+(ties resolve to $u$).
 
 \paragraph{Derived measures.}
-Because the gold role is abstention, our headline behavioral score is the
-\emph{abstention accuracy}---the fraction of items whose prediction is
-$u$:
+Our headline behavioral score is \emph{per-condition accuracy}---the fraction of
+items whose prediction matches the condition's gold role $y^\star_q$:
 \begin{equation}
   \mathrm{acc} \;=\; \frac{1}{|\mathcal{Q}|}\sum_{q\in\mathcal{Q}}
-    \mathbf{1}[\, \hat{y}_q = u \,].
+    \mathbf{1}[\, \hat{y}_q = y^\star_q \,].
   \label{eq:acc}
 \end{equation}
+On ambiguous items ($y^\star_q = u$) this reduces to \emph{abstention accuracy};
+on disambiguated items it is the rate of naming the correct labelled role, and
+the $t$-vs-$o$ accuracy gap within disambiguated items is the bias signal. We
+report Wilson 95\% confidence intervals on every rate. The three-option role
+masses $(p^{\mathrm{nt}}_t,p^{\mathrm{nt}}_o,p^{\mathrm{nt}}_u)$ give a companion,
+softer view of where probability leaks.
 To characterize a reasoning distribution we use its Shannon entropy and its
 divergence from correct abstention,
 \begin{equation}
@@ -345,18 +367,18 @@ divergence from correct abstention,
   \label{eq:entropy-js}
 \end{equation}
 where $\mathrm{JS}$ is the Jensen--Shannon divergence (low when the model's
-free-form reasoning concentrates on $u$). For \emph{stability}, each underlying
-question $q$ is rendered into a set of surface variants $\mathcal{V}_q$
-(option permutation $\times$ label style $\times$ polarity/flip); writing
-$\mathrm{mode}_q$ for the most frequent prediction across the variants, the
-per-item consistency is
+free-form reasoning concentrates on $u$). For \emph{stability}, each item is
+rendered into a set of $18$ purely cosmetic surface variants $\mathcal{V}_q$
+($3$ label styles $\times$ $6$ role permutations, gold held fixed); writing
+$\mathrm{mode}_q$ for the modal prediction across the variants, the per-item
+consistency is
 \begin{equation}
   C_q \;=\; \frac{1}{|\mathcal{V}_q|}\sum_{v\in\mathcal{V}_q}
     \mathbf{1}[\, \hat{y}_v = \mathrm{mode}_q \,],
   \label{eq:stability}
 \end{equation}
-complemented by a per-axis flip-sensitivity (the share of variations on a single
-axis that change the prediction). Finally, scaffold \emph{selection} picks
+complemented by a per-axis format-sensitivity (the share of variations on a
+single axis that change the prediction). Finally, scaffold \emph{selection} picks
 \begin{equation}
   s^\star \;=\; \argmax_s \; \mathrm{acc}(x \oplus s),
   \label{eq:select}
@@ -364,17 +386,18 @@ axis that change the prediction). Finally, scaffold \emph{selection} picks
 the scaffold maximizing abstention accuracy over the candidate set.
 
 \paragraph{Representational geometry.}
-Along the greedy non-thinking path we additionally capture the residual-stream
+Along the greedy reasoning path we additionally capture the residual-stream
 activation $h^{(l)}_p(x) \in \mathbb{R}^{d}$ at layer $l$ and structural token
 position $p \in \{\,\text{turn},\ \text{think\_open},\ \text{think\_close},\
-\text{answer}\,\}$. For each (layer, position) cell we stack the per-sample
-vectors and fit a (mean-centering) PCA. Within the projected space we compute,
-per scaffold condition $s$, the centroid $\mu_s$, its shift from the no-scaffold
-baseline $\Delta_s = \mu_s - \mu_{\text{none}}$, and the shift magnitude
-$\lVert \Delta_s \rVert$, together with a scaffold silhouette score and the
-between/within scatter-trace ratio as separation summaries. The question is
-whether a scaffold that changes behavior also leaves a measurable, consistent
-footprint in the model's internal geometry.
+\text{answer}\,\}$. We focus on the \emph{answer} position with $l$ layer-averaged,
+stack the per-sample vectors, and fit a (mean-centering) PCA. To ask \emph{what}
+the answer representation encodes, we score, for every candidate labelling of the
+items (context condition, accuracy, gold label, question polarity, bias category,
+target/other identity), the \emph{silhouette separability} of that labelling in
+the full PCA space: a positive silhouette means points sharing a label cluster
+together, a value near zero means no structure, and a negative value means
+same-label points are no closer than random. The question is which axes of the
+data the model's internal state actually organizes by when it answers.
 
 \subsection{Scaffolds}
 
@@ -392,7 +415,7 @@ content. All four derive from the structure-aware diversity methodology of
     mechanism and is authored in matched English and Spanish (EN/ES) text.}
   \label{tab:scaffolds}
   \small
-  \begin{tabular}{@{}p{0.34\linewidth} p{0.58\linewidth}@{}}
+  \begin{tabular}{@{}p{0.40\linewidth} p{0.54\linewidth}@{}}
     \toprule
     \textbf{Scaffold id} & \textbf{Mechanism (one line; EN/ES matched text)} \\
     \midrule
@@ -419,351 +442,396 @@ combination to keep the study as cheap as its question allows.
 \begin{table*}[t]
   \centering
   \caption{The five studies. Each row is one experiment, specifying the surface
-    \emph{format variation} exercised, the \emph{scaffolds} applied, the
-    \emph{readout(s)} run, and \emph{what is measured}. ``cheapest'' denotes the
-    single max-logprob label score.}
+    \emph{format variation} exercised, the \emph{models / scaffolds} applied, the
+    \emph{readout(s)} run, and \emph{what is measured}. ``3-opt''/``2-opt'' are
+    the three- and two-option teacher-forced readouts; ``greedy-thinking'' is the
+    decoded reasoning readout.}
   \label{tab:studies}
   \small
-  \begin{tabular}{@{}l l l l p{0.30\linewidth}@{}}
+  \setlength{\tabcolsep}{4pt}
+  \renewcommand{\arraystretch}{1.15}
+  \newcommand{\rr}[1]{\raggedright\arraybackslash #1}
+  \begin{tabular}{@{}>{\rr}p{0.14\linewidth} >{\rr}p{0.18\linewidth} >{\rr}p{0.15\linewidth} >{\rr}p{0.23\linewidth} >{\rr}p{0.21\linewidth}@{}}
     \toprule
-    \textbf{Study} & \textbf{Format variation} & \textbf{Scaffolds} &
+    \textbf{Study} & \textbf{Format variation} & \textbf{Models / scaffolds} &
       \textbf{Readout(s)} & \textbf{What is measured} \\
     \midrule
-    \texttt{baseline} & none & none & non-thinking &
-      base abstention $+$ role distribution \\
-    \texttt{stability} & all (perm $\times$ label-style $\times$ flip) & none &
-      cheapest (max-logprob label) & answer consistency across superficial variation \\
-    \texttt{selection} & none & all 5 (none $+$ 4) & non-thinking $+$ thinking &
+    \texttt{baseline} & none & 1 model, none & 3-opt $+$ 2-opt $+$ greedy-thinking &
+      per-condition accuracy $+$ role mix, by bias category \\
+    \texttt{cross\_model} & none & 5 models, none & 3-opt $+$ 2-opt $+$ greedy-thinking &
+      accuracy vs.\ model size (abstention $+$ disambiguated) \\
+    \texttt{stability} & $18$ ($3$ styles $\times$ $6$ perms) & 1 model, none &
+      3-opt $+$ 2-opt & answer consistency $C_q$ across cosmetic variation \\
+    \texttt{selection} & none & 1 model, all 5 (none $+$ 4) & 3-opt $+$ thinking &
       abstention accuracy per scaffold $\to$ select $s^\star$ \\
-    \texttt{divergence} & none & none only & thinking ($N$ draws) &
-      distribution statistics: entropy $+$ JS-div from unknown \\
-    \texttt{geometry} & none & none $+$ a candidate (\texttt{interpretive\_direction}) &
-      greedy non-thinking $+$ activations & PCA of activations; centroid shift per condition \\
+    \texttt{divergence} & none & 1 model, none & 3-opt $+$ 2-opt $+$ greedy- $+$ sampled-thinking &
+      per-readout accuracy $+$ reasoning JS-div from unknown \\
+    \texttt{geometry} & none & 1 model, baseline-only & greedy-thinking $+$ activations &
+      silhouette separability of answer geometry by every label \\
     \bottomrule
   \end{tabular}
 \end{table*}
 
-In brief: \textbf{baseline} fixes the reference point---base
-abstention accuracy (\Cref{eq:acc}) and the average role distribution
-$(p^{\mathrm{nt}}_t, p^{\mathrm{nt}}_o, p^{\mathrm{nt}}_u)$ with no scaffold and no
-variation. \textbf{stability} renders each question across all surface variants
-and reports $C_q$ (\Cref{eq:stability}) and per-axis flip-sensitivity, so we know
-how fragile abstention is before we try to improve it. \textbf{selection} runs
-all five scaffold conditions under both readouts and picks $s^\star$ by
-\Cref{eq:select}, checking that a gain in the teacher-forced preference carries
-over to free-form reasoning. \textbf{divergence} looks past the argmax: on the
-no-scaffold condition it draws $N$ thinking generations, forms $p^{\mathrm{th}}$
-(\Cref{eq:pth}), and reports $H(p^{\mathrm{th}})$ and
-$\mathrm{JS}(p^{\mathrm{th}}\|\delta_u)$ (\Cref{eq:entropy-js}), which separates a
-confidently-wrong model from a merely uncertain one. \textbf{geometry} captures
-activations along the greedy path for the baseline and one candidate scaffold,
-fits a PCA to
-each (layer, position) cell, and reports the centroid shift $\Delta_s$, its
-magnitude, and the silhouette and between-within separation---testing whether a
-behavioral change is accompanied by a representational one.
+In brief: \textbf{baseline} fixes the reference point---per-condition accuracy
+(\Cref{eq:acc}) under all three readouts and the average role distribution
+$(p^{\mathrm{nt}}_t, p^{\mathrm{nt}}_o, p^{\mathrm{nt}}_u)$, sliced by bias
+category. \textbf{cross\_model} repeats the baseline readouts across five
+instruction-tuned models and plots accuracy against log model size.
+\textbf{stability} renders each item across $18$ cosmetic surface variants and
+reports $C_q$ (\Cref{eq:stability}) and per-axis format-sensitivity, so we know
+how fragile each behavior is. \textbf{selection} runs all five scaffold conditions
+and picks $s^\star$ by \Cref{eq:select}, checking that a gain in the teacher-forced
+preference carries over to free-form reasoning. \textbf{divergence} looks past the
+argmax: it draws $N$ thinking generations, forms $p^{\mathrm{th}}$ (\Cref{eq:pth}),
+and reports per-readout accuracy and $\mathrm{JS}(p^{\mathrm{th}}\|\delta_u)$
+(\Cref{eq:entropy-js}), separating a confidently-wrong model from a merely
+uncertain one. \textbf{geometry} captures answer-position activations and reports
+the silhouette separability of the representation by every item label, testing
+\emph{what} the model encodes about an item when it answers.
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 \section{Results}
 
-\emph{All numbers below are real results from a \textbf{minimal-sample pilot
-run} of the full five-study framework on \texttt{Qwen3-0.6B}, reported to
-demonstrate the pipeline end-to-end and to surface directional findings. The
-sample sizes are small and study-specific---baseline $n{=}41$ items, stability
-$12$ items $\times\,36$ surface variants $=432$ samples, selection $n{=}26$ items
-split across the five scaffold conditions, divergence $n{=}16$ scored items
-(hot-sampled, $T{=}1.0$), geometry $n{=}25$ items across two conditions---so we
-read these as a directional pilot, not as definitive large-$n$ effect estimates.
-The same harness runs unchanged on \texttt{Llama-3.2-1B-Instruct},
-\texttt{gemma-2-2b-it}, and \texttt{Mistral-7B-Instruct} (verified end-to-end via
-per-family chat-template and reasoning-marker handling); full-grid
-\emph{cross-model comparison} is future work (see \Cref{sec:limitations}).}
+All numbers below are real run values, cross-checked against the raw
+\texttt{response\_samples.json} via the project's own slicing code. We report
+per-condition accuracy with Wilson $95\%$ confidence intervals; $n$'s are
+study-specific and stated inline. The headline baseline is the full SESGO grid on
+\texttt{Qwen3-0.6B} ($n{=}2310$ scored items: $1155$ question\,ids
+$\times\,2$ context conditions, across four bias categories), and the headline
+scaling result is a five-model size sweep.
 
-\begin{figure}[t]\centering
+\subsection{Baseline: abstain well, commit poorly, asymmetrically}
+\label{sec:baseline}
+
+\Cref{fig:baseline} reads the full grid under all three readouts, sliced by bias
+category. The picture is consistent. On \emph{ambiguous} items (gold $=$ abstain)
+the model abstains well above the $1/3$ chance line under three-option teacher
+forcing---$87\%$ clasismo ($n{=}136$, CI$[80,91]$), $81\%$ racismo ($n{=}240$,
+CI$[76,86]$), $71\%$ xenofobia ($n{=}388$, CI$[67,76]$), and a (severely
+underpowered) $100\%$ genero ($n{=}6$). But on \emph{disambiguated} items (gold
+$=$ the labelled role) accuracy is low and \emph{asymmetric}, and that
+target-vs-other gap is the bias signal. Under three-option forcing, clasismo
+answers the target-gold role more accurately than the other-gold role
+($46\%$ vs.\ $35\%$, both $n{=}136$), racismo \emph{reverses}
+($28\%$ target vs.\ $43\%$ other, $n{=}240$), and xenofobia is roughly symmetric
+($44\%$ vs.\ $40\%$, $n{=}388$). The two-option forced choice (no unknown option,
+chance $1/2$) lifts disambiguated accuracy toward/above chance but preserves the
+asymmetry (racismo $50\%$ target vs.\ $64\%$ other; xenofobia $58\%$ vs.\ $62\%$;
+both $n{=}240/388$). The companion role-probability mass (\Cref{fig:baseline}(b))
+corroborates it: unknown carries the plurality of mass in every category
+(clasismo $0.536$, racismo $0.477$, xenofobia $0.432$, genero $0.412$), and within
+the named roles the model leaks asymmetric mass onto \emph{other} over
+\emph{target} in racismo ($0.322$ vs.\ $0.202$) and genero ($0.362$ vs.\ $0.226$)
+while staying near-symmetric in clasismo ($0.220$ vs.\ $0.244$) and xenofobia
+($0.295$ vs.\ $0.273$). One readout-dependent caveat: greedy-thinking
+\emph{erodes} abstention sharply on the two large categories, dropping to near or
+below chance (racismo $49\%$, xenofobia $45\%$) while holding for clasismo
+($85\%$)---reasoning can talk the model out of abstaining. The genero category
+($n{=}18$ total) is too small to read.
+
+\begin{figure}[htbp]\centering
   \begin{subfigure}{0.49\linewidth}\centering
-    \plotsub{../out/sesgo/baseline/Qwen3-0.6B/plots/accuracy.png}{../out/sesgo/baseline/Qwen3-0.6B/plots/accuracy.png}{\linewidth}
-    \caption{Baseline abstention accuracy, overall and sliced by bias category,
-      polarity, and language.}
+    \plotsub{../out/sesgo/baseline/Qwen3-0.6B/plots/accuracy.png}{accuracy.png}{\linewidth}
+    \caption{Per-condition accuracy by bias category, stacked over the three
+      readouts (3-opt / 2-opt / greedy-thinking); each readout shows the
+      abstention, target-gold, and other-gold slices.}
     \label{fig:baseline-acc}
   \end{subfigure}\hfill
   \begin{subfigure}{0.49\linewidth}\centering
-    \plotsub{../out/sesgo/baseline/Qwen3-0.6B/plots/role_prob.png}{../out/sesgo/baseline/Qwen3-0.6B/plots/role_prob.png}{\linewidth}
-    \caption{Mean non-thinking role probabilities; mass concentrates on
-      \emph{unknown} ($p^{\mathrm{nt}}_u{=}0.87$).}
+    \plotsub{../out/sesgo/baseline/Qwen3-0.6B/plots/role_prob.png}{role_prob.png}{\linewidth}
+    \caption{Mean three-option role mass $(t,o,u)$ per category; unknown carries
+      the plurality everywhere and the leaked mass tilts toward \emph{other}.}
     \label{fig:baseline-role}
   \end{subfigure}
-  \caption{No-scaffold \textbf{baseline} ($n{=}41$) on \texttt{Qwen3-0.6B}:
-    abstention is already high but uneven across slices.}
+  \caption{Full-grid \textbf{baseline} on \texttt{Qwen3-0.6B} ($n{=}2310$):
+    abstention is high on ambiguous items but disambiguated accuracy is low and
+    target-vs-other asymmetric.}
   \label{fig:baseline}
 \end{figure}
 
-\paragraph{Per-scaffold abstention (selection).}
-\Cref{tab:results-selection} reports abstention accuracy (\Cref{eq:acc}) under
-both readouts for each scaffold, and identifies $s^\star$;
-\Cref{fig:scaffold-effects}(a) plots the same per-scaffold accuracies. The headline
-question is simple. Does any scaffold beat the baseline by a margin that survives
-across \emph{both} readouts? In this pilot, two scaffolds reach perfect abstention
-under both readouts, but they differ in robustness. The selected
-$s^\star = \texttt{intent\_and\_register\_respect}$ is the only condition that
-abstains on every item at both readouts \emph{with no dropped thinking draws}
-($1.00$ non-thinking and $1.00$ thinking, both at $n{=}5$). The no-scaffold
-baseline already abstains at $0.83$ non-thinking; the two cautionary conditions
-are \texttt{prior\_dominance\_warning} ($0.80$ at both readouts) and
-\texttt{insufficient\_information\_unknown}, which scores a perfect $1.00$
-non-thinking but collapses to $0.00$ on its two parsed thinking draws---exactly
-the helps-one-readout-but-not-the-other pattern the dual-readout design is built
-to catch. With $\le 6$ items per cell these gaps are directional, not
-significant; we report them to show the selection mechanism works end-to-end.
+\subsection{Cross-model size sweep: both behaviors scale}
+\label{sec:cross-model}
 
-\begin{table}[t]
-  \centering
-  \caption{Pilot abstention accuracy per scaffold (\Cref{eq:acc}), non-thinking
-    and thinking readouts on \texttt{Qwen3-0.6B}. Higher is better; $s^\star$
-    (\textbf{bold}) is the selected scaffold. Per-cell $n$ is small (the $26$
-    items are split across conditions; thinking $n$ is smaller because
-    unparseable draws are dropped), so margins are directional. $s^\star$ is the
-    only condition reaching $1.00$ at \emph{both} readouts with no dropped
-    thinking draws.}
-  \label{tab:results-selection}
-  \small
-  \begin{tabular}{@{}l c c@{}}
-    \toprule
-    \textbf{Scaffold} & \textbf{acc (non-thinking)} & \textbf{acc (thinking)} \\
-    \midrule
-    \texttt{(none)} & 0.83 ($n{=}6$) & 1.00 ($n{=}2$) \\
-    \texttt{interpretive\_direction} & 1.00 ($n{=}5$) & 1.00 ($n{=}3$) \\
-    \texttt{prior\_dominance\_warning} & 0.80 ($n{=}5$) & 0.80 ($n{=}5$) \\
-    \texttt{insufficient\_information\_unknown} & 1.00 ($n{=}5$) & 0.00 ($n{=}2$) \\
-    \textbf{\texttt{intent\_and\_register\_respect}} & \textbf{1.00} ($n{=}5$) & \textbf{1.00} ($n{=}5$) \\
-    \bottomrule
-  \end{tabular}\\[2pt]
-  {\footnotesize $s^\star$ selected by abstention at the sampled (thinking)
-   readout, then combined and non-thinking as tie-breakers, preferring full
-   draw-coverage on ties.}
-\end{table}
+Our headline scaling result places five instruction-tuned models---Qwen3
+(0.6\,B, 4\,B), Llama-3.2 (1\,B, 3\,B), and Mistral-7B-Instruct-v0.3---against log
+model size, with $n{=}770$ per metric cell per model (\Cref{fig:size-sweep}). The
+dominant, consistent trend is that \textbf{abstention rises with scale within
+every family}: on the three-option readout Qwen climbs $0.774$ (0.6\,B)
+$\to 0.892$ (4\,B) and Llama jumps $0.299$ (1\,B) $\to 0.887$ (3\,B); the same
+monotone rise holds for greedy-thinking abstention (Qwen $0.534 \to 0.718$; Llama
+$0.275 \to 0.834$). The smallest \texttt{Llama-3.2-1B} is the clear outlier:
+it abstains least of any model on the three-option readout ($0.299$, below the
+$1/3$ chance line) and instead far more often commits to the target identity
+(disambiguated-target $0.678$ vs.\ $0.395$ for \texttt{Qwen3-0.6B})---small models
+default to guessing the stereotyped role rather than saying ``unknown.''
+\textbf{Disambiguated accuracy scales too}: on the two-option forced choice
+(no unknown option, so abstention is $0$ by construction) average disambiguated
+accuracy climbs from $\sim\!0.59$ for the sub-1.3\,B models
+($0.596$ Qwen-0.6B, $0.587$ Llama-1B) to $0.82$--$0.88$ for the 3--7\,B models
+($0.822$ Llama-3B, $0.882$ Qwen-4B, $0.835$ Mistral-7B). Net: both the willingness
+to abstain under ambiguity and the ability to identify the correct role under
+disambiguation improve with scale, and the very smallest models substitute
+confident stereotyped guessing for abstention.
 
-\begin{figure}[t]\centering
+\plotfig{../out/sesgo/baseline/cross_model/plots/baseline_size_sweep.png}{baseline_size_sweep.png}{0.80\linewidth}{\textbf{Cross-model size sweep} (5 models, $n{=}770$ per cell): accuracy vs.\ log model size, stacked over the three readouts (3-opt / 2-opt / greedy-thinking) with the abstention (ambiguous), disambiguated-target, and disambiguated-other metrics each plotted per family. Abstention and disambiguated accuracy both rise monotonically with size; \texttt{Llama-3.2-1B} abstains least (below the $1/3$ chance line) and guesses the target instead.}{fig:size-sweep}
+
+\subsection{Stability: ambiguous abstention is fragile under cosmetic variation}
+\label{sec:stability}
+
+\Cref{fig:stab-div}(a) probes how robust each behavior is to pure surface variation
+($18$ cosmetic renderings per item: $3$ label styles $\times\,6$ role
+permutations, gold fixed; single model, racismo, Spanish). Under the three-option
+readout, per-condition accuracy is only $44\%$ on ambiguous items
+($63/144$, CI$[36,52]$)---barely above the $1/3$ line---versus $57\%$ on
+disambiguated items ($163/288$, CI$[51,62]$); the two-option readout (N/A on
+ambiguous items) reaches $60\%$ disambiguated ($174/288$, CI$[55,66]$). Per-item
+consistency $C_q$ (\Cref{eq:stability}) shows the same gap: ambiguous items keep
+their modal three-option answer in only $51\%\pm4\%$ of variations ($n{=}8$
+items), well below the $>\!0.8$ ``robust'' zone, whereas disambiguated items are
+stable at $86\%\pm4\%$ ($n{=}16$). Collapsing to the binary two-option choice
+raises consistency on both (ambiguous $83\%\pm6\%$, disambiguated $90\%\pm4\%$),
+indicating much of the three-option instability on ambiguous items is the model
+thrashing among target/other/unknown rather than committing to abstention.
+
+\subsection{Selection: a debiasing scaffold and the dual-readout check}
+\label{sec:selection}
+
+The selection run evaluates the baseline scaffold on $35$ ambiguous items
+(gold $=$ unknown), so here per-condition accuracy reduces to abstention accuracy
+(\Cref{fig:stab-div}(b)). The three-option non-thinking readout abstains correctly
+on $80\%$ of items ($28/35$, CI$[64,90]$), and the sampled thinking readout---run
+on the $22$-item subset that produced parsable thinking draws---abstains on $86\%$
+($19/22$, CI$[67,95]$), so thinking modestly improves abstention on the matched
+subset (the selected $s^\star$, gold star, is the baseline itself, the only
+scaffold run). Within the thinking readout, abstention is perfect for the smaller
+categories (clasismo $100\%$, $n{=}3$; racismo $100\%$, $n{=}6$) and lowest for
+xenofobia ($77\%$, $10/13$): the residual non-abstention is concentrated in
+xenofobia. The two-option forced choice abstains $0\%$ by construction (it can
+only pick target$=14$ vs.\ other$=21$).
+
+\subsection{Divergence: the readout that protects abstention cripples role-calling}
+\label{sec:divergence}
+
+Scoring each prompt at four escalating readouts under the per-condition gold
+exposes a clean inversion (\Cref{fig:divergence-acc}). On the $14$ \emph{ambiguous}
+items, where abstaining is correct, sampled thinking is best ($86\%$, $12/14$),
+three-option teacher forcing follows ($79\%$, $11/14$), and deterministic
+greedy-thinking is worst ($64\%$, $9/14$); the two-option forced choice is
+undefined (no unknown option). The picture \emph{inverts} on the $29$
+\emph{disambiguated} items, where a role must be named: the two-option forced
+choice leads ($59\%$, $17/29$), sampled thinking reaches only $48\%$ ($14/29$),
+greedy-thinking $41\%$ ($12/29$), and the three-option readout collapses to $28\%$
+($8/29$)---its strong abstention bias becomes a liability once a role is called
+for. On the ambiguous default mix the system is overwhelmingly (and correctly)
+abstention-anchored: it spends $84\%$ of its thinking draws on unknown versus $9\%$
+target and $7\%$ other, and $11$ of $14$ items sit exactly at the safe default
+$[0,0,1]$ (JS-divergence $0$). The mean JS-divergence from that default is only
+$0.092$, but it is not zero---three items break ranks (one collapses fully onto
+\emph{other} at the maximum $\mathrm{JS}=\ln 2 = 0.693$, two pull toward target at
+$0.216$ and $0.380$)---so the abstention default is strong on average yet fragile
+per item.
+
+\begin{figure}[htbp]\centering
   \begin{subfigure}{0.49\linewidth}\centering
-    \plotsub{../out/sesgo/selection/Qwen3-0.6B/plots/abstention_by_scaffold.png}{../out/sesgo/selection/Qwen3-0.6B/plots/abstention_by_scaffold.png}{\linewidth}
-    \caption{Abstention by scaffold (selection); $s^\star$ is
-      \texttt{intent\_and\_register\_respect}.}
-    \label{fig:selection}
-  \end{subfigure}\hfill
-  \begin{subfigure}{0.49\linewidth}\centering
-    \plotsub{../out/sesgo/geometry/Qwen3-0.6B/plots/pca_scatter_answer.png}{../out/sesgo/geometry/Qwen3-0.6B/plots/pca_scatter_answer.png}{\linewidth}
-    \caption{PCA of answer-position activations; $\Delta_s$ separates the
-      scaffold from the no-scaffold baseline (geometry).}
-    \label{fig:geometry}
-  \end{subfigure}
-  \caption{Scaffold effects on \texttt{Qwen3-0.6B}, behavioral (left, selection
-    $n{=}26$) and representational (right, geometry $n{=}25$). The geometry
-    condition is \texttt{interpretive\_direction}.}
-  \label{fig:scaffold-effects}
-\end{figure}
-
-\paragraph{Baseline, stability, divergence, and geometry.}
-\Cref{tab:results-aux} collects the remaining summaries. The \textbf{baseline}
-($n{=}41$) already abstains $0.95$ of the time non-thinking, with a mean role
-mix of $p^{\mathrm{nt}}_u{=}0.87$ versus $p^{\mathrm{nt}}_t{=}0.08$ and
-$p^{\mathrm{nt}}_o{=}0.06$ (\Cref{fig:baseline}); abstention is weakest on
-negative-polarity ($0.90$) and classism ($0.88$) items. \textbf{Stability}
-exposes how shallow that abstention is: mean per-item consistency is only
-$\bar{C}{=}0.54$, and the prediction flips on $45.8\%$ of option-permutation
-swaps versus $25.9\%$ of label-style swaps---surface form, not content, moves the
-answer (\Cref{fig:stability}). The hot-sampled \textbf{divergence} study
-($n{=}16$, $T{=}1.0$) shows the free-form reasoner lands on \emph{unknown}
-$0.81$ of the time, with low mean entropy ($0.13$ nats) and small mean
-JS-from-abstention ($0.11$ nats), the residual deviation concentrated in
-xenophobia and English-language items. \textbf{Geometry} ($n{=}25$) compares
-\texttt{interpretive\_direction} against the no-scaffold baseline: the centroid
-shift $\lVert\Delta_s\rVert$ is largest at the \emph{answer} position
-($162.97$ in the last layer; $19.28$ layer-averaged) and far smaller at
-\texttt{think\_close} ($20.87$ / $4.46$), with a modest scaffold silhouette of
-$0.13$ and a leading principal component explaining $63\%$ of the variance at the
-answer position (\Cref{fig:stab-div}(b), \Cref{fig:scaffold-effects}(b)). The
-geometry condition is \texttt{interpretive\_direction} rather than the
-behaviorally selected $s^\star$, so its shift indexes scaffold-induced movement
-in general, not yet $s^\star$ specifically. Funnelling the answer-position
-representation through every SESGO label (\Cref{fig:geometry-axes}) is telling:
-the embedding separates by \emph{scaffold} but \emph{not} along origin
-(original vs.\ BBQ-adapted), language, bias category, question polarity, or
-target/other identity---each has silhouette $\approx 0$, so the pilot geometry
-encodes the \emph{intervention}, not the social content of the item.
-
-\begin{table}[t]
-  \centering
-  \caption{Auxiliary pilot summaries on \texttt{Qwen3-0.6B}: baseline abstention
-    and role mix, stability consistency and flip-sensitivity, reasoning-distribution
-    divergence, and representational shift. All are real run values; $n$ is the
-    per-study pilot sample size.}
-  \label{tab:results-aux}
-  \small
-  \begin{tabular}{@{}l c c@{}}
-    \toprule
-    \textbf{Measure} & \textbf{Value} & \textbf{$n$} \\
-    \midrule
-    Baseline abstention acc (non-thinking) & 0.95 & 41 \\
-    Baseline mean role mix $(p^{\mathrm{nt}}_t,p^{\mathrm{nt}}_o,p^{\mathrm{nt}}_u)$ & (0.08,\,0.06,\,0.87) & 41 \\
-    Mean stability consistency $\bar{C}$ & 0.54 & 12 \\
-    \quad permutation flip rate & 45.8\% & 432 \\
-    \quad label-style flip rate & 25.9\% & 432 \\
-    \quad $p(\text{unknown})$ spread (mean per item) & 0.34 & 12 \\
-    Reasoning entropy $H(p^{\mathrm{th}})$, no scaffold ($T{=}1.0$) & 0.13 & 16 \\
-    JS-div from abstention $\mathrm{JS}(p^{\mathrm{th}}\|\delta_u)$ & 0.11 & 16 \\
-    Reasoning role mix $(p^{\mathrm{th}}_t,p^{\mathrm{th}}_o,p^{\mathrm{th}}_u)$ & (0.08,\,0.11,\,0.81) & 16 \\
-    Geometry shift $\lVert\Delta_s\rVert$, answer (last / mean layer) & 162.97 / 19.28 & 25 \\
-    Scaffold silhouette (answer, mean layer) & 0.13 & 25 \\
-    EV\% of PC1 (answer, mean layer) & 63\% & 25 \\
-    \bottomrule
-  \end{tabular}\\[2pt]
-  {\footnotesize Geometry condition $=$ \texttt{interpretive\_direction} vs.\
-   no-scaffold baseline; the behaviorally selected $s^\star$ was not run through
-   the geometry pipeline in this pilot.}
-\end{table}
-
-\plotfig{../out/sesgo/geometry/Qwen3-0.6B/plots/pca_axes_grid.png}{pca_axes_grid.png}{0.95\linewidth}{Answer-position residual geometry (PCA, layer-averaged, $n{=}25$) funnelled through every SESGO label. The representation separates by \emph{scaffold} (top-left) but collapses along the data axes---origin, language, bias category, question polarity, and target/other identity all have silhouette $\approx 0$: the pilot model encodes the intervention, not the social content. Identity panels show the top-8 groups $+$ \emph{(other)}.}{fig:geometry-axes}
-
-\begin{figure}[t]\centering
-  \begin{subfigure}{0.49\linewidth}\centering
-    \plotsub{../out/sesgo/stability/Qwen3-0.6B/plots/consistency.png}{../out/sesgo/stability/Qwen3-0.6B/plots/consistency.png}{\linewidth}
-    \caption{Per-item consistency $C_q$ (\Cref{eq:stability}); $\bar{C}{=}0.54$,
-      so abstention is only moderately robust to surface variation.}
+    \plotsub{../out/sesgo/stability/Qwen3-0.6B/plots/consistency.png}{consistency.png}{\linewidth}
+    \caption{Per-item consistency $C_q$ (\Cref{eq:stability}) by condition and
+      readout; ambiguous three-option consistency ($51\%$) sits below the
+      $>\!0.8$ robust zone while disambiguated items ($86\%$) clear it.}
     \label{fig:stability}
   \end{subfigure}\hfill
   \begin{subfigure}{0.49\linewidth}\centering
-    \plotsub{../out/sesgo/divergence/Qwen3-0.6B/plots/default_deviation.png}{../out/sesgo/divergence/Qwen3-0.6B/plots/default_deviation.png}{\linewidth}
-    \caption{No-scaffold reasoning JS from abstention
-      (\Cref{eq:entropy-js}); mass near $0$ = reasoning concentrates on
-      ``unknown'' (mean $0.11$).}
-    \label{fig:divergence}
+    \plotsub{../out/sesgo/selection/Qwen3-0.6B/plots/abstention_by_scaffold.png}{abstention_by_scaffold.png}{\linewidth}
+    \caption{Selection abstention by readout for the baseline scaffold
+      ($s^\star$, gold star); thinking ($86\%$, $n{=}22$) edges non-thinking
+      ($80\%$, $n{=}35$).}
+    \label{fig:selection}
   \end{subfigure}
-  \caption{Robustness (left, stability $n{=}12$ items) and reasoning-distribution
-    divergence (right, divergence $n{=}16$, $T{=}1.0$) on \texttt{Qwen3-0.6B}.}
+  \caption{\textbf{Stability} (left, $n{=}24$ groups $\times\,18$ variants $=432$
+    samples) and \textbf{selection} (right, $n{=}35$ ambiguous items) on
+    \texttt{Qwen3-0.6B}.}
   \label{fig:stab-div}
 \end{figure}
 
-\begin{figure}[t]\centering
+\begin{figure}[htbp]\centering
   \begin{subfigure}{0.49\linewidth}\centering
-    \plotsub{../out/sesgo/divergence/Qwen3-0.6B/plots/role_mix.png}{../out/sesgo/divergence/Qwen3-0.6B/plots/role_mix.png}{\linewidth}
-    \caption{System-default sampled role mix; reasoning lands on \emph{unknown}
-      $0.81$ of the time (other $0.11$, target $0.08$).}
-    \label{fig:role-mix}
+    \plotsub{../out/sesgo/divergence/Qwen3-0.6B/plots/accuracy_by_readout.png}{accuracy_by_readout.png}{\linewidth}
+    \caption{Per-condition accuracy across the four readouts; the readout best on
+      ambiguous items (thinking) is near-worst on disambiguated items, and the
+      three-option readout inverts hardest.}
+    \label{fig:divergence-acc}
   \end{subfigure}\hfill
   \begin{subfigure}{0.49\linewidth}\centering
-    \plotsub{../out/sesgo/geometry/Qwen3-0.6B/plots/centroid_shift_by_position.png}{../out/sesgo/geometry/Qwen3-0.6B/plots/centroid_shift_by_position.png}{\linewidth}
-    \caption{Centroid shift $\lVert\Delta_s\rVert$ by structural position; the
-      \emph{answer} position moves most.}
-    \label{fig:centroid-shift}
+    \plotsub{../out/sesgo/divergence/Qwen3-0.6B/plots/role_mix.png}{role_mix.png}{\linewidth}
+    \caption{Ambiguous default role mix: $84\%$ unknown, $9\%$ target, $7\%$
+      other---the system is strongly abstention-anchored.}
+    \label{fig:role-mix}
   \end{subfigure}
-  \caption{Reasoning role mix (left, divergence $n{=}16$) and the
-    representational shift by token position (right, geometry $n{=}25$,
-    \texttt{interpretive\_direction} vs.\ baseline) on \texttt{Qwen3-0.6B}.}
+  \caption{\textbf{Divergence} on \texttt{Qwen3-0.6B} ($n{=}43$ scored items:
+    $14$ ambiguous $+\,29$ disambiguated): the per-condition readout inversion
+    (left) and the abstention-anchored default mix (right).}
   \label{fig:role-geo}
 \end{figure}
+
+\subsection{Geometry: the answer encodes the task, not the social group}
+\label{sec:geometry}
+
+Reading answer-position activations ($n{=}462$ baseline-only items, layer-averaged),
+the representational geometry is organized almost entirely by structural task
+features rather than social content (\Cref{fig:geometry-sil},
+\Cref{fig:geometry-axes}). A silhouette-separability analysis over the full PCA
+space shows the answer representation separates most cleanly by
+\emph{context\_condition} (ambiguous vs.\ disambiguated, $+0.11$), only weakly by
+model accuracy ($+0.02$), gold\_label ($+0.01$), and question\_polarity
+($\approx 0.00$), and not at all by bias\_category ($-0.07$). Crucially it
+\emph{collapses} on social identity: target\_identity ($-0.42$) and
+other\_identity ($-0.43$) silhouettes are strongly negative, meaning points
+sharing the same demonstrated social group are no closer than random---the model
+encodes ``is this ambiguous or disambiguated'' far more saliently than ``which
+group is being judged.'' Every per-label PCA axis in the grid funnels into the
+same single arc (PC1 $31\%$ EV, PC2 $28\%$ EV), with the identity axes
+($222/223$ distinct values) showing no clustering. This is consistent with the
+behavioral readouts on the same $462$ items ($154$ ambiguous, $308$
+disambiguated): under three-option forcing the model abstains correctly $72.1\%$
+on ambiguous items ($111/154$) but is right only $18.8\%$ when it must commit on
+disambiguated items ($58/308$); the two-option readout reaches $60.7\%$
+disambiguated ($187/308$) but $0\%$ ambiguous by construction; and the
+greedy-thinking decode is right $72.7\%$ ambiguous ($112/154$) vs.\ $41.9\%$
+disambiguated ($129/308$), for an overall $52.2\%$ ($241$ correct / $221$
+incorrect).
+
+\begin{figure}[htbp]\centering
+  \begin{subfigure}{0.49\linewidth}\centering
+    \plotsub{../out/sesgo/geometry/Qwen3-0.6B/plots/silhouette_separability.png}{silhouette_separability.png}{\linewidth}
+    \caption{Silhouette separability of the answer representation by every label.
+      Positive for context\_condition ($+0.11$); $\approx 0$ for accuracy /
+      gold\_label / polarity; strongly negative for identity ($-0.42/-0.43$).}
+    \label{fig:geometry-sil}
+  \end{subfigure}\hfill
+  \begin{subfigure}{0.49\linewidth}\centering
+    \plotsub{../out/sesgo/geometry/Qwen3-0.6B/plots/pca_by_context_condition.png}{pca_by_context_condition.png}{\linewidth}
+    \caption{Answer-position PCA colored by context\_condition (ambiguous vs.\
+      disambiguated, $n{=}154/308$): the only label that visibly structures the
+      arc.}
+    \label{fig:geometry-ctx}
+  \end{subfigure}
+  \caption{\textbf{Geometry} on \texttt{Qwen3-0.6B} ($n{=}462$, baseline-only):
+    the answer representation separates by task structure, not social content.}
+  \label{fig:geometry}
+\end{figure}
+
+\plotfig{../out/sesgo/geometry/Qwen3-0.6B/plots/pca_axes_grid.png}{pca_axes_grid.png}{0.78\linewidth}{Answer-position residual geometry (PCA, layer-averaged, $n{=}462$) funnelled through every SESGO label. Every panel projects onto the same single arc (PC1 $31\%$ EV, PC2 $28\%$ EV); only context\_condition lends it visible structure, while the identity panels ($222/223$ distinct values, top-8 groups $+$ \emph{(other)}) show no clustering. The model encodes the \emph{task structure} of the item, not its social content.}{fig:geometry-axes}
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 \section{Discussion}
 
-If a one-sentence preamble reliably raises abstention on ambiguous social-bias
-prompts, it is an unusually cheap safety lever: no retraining, no fine-tuning
-data, droppable in front of an already-deployed small model in exactly the
-low-resource, Spanish-language settings where heavier interventions are out of
-reach. The dual-readout design keeps us honest---a common failure of
-prompt-based debiasing is that the intervention shifts the teacher-forced option
-preference while leaving free-form reasoning untouched, and running both readouts
-catches that. The geometry study adds a further check: whether a behavioral gain
-corresponds to a real representational change rather than a brittle surface
-artifact. A scaffold that helps under both readouts and leaves a consistent
-activation-space footprint is the strongest evidence the framework can produce;
-one that helps the teacher-forced score but not the sampled one is a cautionary
-result, and we report it as such. Our pilot already surfaces exactly this
-contrast: \texttt{insufficient\_information\_unknown} scores a perfect $1.00$
-non-thinking yet $0.00$ on its parsed thinking draws, while
-$s^\star = \texttt{intent\_and\_register\_respect}$ holds at $1.00$ under both.
-These are tiny-$n$ signals, but they show the design discriminates the cases it
-was built to separate.
+Three findings cut across the studies. First, \emph{abstention and role-calling
+are different skills, and a single readout hides the trade-off.} The three-option
+teacher-forced readout that best protects abstention on ambiguous items
+($71$--$87\%$) is the same one that most cripples role identification on
+disambiguated items (down to $28\%$); the two-option forced choice does the
+reverse. A model audited on only one of these conditions, or only one readout,
+looks far better (or far worse) than it is---which is exactly why we score every
+item under three readouts against a per-condition gold. Second, \emph{the bias
+lives in the asymmetry, not the average accuracy.} Disambiguated accuracy is low
+across the board, but the signal is the target-vs-other gap within it: racismo
+and genero leak mass toward the non-target group, clasismo and xenofobia stay
+near-symmetric. Third, \emph{scale helps, but the smallest models fail in the
+most dangerous way.} Across five models abstention and disambiguated accuracy both
+rise monotonically with size, yet \texttt{Llama-3.2-1B} abstains the least
+($0.299$, below the $1/3$ chance line) and instead commits confidently to the stereotyped target role---it
+substitutes a confident wrong guess for an honest ``unknown,'' the worst failure
+mode for a deployed small model. The geometry study explains why behavioral
+debiasing is hard at this scale: the answer representation encodes whether an item
+is ambiguous or disambiguated ($+0.11$) but is blind to which social group is in
+play ($-0.42/-0.43$), so there is no clean ``social group'' direction for a
+content-level intervention to act on. The scaffold and dual-readout machinery
+remain useful as a measurement tool---the selection study shows thinking edges
+non-thinking on abstention ($86\%$ vs.\ $80\%$)---but the picture they reveal is
+of a model whose safe-default abstention is strong on average yet fragile per item
+and readout.
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 \section{Limitations and Dual-Use Considerations}
 \label{sec:limitations}
 
 \paragraph{Limitations.}
-Our study is deliberately narrow, and several limitations follow from that
-choice. (i) We evaluate a \emph{single}, small model (\texttt{Qwen3-0.6B}); a
-small model may follow instructions too weakly to benefit, and scaffold effects
-need not transfer to larger or differently tuned models. (ii) The scope is
-Spanish (plus matched English) and \emph{four} bias categories (racism,
-xenophobia, classism, gender), so the findings do not speak to other languages
-or social axes. (iii) Our scaffolds are \emph{prompt-level} interventions, not
-training- or weight-level ones; they steer behavior at inference time and make
-no claim about the model's underlying dispositions. (iv) The \texttt{divergence}
-study reports a \emph{stratified subsample} of the full study grid rather than
-the complete cross-product, and we restrict throughout to \emph{ambiguous}-context
-items where abstention is the gold answer---we do not yet measure the
-abstention/accuracy trade-off on disambiguated items, where a specific answer is
-correct. (v) The thinking readout relies on a parser that can drop or misread
-free-form draws, biasing $M$ and $p^{\mathrm{th}}$. (vi) The geometry analysis is
-correlational: a centroid shift shows the scaffold changes the representation,
-not that the change \emph{causes} better abstention. (vii) The scaffold texts and
-the position$\to$role remap assume the model treats English and Spanish
-symmetrically; where it does not, language becomes a confound rather than a
-controlled axis.
+Several limitations bound the claims. (i) The headline baseline, stability,
+selection, divergence, and geometry studies use a \emph{single}, small model
+(\texttt{Qwen3-0.6B}); only the cross-model sweep spans five models, and even
+there each family contributes just two sizes, so the ``scale helps'' trend is
+suggestive rather than a tight effect estimate. (ii) The scope is Spanish (plus
+matched English) and \emph{four} bias categories (racism, xenophobia, classism,
+gender), so the findings do not speak to other languages or social axes; the
+\textbf{genero} category in particular is severely underpowered ($n{=}18$ total;
+$n{=}6$ per disambiguated slice) and its swings should not be over-read. (iii) The
+stability, selection, divergence, and geometry studies run on \emph{small}
+item pools (e.g.\ stability $n{=}8/16$ items per condition; geometry baseline-only),
+so per-item CIs are wide. (iv) The greedy-thinking and sampled-thinking readouts
+depend on a parser that can drop or misread free-form draws (e.g.\ $4$ of $47$
+divergence prompts and $13$ of $35$ selection items yielded no parsable thinking
+draws), biasing $M$ and $p^{\mathrm{th}}$. (v) The geometry analysis is
+\emph{correlational}: it shows the answer representation organizes by context
+condition and not by social identity, but it does not establish that this
+structure \emph{causes} the behavioral asymmetry. (vi) The position$\to$role
+remap and bilingual rendering assume the model treats display positions and the
+two languages symmetrically; where it does not, those become confounds.
 
 \paragraph{Dual-use and misuse risks.}
-The same machinery that improves abstention can be turned against it, and we
-flag this explicitly. (a) A debiasing preamble is trivially \emph{invertible}:
-the one-sentence scaffold that pushes the model toward ``unknown'' can be
-rewritten, with no new technique, into a \emph{bias-amplifying} preamble that
-pushes the model to commit to the stereotyped group. (b) Our representational
-analysis compounds this. The activation-geometry method that \emph{locates} a
-debiasing direction $\Delta_{s^\star}$ equally locates a steer-toward-stereotype
-direction; a centroid shift is signed, and an adversary can move along it in
-either sense. (c) Abstention itself can be \emph{gamed}: a model (or a deployer)
-optimizing the abstention metric can learn to answer ``unknown'' indiscriminately,
-trading a real bias problem for an evasive, low-utility one that our
-ambiguous-only setup would not penalize. We therefore frame the scaffolds as a
-measurement and mitigation tool to be released with these caveats, not as a
-drop-in fix, and we report cautionary (helps-one-readout-but-not-the-other)
-results as first-class outcomes.
+The same machinery that measures and improves abstention can be turned against it,
+and we flag this explicitly. (a) The debiasing scaffold is trivially
+\emph{invertible}: the one-sentence preamble that pushes the model toward
+``unknown'' can be rewritten, with no new technique, into a
+\emph{bias-amplifying} preamble that pushes the model to commit to the stereotyped
+target group---and our results show the target-vs-other asymmetry such a preamble
+could exploit. (b) The cross-model finding that small models substitute confident
+stereotyped guessing for abstention is itself a misuse signpost: a deployer
+choosing the cheapest model inherits the most biased abstention behavior. (c)
+Abstention itself can be \emph{gamed}: a model (or deployer) optimizing only the
+abstention metric can answer ``unknown'' indiscriminately, which our per-condition
+design specifically guards against by also scoring disambiguated items, where
+indiscriminate abstention scores $0$. We therefore release the harness as a
+measurement tool with these caveats, and report cross-condition and
+cross-readout trade-offs as first-class outcomes.
 
 \paragraph{Future improvements.}
-Several extensions follow directly. Add disambiguated items, to measure the
-abstention/accuracy trade-off rather than assume it away, and to detect
-abstention-gaming. Sweep multiple model sizes and families to see how far the
-effect transfers, and extend beyond Spanish and the four categories. Compose and
-ablate the four scaffold mechanisms to isolate the active ingredient. Move the
-geometry analysis from correlational to causal by \emph{steering} activations
-along $\Delta_{s^\star}$ and watching abstention respond---an experiment that, by
-its symmetry, also quantifies the inversion risk above. We see this design as the
-start of that line of work, not the end of it.
+Several extensions follow directly. Broaden the cross-model sweep to more sizes
+per family and more families, and extend beyond Spanish and the four categories
+(powering up \textbf{genero} in particular). Compose and ablate the four scaffold
+mechanisms to isolate the active ingredient, and run the full scaffold grid (not
+just the baseline) through the selection and geometry pipelines. Move the geometry
+analysis from correlational to causal by \emph{steering} activations along the
+context-condition axis and watching the abstain-or-commit behavior respond---an
+experiment that, by its symmetry, also quantifies the inversion risk above. We see
+this design as the start of that line of work, not the end of it.
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 \section{Conclusion}
 
-We presented a five-study framework for measuring whether a short debiasing
-scaffold makes a small LLM abstain more often---rather than guess a
-stereotype---on ambiguous Spanish social-bias questions. The framework pairs a
-teacher-forced three-way readout with a sampled reasoning readout, selects a best
-scaffold by abstention accuracy, and asks whether that scaffold leaves a
-measurable shift in the model's residual-stream geometry. Formalizing $\LLM(x)$
-versus $\LLM(x\oplus s)$ on \textsc{SESGO} lets the design target one specific
-failure: confident stereotyped resolution under ambiguity. That failure is most consequential in
-exactly the Global-South, Spanish-language settings where it is least studied. A
-minimal-sample pilot of all five studies runs the pipeline end-to-end and gives
-directional findings---high but unstable baseline abstention, a clearly selected
-$s^\star$, and an answer-position representational shift---while large-$n$,
-multi-model results remain future work. What we contribute here is the
-reproducible design, notation, and harness, together with a working pilot that
-makes those results interpretable.
+We presented a five-study framework that audits, under a per-condition gold and
+three readouts, whether a small open-weight LLM both abstains when a Spanish
+social-bias question is ambiguous and commits to the correct role when it is
+disambiguated. On the full SESGO grid ($n{=}2310$) \texttt{Qwen3-0.6B} abstains
+well ($71$--$87\%$) but commits poorly and asymmetrically ($28$--$46\%$), with
+the target-vs-other gap carrying the bias signal. A five-model size sweep shows
+both behaviors rise monotonically with scale, while the smallest model substitutes
+confident stereotyped guessing for abstention---the most dangerous failure mode in
+exactly the low-resource settings where small models are deployed. Probing
+answer-position activations ($n{=}462$) shows the model encodes the item's task
+structure (ambiguous vs.\ disambiguated) but not its social content, which helps
+explain why content-level debiasing is hard at this scale. We release the
+reproducible design, notation, and harness so these results can be extended.
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 \section*{Code and Data}
 \begin{itemize}[label=\textendash,leftmargin=*,topsep=2pt]
-  \item \textbf{Code repository:} the evaluation harness (ternary-choice runner,
-    non-thinking / thinking readouts, scaffolds, and geometry analysis) will be
-    released with the final version.
+  \item \textbf{Code repository:} the evaluation harness (three-/two-option
+    choice runners, greedy- and sampled-thinking readouts, scaffolds, and the
+    geometry analysis) will be released with the final version.
   \item \textbf{Data/Datasets:} \textsc{SESGO}~\citep{robles2025sesgo}, used under
     its original license.
-  \item \textbf{Model:} \texttt{Qwen3-0.6B}, run locally.
+  \item \textbf{Models:} \texttt{Qwen3-0.6B} / \texttt{Qwen3-4B},
+    \texttt{Llama-3.2-1B} / \texttt{-3B}, and \texttt{Mistral-7B-Instruct-v0.3},
+    run locally.
 \end{itemize}
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
@@ -783,7 +851,8 @@ one-line mechanism for each.
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 \section*{LLM Usage Statement}
 We used an LLM assistant to help draft and format this report and to formalize
-notation from the codebase. All design decisions, claims, and reported pilot
-results are verified by the authors against the harness implementation.
+notation from the codebase. All design decisions, claims, and reported results
+are verified by the authors against the harness implementation and the raw
+\texttt{response\_samples.json} via the project's own slicing code.
 
 \end{document}
