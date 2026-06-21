@@ -31,6 +31,7 @@ class FleetMember:
     params_b: float  # approximate parameter count in billions (drives GPU choice)
     gpu_name: str  # vast GPU_NAME, e.g. RTX_4090
     max_price: float  # $/hr ceiling for the offer search
+    disk_gb: int  # disk to provision (must fit the HF weights download + xet cache)
     shards: int = 1  # disjoint contiguous grid slices (boxes) for THIS model
 
     @property
@@ -39,15 +40,21 @@ class FleetMember:
         return self.model.split("/")[-1]
 
 
-def _gpu_for(params_b: float) -> tuple[str, float]:
-    """Right-size GPU class + price ceiling to a model's parameter count."""
+def _gpu_for(params_b: float) -> tuple[str, float, int]:
+    """Right-size GPU class + price ceiling + DISK GB to a model's param count.
+
+    Disk must hold the HF weights download (bf16 ≈ 2 GB/B params) PLUS the
+    huggingface xet cache's temp copy, so it needs to be comfortably larger than
+    the weights. A fixed 60 GB box ran the 24-32B downloads out of space mid-pull
+    ("OSError: No space left on device"), so the big tier gets 200 GB.
+    """
     if params_b <= 8:
-        return "RTX_4090", 0.60
+        return "RTX_4090", 0.60, 60
     if params_b <= 16:
-        return "A100_PCIE", 1.60
+        return "A100_PCIE", 1.60, 120
     # H100_PCIE is frequently sold out on Vast; H100_SXM is always 80 GB (fits a
     # 32B in bf16) and usually has cheap offers, so target it for the big tier.
-    return "H100_SXM", 3.00
+    return "H100_SXM", 3.50, 200
 
 
 # The SESGO baseline size-sweep fleet: size ladders per family so we can read the
@@ -79,13 +86,14 @@ def default_fleet() -> list[FleetMember]:
     """Build the default fleet, right-sizing each model's GPU + price ceiling."""
     members: list[FleetMember] = []
     for model, params_b, shards in _DEFAULT_MODELS:
-        gpu, price = _gpu_for(params_b)
+        gpu, price, disk = _gpu_for(params_b)
         members.append(
             FleetMember(
                 model=model,
                 params_b=params_b,
                 gpu_name=gpu,
                 max_price=price,
+                disk_gb=disk,
                 shards=max(1, shards),
             )
         )
@@ -100,6 +108,7 @@ class FleetBox:
     bare_name: str
     gpu_name: str
     max_price: float
+    disk_gb: int  # disk to provision for this box
     shard_index: int  # 0-based shard this box owns
     shard_count: int  # total shards for this model
 
@@ -115,6 +124,7 @@ def fleet_plan(members: list[FleetMember]) -> list[FleetBox]:
                     bare_name=m.bare_name,
                     gpu_name=m.gpu_name,
                     max_price=m.max_price,
+                    disk_gb=m.disk_gb,
                     shard_index=k,
                     shard_count=m.shards,
                 )
@@ -127,7 +137,7 @@ def _print_tsv(boxes: list[FleetBox]) -> None:
     for b in boxes:
         print(
             f"{b.model}\t{b.bare_name}\t{b.gpu_name}\t{b.max_price}\t"
-            f"{b.shard_index}\t{b.shard_count}"
+            f"{b.disk_gb}\t{b.shard_index}\t{b.shard_count}"
         )
 
 

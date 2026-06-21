@@ -22,16 +22,18 @@ set -euo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"
 REPO_ROOT="$(cd "$HERE/.." && pwd)"
 FLEET_DIR="${FLEET_DIR:-$HERE/.fleet}"
-DISK="${DISK:-60}"
+# Disk is per-model now (sized in fleet_sizing.py so big-model weight downloads
+# don't run out of space); no single DISK knob here anymore.
 IMAGE="${IMAGE:-vastai/pytorch:@vastai-automatic-tag}"
 PORTAL_ENV='-p 1111:1111 -e OPEN_BUTTON_PORT="1111" -e OPEN_BUTTON_TOKEN="1"'
 
 command -v vastai >/dev/null || { echo "vastai not found. pip install vastai" >&2; exit 1; }
 mkdir -p "$FLEET_DIR"
 
+# TSV columns: model  bare  gpu  max_price  disk_gb  shard_index  shard_count
 PLAN="$(/usr/bin/env python3 "$HERE/fleet_sizing.py" plan)"
-echo ">> Fleet plan (model / gpu / \$max / shard):"
-printf '%s\n' "$PLAN" | awk -F'\t' '{printf "   %-40s %-10s $%-5s shard %s/%s\n",$1,$3,$4,$5+1,$6}'
+echo ">> Fleet plan (model / gpu / \$max / disk / shard):"
+printf '%s\n' "$PLAN" | awk -F'\t' '{printf "   %-40s %-10s $%-5s %sG  shard %s/%s\n",$1,$3,$4,$5,$6+1,$7}'
 
 if [ "${FLEET_CONFIRM:-0}" != "1" ]; then
   read -r -p ">> Create ALL of these boxes concurrently? [y/N] " ans
@@ -39,31 +41,33 @@ if [ "${FLEET_CONFIRM:-0}" != "1" ]; then
 fi
 
 # Launch ONE box for a plan row; backgrounded by the caller so all run at once.
+# The plan's per-row disk (cuda_max_good>=12.4 so the cu124 torch wheel runs;
+# disk sized to the model so 24-32B weight downloads don't run out of space).
 launch_one() {
-  local model="$1" bare="$2" gpu="$3" price="$4" sidx="$5" scount="$6"
+  local model="$1" bare="$2" gpu="$3" price="$4" disk="$5" sidx="$6" scount="$7"
   local tag="${bare}__shard${sidx}of${scount}"
-  local q="gpu_name=${gpu} num_gpus>=1 verified=true rentable=true direct_port_count>=1 disk_space>=${DISK} dph_total<=${price}"
+  local q="gpu_name=${gpu} num_gpus>=1 verified=true rentable=true direct_port_count>=1 disk_space>=${disk} dph_total<=${price} cuda_max_good>=12.4"
   local offers oid create iid
   offers="$(vastai search offers "$q" -o dph_total+ --raw)"
   oid="$(printf '%s' "$offers" | python3 -c 'import sys,json;o=json.load(sys.stdin);print(o[0]["id"] if o else "")')"
-  if [ -z "$oid" ]; then echo "[$tag] NO OFFER (loosen price/gpu)"; return 1; fi
+  if [ -z "$oid" ]; then echo "[$tag] NO OFFER (loosen price/gpu/disk)"; return 1; fi
   create="$(vastai create instance "$oid" --image "$IMAGE" --env "$PORTAL_ENV" \
-    --onstart-cmd 'entrypoint.sh' --disk "$DISK" --ssh --direct --raw)"
+    --onstart-cmd 'entrypoint.sh' --disk "$disk" --ssh --direct --raw)"
   iid="$(printf '%s' "$create" | python3 -c 'import sys,json;print(json.load(sys.stdin).get("new_contract",""))')"
   if [ -z "$iid" ]; then echo "[$tag] CREATE FAILED"; return 1; fi
   # Record id + the model/shard this box must run (read by fleet_run.sh).
   printf '%s\n' "$iid" > "$FLEET_DIR/$tag.id"
   printf '%s\t%s\t%s\n' "$model" "$sidx" "$scount" > "$FLEET_DIR/$tag.job"
-  echo "[$tag] created instance $iid (offer $oid, $gpu)"
+  echo "[$tag] created instance $iid (offer $oid, $gpu, disk ${disk}G)"
 }
 
 export -f launch_one
-export FLEET_DIR DISK IMAGE PORTAL_ENV
+export FLEET_DIR IMAGE PORTAL_ENV
 
 # Fire every create in the BACKGROUND, then wait for all — concurrent launch.
 echo ">> Launching all boxes concurrently..."
-while IFS=$'\t' read -r model bare gpu price sidx scount; do
-  launch_one "$model" "$bare" "$gpu" "$price" "$sidx" "$scount" &
+while IFS=$'\t' read -r model bare gpu price disk sidx scount; do
+  launch_one "$model" "$bare" "$gpu" "$price" "$disk" "$sidx" "$scount" &
 done <<< "$PLAN"
 wait
 
