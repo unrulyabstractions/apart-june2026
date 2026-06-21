@@ -25,8 +25,9 @@ layer view is a single captured layer, the highest captured "last", or the
     other categorical per-sample axis in the shared geometry_color_axes registry:
     scaffold (has-scaffold), origin (bbq), language, bias_category,
     question_polarity, context_condition (ambig vs disambig), accuracy (correct
-    vs incorrect), selected_role, gold_role, readout, target_identity,
-    other_identity, gold_label, label_style.
+    vs incorrect), thinking_outcome (did reasoning flip the committed answer:
+    unchanged/changed/unparsable), selected_role, gold_role, readout,
+    target_identity, other_identity, gold_label, label_style.
 
 By DEFAULT (--layer all) every captured mid->last layer is its OWN PCA cell (plus
 a "mean" layer-averaged cell), so depth is differentiated rather than collapsed.
@@ -46,6 +47,7 @@ Usage:
 from __future__ import annotations
 
 import argparse
+import functools
 import pathlib
 import sys
 from collections import defaultdict
@@ -53,6 +55,7 @@ from pathlib import Path
 
 import numpy as np  # noqa: E402
 import torch  # noqa: E402
+from joblib import Parallel, delayed  # noqa: E402
 from sklearn.decomposition import PCA  # noqa: E402
 from sklearn.metrics import silhouette_score  # noqa: E402
 
@@ -76,6 +79,15 @@ from sesgo.geometry.geometry_color_axes import (  # noqa: E402
 
 _BASELINE = "(baseline)"
 MIN_SAMPLES = 4  # a position with fewer valid rows is skipped (PCA degenerate)
+# silhouette_score is O(n^2 * d); above this sample size we estimate it on a
+# seeded random subset so each call is O(cap^2) — negligible accuracy loss for a
+# silhouette estimate, but it turns ~1.5h runs into minutes (see module docstring).
+SILHOUETTE_SAMPLE_CAP = 1500
+SILHOUETTE_SUBSAMPLE_SEED = 0  # fixed so the silhouette estimate is reproducible
+# Bootstrap draws for the scaffold silhouette CI. Each draw is a full (capped)
+# silhouette, so we use far fewer than the shift-magnitude CI's default 1000 —
+# the CI band only needs a coarse spread, not 1000 O(cap^2) silhouettes per cell.
+SILHOUETTE_CI_N_BOOT = 200
 _ALL_POSITIONS = (
     "im_end",
     "newline",
@@ -94,9 +106,30 @@ _SEPARATION_AXIS_KEYS = tuple(a.key for a in SEPARATION_AXES)
 # ── Loaders & matrix building ─────────────────────────────────────────────────
 
 
+# Bounded so a whole-dataset run can't pin every tensor in RAM at once: a large
+# model captures ~1M tensors of ~5k floats (tens of GB if all cached). This budget
+# comfortably holds one position's full layer set across all samples (the working
+# set that lets the "mean" view reuse the int-layer loads) while LRU-evicting the
+# rest, so memory stays bounded even though I/O is a negligible fraction of cost.
+_TENSOR_CACHE_MAXSIZE = 200_000
+
+
+@functools.lru_cache(maxsize=_TENSOR_CACHE_MAXSIZE)
+def _load_tensor_cached(path: str) -> np.ndarray:
+    """Load + (LRU-)cache one saved [d_model] residual tensor by its absolute path.
+
+    A given (position, layer) tensor is read by BOTH that int-layer cell and the
+    "mean" layer-view (which averages all captured layers for the position), so
+    caching on the path lets the "mean" cell reuse the already-loaded int-layer
+    tensors instead of re-``torch.load``-ing every file a second time. The LRU is
+    thread-safe, so the joblib threading pool shares one cache across cells.
+    """
+    return torch.load(path, map_location="cpu").numpy()
+
+
 def _load_layer_vec(root: Path, act) -> np.ndarray:
     """Load one saved single-layer [d_model] residual tensor as a numpy vector."""
-    return torch.load(root / act.path, map_location="cpu").numpy()
+    return _load_tensor_cached(str((root / act.path).resolve()))
 
 
 def _captured_layers(sample: GeometrySample, ptype: str) -> list[int]:
@@ -152,6 +185,8 @@ def _sample_row(s: GeometrySample) -> dict:
     ``scaffold_id`` stays raw (None == baseline; downstream maps it); ``scaffold``
     is the has-scaffold binary; ``origin`` is derived from the bbq flag;
     ``accuracy`` from the non-thinking readout vs the per-condition gold;
+    ``thinking_outcome`` is whether reasoning flipped the committed answer
+    (pre-think argmax vs post-``</think>`` parse);
     ``selected_role``/``gold_role``/``readout`` come from the flat schema fields;
     the five answer-distribution signals are continuous colormap axes. Every
     categorical axis is a stringified verbatim field so a frontend can scatter and
@@ -169,6 +204,8 @@ def _sample_row(s: GeometrySample) -> dict:
         "question_polarity": s.question_polarity,
         "context_condition": getattr(s, "context_condition", "") or "(unknown)",
         "accuracy": _accuracy_label(s),
+        # Did reasoning flip the committed answer? (pre-think argmax vs post-</think>)
+        "thinking_outcome": s.thinking_outcome,
         "selected_role": s.selected_role,
         "gold_role": s.gold_role,
         "readout": s.readout,
@@ -297,13 +334,27 @@ def _silhouette(Z: np.ndarray, labels: list[str]) -> float | None:
     Needs >= 2 groups and at least 2 distinct labels among >= 2 samples each is
     not strictly required by sklearn, but we guard the n_groups>=2 and
     n_samples>n_groups conditions sklearn itself enforces.
+
+    For n above SILHOUETTE_SAMPLE_CAP we hand sklearn a seeded ``sample_size`` so
+    it scores a random subset — the silhouette is an O(n^2) statistic, so the cap
+    is what keeps a whole-dataset cell (n up to several thousand) from costing
+    O(n^2) per call across the ~1000 bootstrap draws (see SILHOUETTE_SAMPLE_CAP).
     """
     uniq = set(labels)
     if len(uniq) < 2 or len(uniq) >= len(labels):
         return None
+    sample_size = SILHOUETTE_SAMPLE_CAP if len(labels) > SILHOUETTE_SAMPLE_CAP else None
     try:
-        return float(silhouette_score(Z, labels))
+        return float(
+            silhouette_score(
+                Z,
+                labels,
+                sample_size=sample_size,
+                random_state=SILHOUETTE_SUBSAMPLE_SEED,
+            )
+        )
     except ValueError:
+        # A subsample can land < 2 groups; sklearn raises — treat as ill-defined.
         return None
 
 
@@ -410,7 +461,11 @@ def condition_stats(Z: np.ndarray, rows: list[dict], axis: str = "scaffold_id") 
             labels[i] = lab
 
     # Bootstrap CI on the silhouette so the viz subtitle can show its spread.
-    _sil_pt, sil_lo, sil_hi = bootstrap_labelled_ci(Z, labels_full, _silhouette_stat)
+    # Each draw is a full (capped) silhouette, so we use SILHOUETTE_CI_N_BOOT
+    # draws rather than the shift CI's default 1000 — a coarse band is enough.
+    _sil_pt, sil_lo, sil_hi = bootstrap_labelled_ci(
+        Z, labels_full, _silhouette_stat, n_boot=SILHOUETTE_CI_N_BOOT
+    )
 
     return {
         "axis": axis,
@@ -599,7 +654,44 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument("--n-components", type=int, default=10, help="max PCA components")
     parser.add_argument("--seed", type=int, default=42, help="PCA random_state")
+    parser.add_argument(
+        "--jobs",
+        type=int,
+        default=-1,
+        help="parallel worker threads over (layer x position) cells "
+        "(-1 = all cores; 1 = serial). Threads share the tensor cache.",
+    )
     return parser.parse_args()
+
+
+def _compute_cells(
+    dataset: GeometryDataset,
+    root: Path,
+    layers: list,
+    positions: list[str],
+    n_components: int,
+    seed: int,
+    jobs: int,
+) -> dict[str, dict]:
+    """PCA every (layer-view x position) cell, optionally across worker threads.
+
+    Each cell is independent, so we fan the ~(layers x positions) grid over a
+    joblib THREADING pool: the silhouette / pairwise-distance hot path is numpy /
+    sklearn C that releases the GIL, and threads (unlike processes) share the
+    module-level ``_load_tensor_cached`` LRU so the "mean" view still reuses the
+    int-layer tensors. Returns ``{str(layer): {position: block}}`` (empty cells
+    and empty layers dropped), identical to the serial nesting it replaces.
+    """
+    cells = [(layer, ptype) for layer in layers for ptype in positions]
+    blocks = Parallel(n_jobs=jobs, backend="threading")(
+        delayed(analyze_position)(dataset, root, ptype, layer, n_components, seed)
+        for layer, ptype in cells
+    )
+    results: dict[str, dict] = {}
+    for (layer, ptype), block in zip(cells, blocks):
+        if block is not None:
+            results.setdefault(str(layer), {})[ptype] = block
+    return results
 
 
 def main() -> None:
@@ -614,19 +706,11 @@ def main() -> None:
     layers = _resolve_layers(args.layer, dataset)
     positions = _resolve_positions(dataset, args.position)
     log(f"[analyze] layers={layers} positions={positions} "
-        f"n_components={args.n_components} seed={args.seed}")
+        f"n_components={args.n_components} seed={args.seed} jobs={args.jobs}")
 
-    results: dict[str, dict] = {}
-    for layer in layers:
-        per_pos: dict[str, dict] = {}
-        for ptype in positions:
-            block = analyze_position(
-                dataset, root, ptype, layer, args.n_components, args.seed
-            )
-            if block is not None:
-                per_pos[ptype] = block
-        if per_pos:
-            results[str(layer)] = per_pos
+    results = _compute_cells(
+        dataset, root, layers, positions, args.n_components, args.seed, args.jobs
+    )
 
     payload = {
         "model": dataset.model,

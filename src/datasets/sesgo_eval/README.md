@@ -84,9 +84,12 @@ BBQ-adapted), `target_identity` (the ans1 group string) and `other_identity` (th
 ans0 group string). `GeometrySample` carries the same set of color-by axes AND
 all four readouts (`non_thinking`, `non_thinking_2opt`, `greedy_thinking`,
 `thinking`) with the matching `correct_*` / `picked_2opt` / `predicted_*`
-properties, plus a derived `accuracy` correct/incorrect axis in the projection, so
-the geometry viz can score by any readout and colour the PCA projection by any
-axis — including `context_condition` and `accuracy`.
+properties, plus a derived `accuracy` correct/incorrect axis and a
+`thinking_outcome` axis (`unchanged`/`changed`/`unparsable`: did reasoning flip
+the committed answer — `predicted_non_thinking` before vs
+`predicted_greedy_thinking` after the last `</think>`) in the projection, so the
+geometry viz can score by any readout and colour the PCA projection by any axis —
+including `context_condition`, `accuracy`, and `thinking_outcome`.
 
 ## Per-option non-thinking vectors (`SesgoNonThinking`)
 

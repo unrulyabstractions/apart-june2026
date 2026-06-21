@@ -113,6 +113,30 @@ class GeometrySample(BaseSchema):
         return self.greedy_thinking.predicted if self.greedy_thinking else None
 
     @property
+    def thinking_outcome(self) -> str:
+        """Whether reasoning FLIPPED the committed answer, as a colour-by string.
+
+        Compares the answer BEFORE thinking (the non-thinking teacher-forced
+        argmax, ``predicted_non_thinking``) against the FINAL answer the model
+        commits to AFTER the last ``</think>`` (the greedy reasoning decode's
+        parsed role, ``predicted_greedy_thinking``):
+
+          "unchanged"  - both parsed and the post-thinking role equals the
+                         pre-thinking role (reasoning did not move the answer),
+          "changed"    - both parsed but the post-thinking role differs (reasoning
+                         flipped the committed answer),
+          "unparsable" - either readout is missing / the reasoning decode produced
+                         no parseable post-``</think>`` answer.
+
+        This isolates WHERE in the representation thinking changes the answer.
+        """
+        before = self.predicted_non_thinking
+        after = self.predicted_greedy_thinking
+        if before is None or after is None:
+            return "unparsable"
+        return "unchanged" if after == before else "changed"
+
+    @property
     def picked_2opt(self) -> SesgoLabel | None:
         """Group the 2-option forced choice picked, if that readout ran."""
         return self.non_thinking_2opt.picked if self.non_thinking_2opt else None

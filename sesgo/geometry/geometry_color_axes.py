@@ -43,6 +43,7 @@ COLOR_AXES: tuple[ColorAxis, ...] = (
     ColorAxis("question_polarity", "question polarity (negative-framed vs not)"),
     ColorAxis("context_condition", "context condition (ambig vs disambig)"),
     ColorAxis("accuracy", "accuracy (correct vs incorrect)"),
+    ColorAxis("thinking_outcome", "thinking changed the answer (unchanged/changed/unparsable)"),
     ColorAxis("selected_role", "selected role (target/other/unknown)"),
     ColorAxis("gold_role", "gold role (target/other/unknown)"),
     ColorAxis("readout", "readout (2-opt vs 3-opt)"),
