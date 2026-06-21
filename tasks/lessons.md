@@ -78,3 +78,30 @@ PREVENTION (enforce):
 3. "money no constraint" != "infinite concurrency" -- a few checkpointed boxes beat a
    swarm that drains and dies.
 4. VERIFY locally after each run (data present + plots render) before moving on.
+
+## Concurrent agents share the working tree — your files can land in another agent's commit
+- When multiple agents run in one repo, they share ONE working directory. A
+  concurrent agent's `git add -A` / broad commit will sweep up YOUR new untracked
+  files too. On this task, files I created (render_branching_tree.py,
+  build_divergence_tree.py, forking_tree_model.py) showed up as ALREADY TRACKED in
+  HEAD — committed by another agent's "plots overhaul" commit d3b499e, not me.
+- Implication: don't assume `git status` untracked == "my uncommitted work". Before
+  committing, diff working tree vs HEAD for YOUR files; commit only the residual
+  modifications. Stage files by EXPLICIT path (never `git add -A`/`.`) so you never
+  capture another agent's untracked files (I saw 2 stray files from another agent:
+  plot_forking_commit_dynamics.py, thinking_belief_agreement_scatter.py — left them
+  alone).
+- out/ is gitignored here: produced figures are LOCAL artifacts, not committed.
+  Deliverable = the code + the local PNGs, not PNGs in git.
+
+## Forking-paths trunk selection on small models: use branch-divergence, not Δ_t
+- The consecutive-barycenter "most-forking" index Δ_t = ||O_t - O_{t-1}|| is
+  dominated by the noisy o_0->o_1 jump at t=0 (the <think> boilerplate token) on a
+  tiny model. That token has a single alternate -> a DEGENERATE one-branch tree.
+- The forking token is properly the position where re-sampling a different next
+  token most diverts the outcome: max pairwise L2 between the alternates' o_{t,w}.
+  Added most_divergent_branch_index(); use it as the tree trunk whenever the
+  Bayesian CPD finds no SIGNIFICANT change point (BF<9).
+- Token budget: Qwen3-0.6B needs >=384 (ideally 512) new tokens for thinking draws
+  to close </think> and emit a parseable role; at 256 most draws land in the
+  unparseable bucket and the "fork" is an artifact of truncation, not a real flip.

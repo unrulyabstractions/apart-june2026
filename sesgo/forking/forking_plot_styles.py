@@ -14,7 +14,7 @@ from matplotlib.colors import LinearSegmentedColormap
 # Outcome band order for the stacked area (matches ForkOutcomeSet.labels order).
 OUTCOME_COLORS = {
     "target": "#D55E00",      # Okabe-Ito vermilion
-    "other": "#E69F00",       # orange
+    "other": "#F0E442",       # Okabe-Ito yellow (CVD-distinct from the vermilion target band)
     "unknown": "#0072B2",     # blue
     "unparseable": "#999999", # grey catch-all
 }
