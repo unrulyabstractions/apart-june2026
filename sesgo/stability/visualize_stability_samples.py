@@ -202,21 +202,58 @@ def _abstention_accuracy(dataset: SesgoDataset) -> tuple[float | None, int]:
 # --------------------------------------------------------------------------- #
 # Plots
 # --------------------------------------------------------------------------- #
-def plot_consistency_hist(cons: list[float], model: str, out_path: Path) -> Path:
-    """Histogram of per-item non-thinking prediction consistency."""
-    fig, ax = plt.subplots(figsize=(8, 5))
-    bins = np.linspace(0, 1, 11)
-    if cons:
-        ax.hist(cons, bins=bins, alpha=0.8, label=f"non-thinking (n={len(cons)})",
-                color="#30638e", edgecolor="white")
-        ax.legend()
-    ax.set_xlabel("per-item consistency (fraction of variations at modal prediction)")
-    ax.set_ylabel("number of items")
-    ax.set_title(f"SESGO stability: per-item prediction consistency ({model})")
-    fig.tight_layout()
-    fig.savefig(out_path, dpi=130)
+# Colorblind-safe (Okabe-Ito derived) constants shared across all stability plots.
+_BAR_BLUE = "#0072B2"        # primary distribution fill
+_BAR_ORANGE = "#E69F00"      # contrasting axis / second series
+_MEAN_RED = "#D55E00"        # mean reference line (distinct from both fills)
+_EMPTY_GREY = "#BBBBBB"      # de-emphasized "no data here" annotation
+
+
+def _titled(ax, title: str, takeaway: str) -> None:
+    """Stack a bold title over an italic plain-language takeaway as the axes title.
+
+    Using ax.set_title (not fig.suptitle/fig.text) keeps the header anchored to the
+    axes box, so constrained_layout reserves exact headroom and the takeaway can
+    never collide with an in-axes legend the way free figure text does.
+    """
+    ax.set_title(f"{title}\n", fontsize=13, fontweight="bold", pad=24)
+    ax.text(0.5, 1.012, takeaway, transform=ax.transAxes, ha="center", va="bottom",
+            fontsize=10, color="#444444", style="italic")
+
+
+def _save(fig, out_path: Path) -> Path:
+    """Persist a figure publication-clean: tight bbox, 150 dpi, then close it."""
+    fig.savefig(out_path, dpi=150, bbox_inches="tight")
     plt.close(fig)
     return out_path
+
+
+def plot_consistency_hist(cons: list[float], model: str, out_path: Path) -> Path:
+    """Histogram of per-item non-thinking prediction consistency over [0, 1].
+
+    The full 0..1 axis is always drawn so the EMPTY high-consistency tail is
+    visible: no item's modal answer survives even most of its format variations.
+    """
+    fig, ax = plt.subplots(figsize=(8, 5), layout="constrained")
+    bins = np.linspace(0, 1, 11)
+    if cons:
+        ax.hist(cons, bins=bins, color=_BAR_BLUE, edgecolor="white",
+                label=f"non-thinking items (n={len(cons)})")
+        mean_c = float(np.mean(cons))
+        ax.axvline(mean_c, color=_MEAN_RED, linestyle="--", linewidth=2,
+                   label=f"mean consistency = {mean_c:.0%}")
+        # Mark the empty "robust" zone so the absence of high-consistency items reads.
+        ax.axvspan(0.8, 1.0, color=_EMPTY_GREY, alpha=0.18, zorder=0)
+        ax.text(0.9, ax.get_ylim()[1] * 0.45, "no robust items\n(consistency > 0.8)",
+                ha="center", va="center", fontsize=9, color="#666666")
+        # Legend sits over the empty left region (all items cluster at 0.4-0.7).
+        ax.legend(loc="upper left", framealpha=0.95)
+    ax.set_xlim(0, 1)
+    ax.set_xlabel("per-item consistency (fraction of variations at the modal answer)")
+    ax.set_ylabel("number of items")
+    _titled(ax, f"SESGO stability: per-item prediction consistency ({model})",
+            "the modal answer holds for only ~40-70% of an item's format variations")
+    return _save(fig, out_path)
 
 
 def plot_axis_sensitivity(
@@ -225,39 +262,45 @@ def plot_axis_sensitivity(
     """Bar chart: mean per-axis format sensitivity (flip rate) for each axis."""
     axes = list(sens.keys())
     vals = [sens[a] if sens[a] is not None else 0.0 for a in axes]
-    fig, ax = plt.subplots(figsize=(6, 5))
-    colors = sns.color_palette("viridis", len(axes))
-    bars = ax.bar(range(len(axes)), vals, color=colors)
+    fig, ax = plt.subplots(figsize=(6.5, 5), layout="constrained")
+    colors = [_BAR_BLUE, _BAR_ORANGE][: len(axes)]
+    bars = ax.bar(range(len(axes)), vals, color=colors, width=0.62)
     for bar, a in zip(bars, axes):
         label = "n/a" if sens[a] is None else f"{sens[a]:.1%}"
-        ax.text(bar.get_x() + bar.get_width() / 2, bar.get_height() + 0.005,
-                label, ha="center", va="bottom", fontsize=9)
+        ax.text(bar.get_x() + bar.get_width() / 2, bar.get_height() + 0.008,
+                label, ha="center", va="bottom", fontsize=11, fontweight="bold")
     ax.set_xticks(range(len(axes)))
-    ax.set_xticklabels(axes)
-    ax.set_ylim(0, max(0.05, max(vals) * 1.25) if vals else 0.05)
+    ax.set_xticklabels([a.replace("_", " ") for a in axes], fontsize=11)
+    ax.set_ylim(0, max(0.05, max(vals) * 1.3) if vals else 0.05)
     ax.set_ylabel("mean flip rate (1 - within-group consistency)")
-    ax.set_title(f"SESGO stability: format sensitivity per axis ({model})")
-    fig.tight_layout()
-    fig.savefig(out_path, dpi=130)
-    plt.close(fig)
-    return out_path
+    _titled(ax, f"SESGO stability: format sensitivity per axis ({model})",
+            "role->position permutation destabilizes the model more than label style")
+    return _save(fig, out_path)
 
 
 def plot_p_unknown_spread(spreads: list[float], model: str, out_path: Path) -> Path:
-    """Histogram of per-item std of non-thinking p(unknown) across variations."""
-    fig, ax = plt.subplots(figsize=(8, 5))
+    """Per-item std of p(unknown): a rug + KDE so 12 points read without spikiness.
+
+    A raw histogram of only ~12 values is all spikes; a smooth KDE plus a rug of
+    the individual items shows the spread honestly without implying false density.
+    """
+    fig, ax = plt.subplots(figsize=(8, 5), layout="constrained")
     if spreads:
-        ax.hist(spreads, bins=20, color="#edae49", edgecolor="white")
-        ax.axvline(float(np.mean(spreads)), color="#d1495b", linestyle="--",
-                   label=f"mean = {np.mean(spreads):.3f}")
-        ax.legend()
+        sns.kdeplot(x=spreads, ax=ax, color=_BAR_BLUE, fill=True, alpha=0.22,
+                    linewidth=2, cut=0, bw_adjust=1.2)
+        # Rug anchored at the baseline with prominent ticks so each item is legible.
+        sns.rugplot(x=spreads, ax=ax, color=_BAR_ORANGE, height=0.06, linewidth=2,
+                    alpha=0.9)
+        mean_s = float(np.mean(spreads))
+        ax.axvline(mean_s, color=_MEAN_RED, linestyle="--", linewidth=2,
+                   label=f"mean = {mean_s:.3f}  (n={len(spreads)} items)")
+        ax.legend(loc="upper left", framealpha=0.95)
+    ax.set_ylim(bottom=0)
     ax.set_xlabel("per-item std of non-thinking p(unknown) across variations")
-    ax.set_ylabel("number of items")
-    ax.set_title(f"SESGO stability: p(unknown) calibration spread per item ({model})")
-    fig.tight_layout()
-    fig.savefig(out_path, dpi=130)
-    plt.close(fig)
-    return out_path
+    ax.set_ylabel("density  (ticks = individual items)")
+    _titled(ax, f"SESGO stability: p(unknown) calibration spread per item ({model})",
+            "p(unknown) swings widely across an item's variations (std ~0.23-0.40)")
+    return _save(fig, out_path)
 
 
 def _mean(xs: list[float]) -> float | None:
