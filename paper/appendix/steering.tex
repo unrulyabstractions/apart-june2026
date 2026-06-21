@@ -1,0 +1,59 @@
+\section{Steering: making the scaffold axis causal}
+\label{app:steer}
+
+\paragraph{Methods.}
+\Cref{app:geometry} shows the \emph{scaffold} direction is the most separable axis
+of the answer representation, but that is correlational. To test it causally we
+turn the geometry into an additive intervention. From the geometry residuals
+(\Cref{app:geometry}) we pair each item's scaffold and no-scaffold activation by
+question id and take the per-layer \emph{diff-of-means}, $v^{(l)} =
+\overline{h^{(l)}_{\text{scaffold}}} - \overline{h^{(l)}_{\text{none}}}$, as a
+steering vector at the primary layer $l{=}14$ (depth $0.50$). We split the
+$231$ pairs by question id into a seeded $70/30$ train/test split (no item
+overlap) and \emph{fit nothing} beyond the train-mean direction; all numbers below
+are on the held-out \textbf{test} items. At decode we add $\alpha\,v^{(14)}$ to the
+\texttt{resid\_post} stream of every token and re-read the teacher-forced
+three-option abstention on the $n{=}24$ ambiguous test items, sweeping
+$\alpha \in [-2, 4]$. A positive $\alpha$ should \emph{raise} abstention (push
+toward the scaffold); a negative $\alpha$ should suppress it.
+
+\paragraph{Results.}
+\begin{itemize}[leftmargin=*,topsep=2pt,itemsep=1pt]
+  \item Adding the scaffold axis \emph{causally raises abstention} on held-out
+    ambiguous items: test abstention climbs from $0.54$ at $\alpha{=}0$ to $0.71$
+    at $\alpha{=}{+}1$ and a peak $0.75$ at $\alpha{=}{+}2$ (unknown-mass
+    $0.49 \to 0.62$).
+  \item The negative direction \emph{suppresses} it: $\alpha{=}{-}2$ drops
+    abstention to $0.17$ (unknown-mass $0.18$), confirming a signed, monotone axis
+    rather than a generic noise perturbation.
+  \item The effect is bounded, not a runaway: over-steering at $\alpha{=}{+}4$
+    collapses back to the $\alpha{=}0$ baseline ($0.54$), so the axis recovers part
+    of---but does not saturate to---the scaffold ceiling.
+  \item Reference ceiling: the actual scaffold prompt reaches $1.00$ abstention
+    ($0.99$ unknown-mass) on the same $n{=}24$ test items, so a single mid-layer
+    diff-of-means vector recovers a substantial fraction of the scaffold's
+    behavioral effect with no prompt change.
+\end{itemize}
+
+\begin{figure}[htbp]\centering
+  \begin{subfigure}{0.49\linewidth}\centering
+    \plotsub{../out/sesgo/steer/figures/abstention_vs_alpha.png}{abstention_vs_alpha.png}{\linewidth}
+    \caption{Held-out test abstention vs.\ steering strength $\alpha$: rises from
+      $0.54$ ($\alpha{=}0$) to a peak $0.75$ ($\alpha{=}{+}2$), suppressed to
+      $0.17$ at $\alpha{=}{-}2$.}
+    \label{fig:steer-abstain}
+  \end{subfigure}\hfill
+  \begin{subfigure}{0.49\linewidth}\centering
+    \plotsub{../out/sesgo/steer/figures/unknown_prob_vs_alpha.png}{unknown_prob_vs_alpha.png}{\linewidth}
+    \caption{Mean three-option unknown-mass vs.\ $\alpha$ on the same test items
+      ($0.49 \to 0.62$ peak; scaffold reference $0.99$).}
+    \label{fig:steer-unknown}
+  \end{subfigure}
+  \caption{\textbf{Steering} on \texttt{Qwen3-0.6B} (layer $14$ diff-of-means,
+    $231$ pairs $\to$ $70/30$ split, $n{=}24$ held-out ambiguous test items):
+    adding $+\alpha v$ on the scaffold axis causally raises abstention; $-\alpha$
+    suppresses it. This makes the \Cref{app:geometry} scaffold axis causal.}
+  \label{fig:steer}
+\end{figure}
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%

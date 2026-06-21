@@ -1,0 +1,95 @@
+\section{Divergence}
+\label{app:divergence}
+
+\paragraph{Methods.}
+The divergence study scores each prompt at four readouts (3-opt, 2-opt, greedy-,
+and sampled-thinking) under the per-condition gold. The sampled-thinking variant
+draws $N$ generations $g_i \sim \LLM(x)$, parses each to $r_i$, and over the
+$M \le N$ parsed draws forms
+\begin{equation}
+  p^{\mathrm{th}}_y \;=\; \frac{1}{M}\sum_{i=1}^{M} \mathbf{1}[\, r_i = y \,],
+  \label{eq:pth}
+\end{equation}
+with prediction $\hat{y}^{\mathrm{th}} = \argmax_y p^{\mathrm{th}}_y$ (ties resolve
+to $u$). To characterize the reasoning distribution we use Shannon entropy and
+divergence from correct abstention,
+\begin{equation}
+  H(p) = -\sum_{y} p_y \log p_y,
+  \qquad
+  \mathrm{JS}\!\left(p^{\mathrm{th}} \,\|\, \delta_u\right),
+  \label{eq:entropy-js}
+\end{equation}
+where $\mathrm{JS}$ is the Jensen--Shannon divergence (low when free-form reasoning
+concentrates on $u$).
+
+\paragraph{Results.}
+\begin{itemize}[leftmargin=*,topsep=2pt,itemsep=1pt]
+  \item Scored set: $43$ items of $47$ prompts ($4$ unparseable thinking draws);
+    $14$ ambiguous $+\,29$ disambiguated.
+  \item Ambiguous accuracy by readout: sampled thinking $86\%$ ($12/14$);
+    three-option $79\%$ ($11/14$); greedy-thinking $64\%$ ($9/14$); two-option
+    undefined (no unknown option).
+  \item Disambiguated accuracy by readout: two-option $59\%$ ($17/29$); sampled
+    thinking $48\%$ ($14/29$); greedy-thinking $41\%$ ($12/29$); three-option
+    $28\%$ ($8/29$).
+  \item Ambiguous default thinking mix: $84\%$ unknown, $9\%$ target, $7\%$ other;
+    $11$ of $14$ items sit at $[0,0,1]$ (JS-divergence $0$).
+  \item Mean JS-divergence from $\delta_u$: $0.092$; three items diverge (one onto
+    \emph{other} at $\mathrm{JS}=\ln 2 = 0.693$, two toward target at $0.216$ and
+    $0.380$).
+\end{itemize}
+
+\begin{figure}[htbp]\centering
+  \begin{subfigure}{0.49\linewidth}\centering
+    \plotsub{../out/sesgo/divergence/Qwen3-0.6B/plots/accuracy_by_readout.png}{accuracy_by_readout.png}{\linewidth}
+    \caption{Per-condition accuracy across the four readouts.}
+    \label{fig:divergence-acc}
+  \end{subfigure}\hfill
+  \begin{subfigure}{0.49\linewidth}\centering
+    \plotsub{../out/sesgo/divergence/Qwen3-0.6B/plots/role_mix.png}{role_mix.png}{\linewidth}
+    \caption{Ambiguous default role mix: $84\%$ unknown, $9\%$ target, $7\%$
+      other.}
+    \label{fig:role-mix}
+  \end{subfigure}
+  \caption{\textbf{Divergence} on \texttt{Qwen3-0.6B} ($43$ scored items of $47$
+    prompts---$4$ had unparseable thinking draws---$14$ ambiguous $+\,29$
+    disambiguated): per-condition accuracy by readout (left) and the ambiguous
+    default role mix (right).}
+  \label{fig:role-geo}
+\end{figure}
+
+\plotfig{../out/sesgo/divergence/Qwen3-0.6B/plots/thinking_belief_agreement_scatter.png}{thinking_belief_agreement_scatter.png}{0.92\linewidth}{\textbf{Does thinking change the answer?} Per ambiguous item, the chance the model abstains (`unknown') \emph{before} reasoning (a direct read) vs.\ \emph{after} reasoning step by step (averaged over its free-form tries); a point on the diagonal means thinking left the belief unchanged. Pre- and post-thinking abstain beliefs only loosely agree ($r{=}0.50$; just $44\%$ of items sit within $0.15$ of the diagonal), and on balance thinking pulls the model \emph{away} from the safe abstention (mean post$-$pre $={-}0.11$).}{fig:thinking-agreement}
+
+\paragraph{Dynamics: forking-paths.}
+Following the forking-paths method, we fork the greedy reasoning path of one
+representative ambiguous item at every token position ($60$ positions, $40$ forks
+each, a $60$-sample prior), parse each continuation to an outcome, and track the
+outcome distribution $O_t$ along the path; a Bayesian change-point posterior
+$p(\tau{=}t\mid y)$ tests for a single commitment token, and a branching tree
+summarizes the root $\to$ trunk $\to$ identity-branch outcome mix.
+\begin{itemize}[leftmargin=*,topsep=2pt,itemsep=1pt]
+  \item $O_t$ drifts along the path (a stereotyped-group excursion near
+    $t{\approx}40$, then a swing toward abstention) but the change-point test finds
+    \emph{no} significant single commitment token (Bayes factor $0.023$,
+    $p(m{=}0){=}0.98$): on this small model the answer accretes gradually rather
+    than snapping at one token---an honest negative.
+  \item The strongest fork is at $t{=}42$ (re-sampling there most diverts the
+    outcome): pull $0.284$, drift $0.341$, potential $0.285$.
+\end{itemize}
+
+\begin{figure}[htbp]\centering
+  \begin{subfigure}{0.62\linewidth}\centering
+    \plotsub{../out/sesgo/forking/Qwen3-0.6B/plots/forking_commit_dynamics.png}{forking_commit_dynamics.png}{\linewidth}
+    \caption{Outcome distribution $O_t$ over reasoning tokens (top) and the
+      change-point posterior (bottom; no single deciding token).}
+    \label{fig:forking-dynamics}
+  \end{subfigure}\hfill
+  \begin{subfigure}{0.36\linewidth}\centering
+    \plotsub{../out/sesgo/divergence/Qwen3-0.6B/plots/branching_tree.png}{branching_tree.png}{\linewidth}
+    \caption{Branching tree: root $\to$ trunk $\to$ named / abstain branches.}
+    \label{fig:branching-tree}
+  \end{subfigure}
+  \caption{\textbf{Dynamics (forking-paths)} on \texttt{Qwen3-0.6B}: how the answer
+    forms across the reasoning path (left) and the branching outcome tree (right).}
+  \label{fig:dynamics}
+\end{figure}
