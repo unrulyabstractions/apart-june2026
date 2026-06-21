@@ -1,15 +1,15 @@
-"""Plot a collected RiskDataset into PNGs under out/mental_risk/<MODEL>/plots/.
+"""Plot the BASELINE RiskDataset into PNGs under .../baseline/<MODEL>/plots/.
 
-Run-by-path driver. Loads a responses.json produced by collect_llm_responses.py
-(a RiskDataset) and renders predicted-vs-gold scatter plots (non-thinking and
-thinking, colored by framing, annotated with Pearson r) plus mean-predicted-risk
-bar charts by framing and by language. Thinking predictions with no parsed draw
-(n == 0) have no usable score and are excluded.
+Run-by-path driver (risk analogue of sesgo/baseline/visualize_baseline_samples.py).
+Loads a baseline samples.json (a RiskDataset) and renders predicted-vs-gold
+scatter plots (non-thinking and thinking, colored by framing, annotated with
+Pearson r) plus mean-predicted-risk bar charts by framing and by language.
+Thinking predictions with no parsed draw (n == 0) are excluded.
 
 Usage:
-  uv run python mental_risk/baseline/visualize_llm_responses.py \
-      out/mental_risk/Qwen3-0.6B/responses.json
-  uv run python mental_risk/baseline/visualize_llm_responses.py RESPONSES.json --out-dir out
+  uv run python mental_risk/baseline/visualize_baseline_risk.py
+  uv run python mental_risk/baseline/visualize_baseline_risk.py \
+      out/mental_risk/baseline/Qwen3-0.6B/samples.json
 """
 
 from __future__ import annotations
@@ -36,21 +36,20 @@ from src.datasets.risk import RiskDataset  # noqa: E402
 
 
 def parse_args() -> argparse.Namespace:
-    """Parse command-line arguments for risk visualization."""
+    """Parse command-line arguments for baseline visualization."""
     parser = argparse.ArgumentParser(
-        description="Plot a collected RiskDataset into PNGs",
+        description="Plot a baseline RiskDataset into PNGs",
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     parser.add_argument(
-        "responses",
+        "samples",
         type=Path,
-        help="Path to responses.json (a RiskDataset) from collect_llm_responses.py",
+        nargs="?",
+        default=Path("out/mental_risk/baseline/Qwen3-0.6B/samples.json"),
+        help="Path to a baseline samples.json (a RiskDataset)",
     )
     parser.add_argument(
-        "--out-dir",
-        type=Path,
-        default=Path("out"),
-        help="Base output directory; plots land at <out-dir>/mental_risk/<MODEL>/plots/",
+        "--out-dir", type=Path, default=Path("out"), help="Base output directory"
     )
     return parser.parse_args()
 
@@ -74,7 +73,6 @@ def plot_pred_vs_gold(dataset: RiskDataset, level: str, out_path: Path) -> Path:
         for s in dataset.samples
         if getattr(s, attr) is not None and s.gold_risk is not None
     ]
-
     fig, ax = plt.subplots(figsize=(7, 6))
     pretty = "non-thinking" if level == "non_thinking" else "thinking"
     if rows:
@@ -90,24 +88,16 @@ def plot_pred_vs_gold(dataset: RiskDataset, level: str, out_path: Path) -> Path:
         r = _pearson(preds, golds)
         r_txt = f"Pearson r = {r:.3f}" if r is not None else "Pearson r = n/a"
         log(f"[viz] {pretty} corr(pred, gold) = {r}")
-        ax.text(
-            0.02,
-            0.98,
-            r_txt,
-            transform=ax.transAxes,
-            va="top",
-            fontsize=10,
-            bbox={"facecolor": "white", "alpha": 0.7, "edgecolor": "gray"},
-        )
+        ax.text(0.02, 0.98, r_txt, transform=ax.transAxes, va="top", fontsize=10,
+                bbox={"facecolor": "white", "alpha": 0.7, "edgecolor": "gray"})
     else:
         ax.text(0.5, 0.5, "no data", ha="center", va="center", transform=ax.transAxes)
-
     ax.plot([0, 1], [0, 1], "--", color="gray", linewidth=1, label="y = x")
     ax.set_xlabel("gold risk")
     ax.set_ylabel(f"predicted risk ({pretty})")
     ax.set_xlim(-0.05, 1.05)
     ax.set_ylim(-0.05, 1.05)
-    ax.set_title(f"MentalRiskES {pretty} predicted vs gold risk ({dataset.model_name})")
+    ax.set_title(f"MentalRiskES baseline {pretty} pred vs gold ({dataset.model_name})")
     fig.tight_layout()
     fig.savefig(out_path, dpi=130)
     plt.close(fig)
@@ -131,7 +121,6 @@ def plot_mean_risk_by(dataset: RiskDataset, group_attr: str, out_path: Path) -> 
 
     nt_means = [_mean(nt.get(g, [])) for g in groups]
     th_means = [_mean(th.get(g, [])) for g in groups]
-
     fig, ax = plt.subplots(figsize=(max(7, 1.6 * len(groups)), 5))
     x = np.arange(len(groups))
     width = 0.38
@@ -141,9 +130,7 @@ def plot_mean_risk_by(dataset: RiskDataset, group_attr: str, out_path: Path) -> 
     ax.set_xticklabels(groups, rotation=20, ha="right", fontsize=8)
     ax.set_ylim(0, 1.05)
     ax.set_ylabel("mean predicted risk")
-    ax.set_title(
-        f"MentalRiskES mean predicted risk by {group_attr} ({dataset.model_name})"
-    )
+    ax.set_title(f"MentalRiskES baseline mean risk by {group_attr} ({dataset.model_name})")
     ax.legend()
     fig.tight_layout()
     fig.savefig(out_path, dpi=130)
@@ -152,38 +139,24 @@ def plot_mean_risk_by(dataset: RiskDataset, group_attr: str, out_path: Path) -> 
 
 
 def main() -> None:
-    """Load the RiskDataset and render all plots into the plots/ dir."""
+    """Load the baseline RiskDataset and render all plots into the plots/ dir."""
     args = parse_args()
-    log_header("VISUALIZE MENTAL_RISK RESPONSES")
+    log_header("VISUALIZE BASELINE RISK")
 
-    dataset = RiskDataset.from_json(args.responses)
+    dataset = RiskDataset.from_json(args.samples)
     log(f"[viz] loaded {len(dataset.samples)} samples (model={dataset.model_name})")
 
-    plots_dir = args.out_dir / "mental_risk" / dataset.model_name / "plots"
+    plots_dir = args.out_dir / "mental_risk" / "baseline" / dataset.model_name / "plots"
     plots_dir.mkdir(parents=True, exist_ok=True)
     sns.set_theme(style="whitegrid")
 
-    written: list[Path] = []
-    written.append(
-        plot_pred_vs_gold(
-            dataset, "non_thinking", plots_dir / "pred_vs_gold_non_thinking.png"
-        )
-    )
+    written = [plot_pred_vs_gold(dataset, "non_thinking", plots_dir / "pred_vs_gold_non_thinking.png")]
     if any(s.predicted_risk_thinking is not None for s in dataset.samples):
-        written.append(
-            plot_pred_vs_gold(
-                dataset, "thinking", plots_dir / "pred_vs_gold_thinking.png"
-            )
-        )
+        written.append(plot_pred_vs_gold(dataset, "thinking", plots_dir / "pred_vs_gold_thinking.png"))
     else:
         log("[viz] no parsed thinking draws; skipping thinking scatter")
-
-    written.append(
-        plot_mean_risk_by(dataset, "framing", plots_dir / "mean_risk_by_framing.png")
-    )
-    written.append(
-        plot_mean_risk_by(dataset, "language", plots_dir / "mean_risk_by_language.png")
-    )
+    written.append(plot_mean_risk_by(dataset, "framing", plots_dir / "mean_risk_by_framing.png"))
+    written.append(plot_mean_risk_by(dataset, "language", plots_dir / "mean_risk_by_language.png"))
 
     log(f"[viz] wrote {len(written)} plot(s):")
     for p in written:

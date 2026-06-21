@@ -46,3 +46,12 @@ dropped before summarizing.
 | `RiskDataset` | `model` + `config` + `samples`; `save_as_json` / inherited `from_json`. |
 
 See [EXPLANATION.md](./EXPLANATION.md) for the detailed flow.
+
+## Related
+
+The **geometry** study reuses this querier's readouts but additionally captures
+the residual stream; its schemas + capture engine live in the sibling package
+[`src/datasets/risk_geometry/`](../risk_geometry/README.md)
+(`RiskGeometryDataset` / `RiskGeometrySample` / `capture_activations`). The
+run-by-path drivers for all five studies (baseline / stability / selection /
+divergence / geometry) live under [`mental_risk/`](../../../mental_risk/README.md).
