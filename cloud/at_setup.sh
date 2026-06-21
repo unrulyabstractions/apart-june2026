@@ -37,7 +37,7 @@ uv sync
 # 12.2..13). A CUDA 11.8 build is forward-compatible with ANY driver >= 11.8, so
 # reinstall it -- this is what makes the GPU actually usable on every box.
 echo "[at_setup] pinning torch 2.6.0+cu118 (forward-compatible across all hosts)"
-uv pip install --reinstall "torch==2.6.0" "torchvision==0.21.0" \
+uv pip install --reinstall --no-deps "torch==2.6.0" "torchvision==0.21.0" \
   --index-url https://download.pytorch.org/whl/cu118
 
 # ── 3. Propagate HF_TOKEN into the env if the caller exported it ───────
