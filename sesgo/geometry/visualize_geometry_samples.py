@@ -1,21 +1,25 @@
-"""Plot SESGO geometry: behavioral scaffold effect + representational shift.
+"""Plot SESGO geometry: behavioral scaffold effect + representational geometry.
 
-Run-by-path driver. Loads a GeometryDataset (samples.json from
-collect_geometry_samples.py) and the per-position residual tensors it points at,
-then renders into out/sesgo/geometry/<MODEL>/plots/:
+Run-by-path driver. Renders into out/sesgo/geometry/<MODEL>/plots/:
 
   BEHAVIORAL - non-thinking (and thinking) abstention accuracy by scaffold. On
     ambiguous SESGO items the gold is UNKNOWN, so accuracy = fraction predicted
     UNKNOWN; the no-scaffold baseline anchors the with/without comparison.
-  GEOMETRY  - per question_id, the L2 distance between the no-scaffold residual
-    and each scaffold's residual (per layer, then mean over layers) at the
-    "answer" and "think_close" positions: "how far does each scaffold move the
-    representation". Plotted as mean shift by scaffold, and by layer.
+  GEOMETRY   - the actual representational-geometry plots, read from the PCA
+    analysis in analysis/projections.json (run analyze_geometry.py first):
+      * pca_scatter_<position>.png : PC1-PC2 scatter at a representative layer,
+        points coloured by scaffold ((baseline) vs interpretive_direction),
+        per-class centroids marked, and an arrow drawn for the centroid SHIFT.
+      * centroid_shift_by_position.png : centroid-shift magnitude across every
+        (layer, position) cell.
+      * explained_variance.png : EV%(PC1..3) context per position.
 
-Robust to missing positions / subsampled data: questions without a baseline (or
-without a given position) are simply skipped in the geometry aggregation.
+Robust to missing data: positions absent from projections.json are skipped, and
+the behavioural plots fall back to the samples.json dataset directly.
 
 Usage:
+  uv run python sesgo/geometry/analyze_geometry.py \
+      out/sesgo/geometry/Qwen3-0.6B/samples.json   # writes projections.json
   uv run python sesgo/geometry/visualize_geometry_samples.py \
       out/sesgo/geometry/Qwen3-0.6B/samples.json
 """
@@ -25,6 +29,7 @@ from __future__ import annotations
 import argparse
 import pathlib
 import sys
+import textwrap
 from collections import defaultdict
 from pathlib import Path
 
@@ -33,23 +38,26 @@ import matplotlib
 matplotlib.use("Agg")  # headless: write PNGs, never open a window
 import matplotlib.pyplot as plt  # noqa: E402
 import numpy as np  # noqa: E402
-import torch  # noqa: E402
 
 # Bootstrap the repo root onto sys.path so `from src... import ...` resolves.
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[2]))
 
+from src.common.file_io import load_json  # noqa: E402
 from src.common.logging import log, log_header, log_section  # noqa: E402
-from src.common.math import l2_distance  # noqa: E402
-from src.datasets.sesgo_eval import GeometryDataset, GeometrySample  # noqa: E402
+from src.datasets.sesgo_eval import GeometryDataset  # noqa: E402
 
 _BASELINE = "(baseline)"
-_GEOM_POSITIONS = ("answer", "think_close")  # positions we measure shift at
+_SCATTER_LAYER = "mean"  # representative layer for the PCA scatter panels
+_POSITIONS = ("turn", "think_open", "think_close", "answer")
+# Colourblind-safe (Okabe-Ito): blue baseline, vermillion intervention, grey rest.
+_PALETTE = ("#0072B2", "#D55E00", "#009E73", "#CC79A7", "#E69F00", "#56B4E9")
+_SAVE = dict(dpi=150, bbox_inches="tight")  # consistent crisp export
 
 
 def parse_args() -> argparse.Namespace:
     """Parse command-line arguments for geometry visualization."""
     parser = argparse.ArgumentParser(
-        description="Plot SESGO geometry (behavioral + representational shift)"
+        description="Plot SESGO geometry (behavioral + representational geometry)"
     )
     parser.add_argument("samples", type=Path, help="samples.json (a GeometryDataset)")
     parser.add_argument(
@@ -58,232 +66,385 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
-def _scaffold_label(scaffold_id: str | None) -> str:
-    """Human label for a scaffold condition; None == the no-scaffold baseline."""
-    return scaffold_id or _BASELINE
+def _apply_style() -> None:
+    """A clean, legible, seaborn-ish global style for every figure."""
+    plt.rcParams.update(
+        {
+            "figure.constrained_layout.use": True,
+            "axes.grid": True,
+            "grid.color": "#e6e6e6",
+            "grid.linewidth": 0.8,
+            "axes.axisbelow": True,
+            "axes.edgecolor": "#555555",
+            "axes.titlesize": 13,
+            "axes.titleweight": "bold",
+            "axes.labelsize": 11,
+            "xtick.labelsize": 9.5,
+            "ytick.labelsize": 9.5,
+            "legend.fontsize": 9.5,
+            "font.family": "DejaVu Sans",
+            "figure.facecolor": "white",
+        }
+    )
 
 
-def _ordered_scaffolds(dataset: GeometryDataset) -> list[str]:
-    """Scaffold labels with the baseline first, the rest sorted after it."""
-    labels = {_scaffold_label(s.scaffold_id) for s in dataset.samples}
-    rest = sorted(labels - {_BASELINE})
-    return ([_BASELINE] if _BASELINE in labels else []) + rest
+def _colour(label: str, ordered: list[str]) -> str:
+    """Stable colour per label; baseline always the first palette entry."""
+    if label == _BASELINE:
+        return _PALETTE[0]
+    rest = [l for l in ordered if l != _BASELINE]
+    return _PALETTE[(rest.index(label) + 1) % len(_PALETTE)]
 
 
-def _accuracy(flags: list[bool]) -> float:
-    """Fraction of True flags (== predicted UNKNOWN); 0.0 when empty."""
-    return sum(flags) / len(flags) if flags else 0.0
+def _wrapped_title(text: str, width: int = 58) -> str:
+    """Wrap long titles so the model name never clips off the right edge."""
+    return "\n".join(textwrap.wrap(text, width=width))
+
+
+def _finish(fig: plt.Figure, out_path: Path) -> Path:
+    """Save with crisp, tightly-cropped settings and close the figure."""
+    fig.savefig(out_path, **_SAVE)
+    plt.close(fig)
+    return out_path
 
 
 # ── Behavioral ───────────────────────────────────────────────────────────────
+
+
+def _ordered_scaffolds(labels: set[str]) -> list[str]:
+    """Scaffold labels with the baseline first, the rest sorted after it."""
+    rest = sorted(labels - {_BASELINE})
+    return ([_BASELINE] if _BASELINE in labels else []) + rest
 
 
 def plot_accuracy_by_scaffold(
     dataset: GeometryDataset, level: str, out_path: Path
 ) -> tuple[Path, dict[str, float]]:
     """Bar chart of abstention accuracy by scaffold; also returns the rates."""
-    scaffolds = _ordered_scaffolds(dataset)
     flags: dict[str, list[bool]] = defaultdict(list)
     for s in dataset.samples:
+        label = s.scaffold_id or _BASELINE
         if level == "non_thinking" and s.predicted_non_thinking is not None:
-            flags[_scaffold_label(s.scaffold_id)].append(s.correct_non_thinking)
+            flags[label].append(s.correct_non_thinking)
         elif level == "thinking" and s.predicted_thinking is not None:
-            flags[_scaffold_label(s.scaffold_id)].append(
-                s.predicted_thinking.value == "unknown"
-            )
-    accs = {sc: _accuracy(flags.get(sc, [])) for sc in scaffolds}
-    ns = [len(flags.get(sc, [])) for sc in scaffolds]
+            flags[label].append(s.predicted_thinking.value == "unknown")
+    scaffolds = _ordered_scaffolds(set(flags))
+    accs = {sc: (sum(f) / len(f) if f else 0.0) for sc, f in flags.items()}
+    ns = [len(flags[sc]) for sc in scaffolds]
 
-    fig, ax = plt.subplots(figsize=(9, 5))
-    bars = ax.bar(range(len(scaffolds)), [accs[sc] for sc in scaffolds], color="#30638e")
+    fig, ax = plt.subplots(figsize=(7.5, 5))
+    colours = [_colour(sc, scaffolds) for sc in scaffolds]
+    bars = ax.bar(range(len(scaffolds)), [accs[sc] for sc in scaffolds], color=colours)
     for bar, sc, n in zip(bars, scaffolds, ns):
         ax.text(
             bar.get_x() + bar.get_width() / 2,
-            bar.get_height() + 0.01,
+            bar.get_height() + 0.015,
             f"{accs[sc]:.0%}\n(n={n})",
             ha="center",
             va="bottom",
-            fontsize=8,
+            fontsize=9.5,
+            fontweight="bold",
         )
     ax.set_xticks(range(len(scaffolds)))
-    ax.set_xticklabels(scaffolds, rotation=25, ha="right", fontsize=8)
-    ax.set_ylim(0, 1.05)
-    ax.set_ylabel("accuracy (fraction predicted UNKNOWN)")
+    ax.set_xticklabels([w.replace("_", "\n") for w in scaffolds], fontsize=10)
+    ax.set_ylim(0, 1.18)  # headroom so the value labels never collide with title
+    ax.set_yticks(np.linspace(0, 1.0, 6))
+    ax.set_ylabel("abstention accuracy\n(fraction predicted UNKNOWN)")
+    ax.set_axisbelow(True)
     pretty = level.replace("_", "-")
-    ax.set_title(f"SESGO {pretty} abstention accuracy by scaffold ({dataset.model_name})")
-    fig.tight_layout()
-    fig.savefig(out_path, dpi=130)
-    plt.close(fig)
-    return out_path, accs
-
-
-# ── Geometry ─────────────────────────────────────────────────────────────────
-
-
-def _load_tensor(root: Path, sample: GeometrySample, ptype: str) -> np.ndarray | None:
-    """Load the [n_layers, d_model] residual for one sample's position type."""
-    for a in sample.activations:
-        if a.position_type == ptype:
-            return torch.load(root / a.path, map_location="cpu").numpy()
-    return None
-
-
-def compute_shifts(
-    dataset: GeometryDataset, root: Path, ptype: str
-) -> tuple[dict[str, list[float]], dict[str, np.ndarray]]:
-    """Per-(question, scaffold) L2 distance from the no-scaffold baseline.
-
-    For each question_id we take its no-scaffold residual as the reference and
-    measure each scaffold's residual against it: per-layer L2 distance, then the
-    mean over layers is the scalar "shift". Returns mean-shift lists per scaffold
-    plus a per-scaffold mean over the per-layer distance curve (for the by-layer
-    plot). Questions lacking a baseline or the position are skipped.
-    """
-    # question_id -> scaffold_label -> [n_layers, d_model]
-    by_q: dict[str, dict[str, np.ndarray]] = defaultdict(dict)
-    for s in dataset.samples:
-        t = _load_tensor(root, s, ptype)
-        if t is not None:
-            by_q[s.question_id][_scaffold_label(s.scaffold_id)] = t
-
-    scalar: dict[str, list[float]] = defaultdict(list)  # scaffold -> mean-shift list
-    layer_curves: dict[str, list[np.ndarray]] = defaultdict(list)  # per-layer dists
-    for scaffs in by_q.values():
-        base = scaffs.get(_BASELINE)
-        if base is None:
-            continue  # no reference to measure against
-        for label, vec in scaffs.items():
-            if label == _BASELINE:
-                continue
-            # Per-layer L2 distance (reuse src.common.math.l2_distance).
-            per_layer = np.array(
-                [l2_distance(base[L].tolist(), vec[L].tolist()) for L in range(len(base))]
-            )
-            scalar[label].append(float(per_layer.mean()))
-            layer_curves[label].append(per_layer)
-    layer_mean = {
-        label: np.mean(np.stack(curves), axis=0) for label, curves in layer_curves.items()
-    }
-    return scalar, layer_mean
-
-
-def plot_shift_by_scaffold(
-    scalar: dict[str, list[float]], ptype: str, model: str, out_path: Path
-) -> tuple[Path, dict[str, float]]:
-    """Bar chart of mean per-question activation-shift by scaffold."""
-    labels = sorted(scalar)
-    means = {lab: float(np.mean(scalar[lab])) if scalar[lab] else 0.0 for lab in labels}
-    fig, ax = plt.subplots(figsize=(9, 5))
-    bars = ax.bar(range(len(labels)), [means[la] for la in labels], color="#d1495b")
-    for bar, lab in zip(bars, labels):
-        ax.text(
-            bar.get_x() + bar.get_width() / 2,
-            bar.get_height(),
-            f"{means[lab]:.2f}\n(n={len(scalar[lab])})",
-            ha="center",
-            va="bottom",
-            fontsize=8,
+    n_total = sum(ns)
+    ax.set_title(
+        _wrapped_title(
+            f"SESGO {pretty} abstention accuracy by scaffold  "
+            f"({dataset.model_name}, n={n_total})"
         )
-    ax.set_xticks(range(len(labels)))
-    ax.set_xticklabels(labels, rotation=25, ha="right", fontsize=8)
-    ax.set_ylabel(f"mean L2 shift from baseline ({ptype} residual)")
-    ax.set_title(f"SESGO activation shift by scaffold @ {ptype} ({model})")
-    fig.tight_layout()
-    fig.savefig(out_path, dpi=130)
-    plt.close(fig)
-    return out_path, means
+    )
+    return _finish(fig, out_path), accs
 
 
-def plot_shift_by_layer(
-    layer_mean: dict[str, np.ndarray], ptype: str, model: str, out_path: Path
-) -> Path:
-    """Line plot of mean activation-shift per layer, one line per scaffold."""
-    fig, ax = plt.subplots(figsize=(9, 5))
-    for label in sorted(layer_mean):
-        curve = layer_mean[label]
-        ax.plot(range(len(curve)), curve, marker="o", markersize=3, label=label)
-    ax.set_xlabel("layer")
-    ax.set_ylabel(f"mean L2 shift from baseline ({ptype})")
-    ax.set_title(f"SESGO activation shift by layer @ {ptype} ({model})")
-    ax.legend(fontsize=7)
-    fig.tight_layout()
-    fig.savefig(out_path, dpi=130)
-    plt.close(fig)
-    return out_path
+# ── Representational geometry (from projections.json) ─────────────────────────
+
+
+def _scatter_arrays(block: dict) -> tuple[np.ndarray, list[str]]:
+    """Return the [n,2] PC1-PC2 coords and parallel scaffold labels for a cell."""
+    coords, labels = [], []
+    for s in block["samples"]:
+        coords.append(s["coord2d"])
+        labels.append(s["scaffold_id"] or _BASELINE)
+    return np.asarray(coords, dtype=float), labels
+
+
+def _robust_limits(
+    coords: np.ndarray, centroids: np.ndarray, pad: float = 0.18
+) -> tuple[tuple, tuple]:
+    """Tukey-fence x/y limits that keep the cluster + both centroids in frame.
+
+    A handful of PCA outliers can stretch the raw range by an order of magnitude
+    (n=25), so we clip to median ± 2.5·IQR per axis, then widen to guarantee every
+    centroid (and thus the shift arrow) sits inside.
+    """
+    q1, med, q3 = np.percentile(coords, [25, 50, 75], axis=0)
+    iqr = np.maximum(q3 - q1, 1e-6)
+    lo = med - 2.5 * iqr
+    hi = med + 2.5 * iqr
+    if centroids.size:  # never crop a centroid out of the frame
+        lo = np.minimum(lo, centroids.min(axis=0))
+        hi = np.maximum(hi, centroids.max(axis=0))
+    span = np.maximum(hi - lo, 1e-6)
+    return (lo[0] - pad * span[0], hi[0] + pad * span[0]), (
+        lo[1] - pad * span[1],
+        hi[1] + pad * span[1],
+    )
+
+
+def _draw_centroid_shift(ax, stats: dict, ordered: list[str]) -> None:
+    """Plot each centroid as a diamond and draw the baseline→intervention arrow."""
+    cents = stats["centroids"]
+    for lab in ordered:
+        if lab not in cents:
+            continue
+        cx, cy = cents[lab]["coord2d"]
+        ax.scatter(
+            cx, cy, s=320, marker="D", facecolor=_colour(lab, ordered),
+            edgecolor="black", linewidth=1.6, zorder=6,
+        )
+    base = cents.get(_BASELINE)
+    for lab, sh in stats.get("shifts", {}).items():
+        if base is None or lab not in cents:
+            continue
+        bx, by = base["coord2d"]
+        tx, ty = cents[lab]["coord2d"]
+        ax.annotate(
+            "", xy=(tx, ty), xytext=(bx, by),
+            arrowprops=dict(arrowstyle="-|>", lw=2.4, color="#333333",
+                            shrinkA=10, shrinkB=10), zorder=5,
+        )
+        mx, my = (bx + tx) / 2, (by + ty) / 2
+        ax.annotate(
+            f"shift = {sh['shift_magnitude']:.1f}", xy=(mx, my),
+            fontsize=9, fontweight="bold", color="#333333",
+            ha="center", va="bottom",
+            bbox=dict(boxstyle="round,pad=0.25", fc="white", ec="#999999", alpha=0.85),
+            zorder=7,
+        )
+
+
+def plot_pca_scatter(block: dict, ptype: str, model: str, out_path: Path) -> Path:
+    """PC1-PC2 scatter coloured by scaffold, with centroids + shift arrow."""
+    coords, labels = _scatter_arrays(block)
+    ordered = _ordered_scaffolds(set(labels))
+    evr = block["explained_variance_ratio"]
+    stats = block["scaffold_stats"]
+    cent_xy = np.asarray(
+        [c["coord2d"] for c in stats["centroids"].values()], dtype=float
+    )
+
+    fig, ax = plt.subplots(figsize=(7.5, 6.5))
+    for lab in ordered:
+        idx = [i for i, l in enumerate(labels) if l == lab]
+        ax.scatter(
+            coords[idx, 0], coords[idx, 1], s=70, alpha=0.8,
+            color=_colour(lab, ordered), edgecolor="white", linewidth=0.6,
+            label=f"{lab} (n={len(idx)})", zorder=4,
+        )
+    _draw_centroid_shift(ax, stats, ordered)
+
+    xlim, ylim = _robust_limits(coords, cent_xy)
+    ax.set_xlim(*xlim)
+    ax.set_ylim(*ylim)
+    # Equal aspect (adjustable='datalim') so PC1/PC2 distances and the shift arrow
+    # are read truthfully, while matplotlib only *grows* the shorter axis to fill
+    # the panel — no wasteful square padding when PC1 variance dominates.
+    ax.set_aspect("equal", adjustable="datalim")
+    fig.canvas.draw()  # realise the aspect-adjusted limits before reading them
+    xlim, ylim = ax.get_xlim(), ax.get_ylim()
+    # Honest note: count points actually outside the final (equal-aspect) frame.
+    inside = (
+        (coords[:, 0] >= xlim[0]) & (coords[:, 0] <= xlim[1])
+        & (coords[:, 1] >= ylim[0]) & (coords[:, 1] <= ylim[1])
+    )
+    n_off = int((~inside).sum())
+    if n_off:
+        ax.text(
+            0.99, 0.01, f"{n_off} outlier point(s) off-view",
+            transform=ax.transAxes, ha="right", va="bottom", fontsize=8,
+            color="#777777", style="italic",
+        )
+    ax.axhline(0, color="#cccccc", lw=0.8, zorder=1)
+    ax.axvline(0, color="#cccccc", lw=0.8, zorder=1)
+    ax.set_xlabel(f"PC1  ({evr[0]:.0%} explained variance)")
+    ax.set_ylabel(f"PC2  ({evr[1]:.0%} explained variance)" if len(evr) > 1 else "PC2")
+
+    ss = block["scaffold_stats"]
+    sil = ss.get("silhouette")
+    subtitle = f"layer={_SCATTER_LAYER}, n={block['n_samples']}"
+    if sil is not None:
+        subtitle += f", scaffold silhouette={sil:.2f}"
+    ax.set_title(
+        _wrapped_title(
+            f"SESGO representational geometry @ {ptype}  ({model})"
+        ) + f"\n{subtitle}",
+        fontsize=12,
+    )
+    ax.legend(loc="best", frameon=True, framealpha=0.92)
+    return _finish(fig, out_path)
+
+
+def plot_centroid_shift_bars(results: dict, model: str, out_path: Path) -> Path:
+    """Grouped bars: centroid-shift magnitude per (layer, position) cell."""
+    layers = list(results.keys())
+    rows = []  # (position, layer, magnitude) for the only non-baseline scaffold
+    for layer in layers:
+        for ptype in _POSITIONS:
+            block = results[layer].get(ptype)
+            if block is None:
+                continue
+            for lab, sh in block["scaffold_stats"].get("shifts", {}).items():
+                rows.append((ptype, layer, sh["shift_magnitude"]))
+    positions = [p for p in _POSITIONS if any(r[0] == p for r in rows)]
+    by_cell = {(p, L): m for p, L, m in rows}
+
+    fig, ax = plt.subplots(figsize=(9, 5.5))
+    width = 0.8 / max(len(layers), 1)
+    x = np.arange(len(positions))
+    for j, layer in enumerate(layers):
+        vals = [by_cell.get((p, layer), 0.0) for p in positions]
+        bars = ax.bar(
+            x + j * width - 0.4 + width / 2, vals, width,
+            color=_PALETTE[(j + 1) % len(_PALETTE)], label=f"layer={layer}",
+        )
+        for bar, v in zip(bars, vals):
+            if v > 0:
+                ax.text(
+                    bar.get_x() + bar.get_width() / 2, bar.get_height(),
+                    f"{v:.1f}", ha="center", va="bottom", fontsize=8.5,
+                    fontweight="bold",
+                )
+    top = max((m for *_, m in rows), default=1.0)
+    ax.set_ylim(0, top * 1.18)
+    ax.set_xticks(x)
+    ax.set_xticklabels([p.replace("_", "\n") for p in positions])
+    ax.set_xlabel("structural position")
+    ax.set_ylabel("centroid shift magnitude\n(full-dim L2, baseline → interpretive)")
+    ax.set_title(
+        _wrapped_title(
+            f"How far the interpretive scaffold moves the representation  ({model})"
+        )
+    )
+    ax.legend(title="layer reduction", frameon=True)
+    return _finish(fig, out_path)
+
+
+def plot_explained_variance(results: dict, model: str, out_path: Path) -> Path:
+    """Grouped bars of EV%(PC1..3) per position at the representative layer."""
+    layer = _SCATTER_LAYER if _SCATTER_LAYER in results else next(iter(results))
+    cells = results[layer]
+    positions = [p for p in _POSITIONS if p in cells]
+    n_pc = 3
+
+    fig, ax = plt.subplots(figsize=(8.5, 5.5))
+    x = np.arange(len(positions))
+    width = 0.8 / n_pc
+    for c in range(n_pc):
+        vals = [cells[p]["explained_variance_ratio"][c] for p in positions]
+        bars = ax.bar(
+            x + c * width - 0.4 + width / 2, vals, width,
+            color=_PALETTE[(c + 1) % len(_PALETTE)], label=f"PC{c + 1}",
+        )
+        for bar, v in zip(bars, vals):
+            ax.text(
+                bar.get_x() + bar.get_width() / 2, bar.get_height(),
+                f"{v:.0%}", ha="center", va="bottom", fontsize=8.5,
+            )
+    cum3 = [sum(cells[p]["explained_variance_ratio"][:3]) for p in positions]
+    tallest = max(cells[p]["explained_variance_ratio"][0] for p in positions)
+    ax.set_ylim(0, min(1.0, tallest + 0.12))  # headroom for the PC1 value labels
+    ax.set_xticks(x)
+    ax.set_xticklabels([p.replace("_", "\n") for p in positions])
+    ax.set_xlabel("structural position")
+    ax.set_ylabel("explained variance ratio")
+    cum_note = ",  ".join(f"{p} {c:.0%}" for p, c in zip(positions, cum3))
+    ax.set_title(
+        _wrapped_title(f"PCA explained variance (PC1-3) @ layer={layer}  ({model})", 64)
+        + "\n" + _wrapped_title(f"cumulative PC1-3:  {cum_note}", 70),
+        fontsize=11.5,
+    )
+    ax.legend(title="component", frameon=True)
+    return _finish(fig, out_path)
+
+
+# ── Orchestration ─────────────────────────────────────────────────────────────
+
+
+def _behavioral_plots(dataset: GeometryDataset, plots_dir: Path) -> list[Path]:
+    """Render the non-thinking (always) + thinking (when parsed) accuracy bars."""
+    written = [
+        plot_accuracy_by_scaffold(
+            dataset, "non_thinking",
+            plots_dir / "accuracy_by_scaffold_non_thinking.png",
+        )[0]
+    ]
+    if any(s.predicted_thinking is not None for s in dataset.samples):
+        written.append(
+            plot_accuracy_by_scaffold(
+                dataset, "thinking",
+                plots_dir / "accuracy_by_scaffold_thinking.png",
+            )[0]
+        )
+    else:
+        log("[viz] no parsed thinking draws; skipping thinking-accuracy chart")
+    return written
+
+
+def _geometry_plots(results: dict, model: str, plots_dir: Path) -> list[Path]:
+    """Render the PCA scatters, centroid-shift bars, and EV% context."""
+    written: list[Path] = []
+    scatter_layer = _SCATTER_LAYER if _SCATTER_LAYER in results else next(iter(results))
+    cells = results[scatter_layer]
+    for ptype in _POSITIONS:
+        block = cells.get(ptype)
+        if block is None:
+            log(f"[viz] no projection for position '{ptype}'; skipping its scatter")
+            continue
+        written.append(
+            plot_pca_scatter(block, ptype, model, plots_dir / f"pca_scatter_{ptype}.png")
+        )
+    written.append(
+        plot_centroid_shift_bars(results, model, plots_dir / "centroid_shift_by_position.png")
+    )
+    written.append(
+        plot_explained_variance(results, model, plots_dir / "explained_variance.png")
+    )
+    return written
 
 
 def main() -> None:
-    """Load the GeometryDataset + tensors and render behavioral + geometry plots."""
+    """Load samples + the PCA projections and render every plot."""
     args = parse_args()
     log_header("VISUALIZE SESGO GEOMETRY")
+    _apply_style()
 
     dataset = GeometryDataset.from_json(args.samples)
-    root = args.samples.resolve().parent  # activation paths are relative to here
     log(f"[viz] loaded {len(dataset.samples)} samples (model={dataset.model_name})")
 
-    plots_dir = args.out_dir / "sesgo" / "geometry" / dataset.model_name / "plots"
+    model_dir = args.out_dir / "sesgo" / "geometry" / dataset.model_name
+    plots_dir = model_dir / "plots"
     plots_dir.mkdir(parents=True, exist_ok=True)
-    written: list[Path] = []
 
-    # Behavioral: non-thinking always; thinking only when draws were parsed.
-    nt_path, nt_acc = plot_accuracy_by_scaffold(
-        dataset, "non_thinking", plots_dir / "accuracy_by_scaffold_non_thinking.png"
-    )
-    written.append(nt_path)
-    th_acc: dict[str, float] = {}
-    if any(s.predicted_thinking is not None for s in dataset.samples):
-        th_path, th_acc = plot_accuracy_by_scaffold(
-            dataset, "thinking", plots_dir / "accuracy_by_scaffold_thinking.png"
-        )
-        written.append(th_path)
+    written = _behavioral_plots(dataset, plots_dir)
+
+    proj_path = model_dir / "analysis" / "projections.json"
+    if proj_path.exists():
+        results = load_json(proj_path)["results"]
+        written += _geometry_plots(results, dataset.model_name, plots_dir)
     else:
-        log("[viz] no parsed thinking draws; skipping thinking-accuracy chart")
+        log_section("missing projections.json")
+        log(f"[viz] {proj_path} not found — run analyze_geometry.py first for the "
+            "PCA geometry plots (only the behavioural bars were written)")
 
-    # Geometry: per position, shift-by-scaffold (+ by-layer when there's data).
-    shift_means: dict[str, dict[str, float]] = {}
-    for ptype in _GEOM_POSITIONS:
-        scalar, layer_mean = compute_shifts(dataset, root, ptype)
-        if not scalar:
-            log(f"[viz] no baseline-paired '{ptype}' activations; skipping its shift plots")
-            continue
-        sp, means = plot_shift_by_scaffold(
-            scalar, ptype, dataset.model_name, plots_dir / f"shift_by_scaffold_{ptype}.png"
-        )
-        written.append(sp)
-        shift_means[ptype] = means
-        written.append(
-            plot_shift_by_layer(
-                layer_mean, ptype, dataset.model_name,
-                plots_dir / f"shift_by_layer_{ptype}.png",
-            )
-        )
-
-    _log_stats_table(dataset, nt_acc, th_acc, shift_means)
     log(f"[viz] wrote {len(written)} plot(s):")
     for p in written:
         log(f"  {p}")
-
-
-def _log_stats_table(
-    dataset: GeometryDataset,
-    nt_acc: dict[str, float],
-    th_acc: dict[str, float],
-    shift_means: dict[str, dict[str, float]],
-) -> None:
-    """Per-scaffold accuracy + mean activation-shift, one row per scaffold."""
-    log_section("per-scaffold stats")
-    header = f"  {'scaffold':<28} {'nt-acc':>7} {'th-acc':>7}"
-    for ptype in shift_means:
-        header += f" {ptype + '-shift':>16}"
-    log(header)
-    for sc in _ordered_scaffolds(dataset):
-        nt = f"{nt_acc.get(sc, 0.0):.1%}"
-        th = f"{th_acc.get(sc, 0.0):.1%}" if th_acc else "n/a"
-        row = f"  {sc:<28} {nt:>7} {th:>7}"
-        for ptype in shift_means:
-            val = shift_means[ptype].get(sc)
-            row += f" {('%.3f' % val) if val is not None else 'n/a':>16}"
-        log(row)
 
 
 if __name__ == "__main__":

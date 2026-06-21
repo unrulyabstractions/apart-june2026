@@ -39,6 +39,7 @@ from __future__ import annotations
 import argparse
 import pathlib
 import sys
+import textwrap
 from collections import defaultdict
 from pathlib import Path
 
@@ -56,11 +57,53 @@ sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[2]))
 from src.common.logging import log, log_box, log_header, log_section  # noqa: E402
 from src.datasets.sesgo_eval import SesgoDataset  # noqa: E402
 
-# The no-scaffold condition has scaffold_id == None; label it so it sorts first.
+# The no-scaffold condition has scaffold_id == None; label it so it reads clearly.
 _BASELINE = "(baseline)"
 # House palette: non-thinking is blue, thinking is red (mirrors stability/geometry).
 _NT_COLOR = "#30638e"
 _TH_COLOR = "#d1495b"
+# Warm gold band drawn behind the SELECTED scaffold's bar group so it pops.
+_SELECT_BG = "#ffe9a8"
+_SELECT_EDGE = "#e0a800"
+
+
+def _wrap_label(text: str, width: int = 14) -> str:
+    """Wrap a long scaffold id onto multiple lines for a readable x-tick.
+
+    Scaffold ids are snake_case, so textwrap (which only breaks on whitespace)
+    leaves them as one long line. We soft-break on underscores first, then wrap.
+    """
+    return textwrap.fill(text.replace("_", "_ "), width=width).replace("_ ", "_")
+
+
+def _tick_labels(scaffolds: list[str], selected: str | None) -> list[str]:
+    """Wrapped x-tick labels; the SELECTED scaffold gets a [SELECTED] caption."""
+    out = []
+    for sc in scaffolds:
+        wrapped = _wrap_label(sc)
+        out.append(f"{wrapped}\n[SELECTED]" if sc == selected else wrapped)
+    return out
+
+
+def _highlight_selected(ax, x: np.ndarray, scaffolds: list[str], selected: str | None) -> None:
+    """Draw a soft gold band + a star marker for the SELECTED scaffold group.
+
+    The star is a matplotlib path marker (not a glyph), so it always renders
+    regardless of the available system fonts.
+    """
+    if selected is None or selected not in scaffolds:
+        return
+    i = scaffolds.index(selected)
+    ax.axvspan(
+        x[i] - 0.5, x[i] + 0.5, color=_SELECT_BG, alpha=0.55,
+        zorder=0, ymin=0.0, ymax=1.0,
+    )
+    for edge in (x[i] - 0.5, x[i] + 0.5):
+        ax.axvline(edge, color=_SELECT_EDGE, lw=1.0, ls=":", zorder=1)
+    ax.scatter(
+        [x[i]], [1.17], marker="*", s=320, color=_SELECT_EDGE,
+        edgecolor="#7a5c00", linewidth=0.6, zorder=6, clip_on=False,
+    )
 
 
 def parse_args() -> argparse.Namespace:
@@ -166,6 +209,23 @@ def _rank_and_select(
 # --------------------------------------------------------------------------- #
 # Plots
 # --------------------------------------------------------------------------- #
+def _annotate_bars(ax, bars, scaffolds, accs, ns) -> None:
+    """Label each bar with its abstention % and n (n/a when undefined)."""
+    for bar, sc in zip(bars, scaffolds):
+        acc = accs.get(sc)
+        n = ns.get(sc, 0)
+        txt = "n/a" if acc is None else f"{acc:.0%}"
+        ax.text(
+            bar.get_x() + bar.get_width() / 2,
+            bar.get_height() + 0.012,
+            f"{txt}\nn={n}",
+            ha="center",
+            va="bottom",
+            fontsize=8.5,
+            linespacing=1.05,
+        )
+
+
 def plot_abstention_by_scaffold(
     scaffolds: list[str],
     nt_acc: dict[str, float | None],
@@ -173,57 +233,51 @@ def plot_abstention_by_scaffold(
     th_acc: dict[str, float | None],
     th_n: dict[str, int],
     selected: str | None,
+    total_n: int,
     model: str,
     out_path: Path,
 ) -> Path:
     """Grouped bars: per-scaffold non-thinking vs thinking abstention accuracy.
 
-    One group per scaffold (baseline first). Missing (None) bars render as zero
-    height with an "n/a" label so the group still reserves its slot. The SELECTED
-    best scaffold is starred on its x-tick and named in the title.
+    Scaffolds arrive pre-sorted by abstention (best first). Missing (None) bars
+    render as zero height with an "n/a" label so the group still reserves its
+    slot. The SELECTED best scaffold gets a gold highlight band, a starred tick,
+    and a callout in the title, so it pops at a glance.
     """
     x = np.arange(len(scaffolds))
-    width = 0.38
+    width = 0.4
 
     nt_vals = [nt_acc.get(sc) or 0.0 for sc in scaffolds]
     th_vals = [th_acc.get(sc) or 0.0 for sc in scaffolds]
 
-    fig, ax = plt.subplots(figsize=(max(8, 1.7 * len(scaffolds)), 5.5))
-    bars_nt = ax.bar(x - width / 2, nt_vals, width, label="non-thinking", color=_NT_COLOR)
-    bars_th = ax.bar(x + width / 2, th_vals, width, label="thinking", color=_TH_COLOR)
+    fig, ax = plt.subplots(figsize=(max(9, 2.0 * len(scaffolds)), 6.2), layout="constrained")
+    _highlight_selected(ax, x, scaffolds, selected)
+    bars_nt = ax.bar(x - width / 2, nt_vals, width, label="non-thinking", color=_NT_COLOR, zorder=3)
+    bars_th = ax.bar(x + width / 2, th_vals, width, label="thinking", color=_TH_COLOR, zorder=3)
+    _annotate_bars(ax, bars_nt, scaffolds, nt_acc, nt_n)
+    _annotate_bars(ax, bars_th, scaffolds, th_acc, th_n)
 
-    def annotate(bars, accs, ns):
-        for bar, sc in zip(bars, scaffolds):
-            acc = accs.get(sc)
-            n = ns.get(sc, 0)
-            txt = "n/a" if acc is None else f"{acc:.0%}"
-            ax.text(
-                bar.get_x() + bar.get_width() / 2,
-                bar.get_height() + 0.01,
-                f"{txt}\n(n={n})",
-                ha="center",
-                va="bottom",
-                fontsize=8,
-            )
-
-    annotate(bars_nt, nt_acc, nt_n)
-    annotate(bars_th, th_acc, th_n)
-
-    # Mark the selected scaffold on its x-tick label (ASCII for font safety).
-    ticklabels = [f"[SELECTED] {sc}" if sc == selected else sc for sc in scaffolds]
     ax.set_xticks(x)
-    ax.set_xticklabels(ticklabels, rotation=20, ha="right", fontsize=9)
-    ax.set_ylim(0, 1.18)
-    ax.set_ylabel("abstention accuracy (fraction predicted UNKNOWN)")
+    ax.set_xticklabels(_tick_labels(scaffolds, selected), fontsize=9)
+    for lbl, sc in zip(ax.get_xticklabels(), scaffolds):
+        if sc == selected:
+            lbl.set_fontweight("bold")
+            lbl.set_color("#8a6d00")
+    ax.set_xlim(-0.6, len(scaffolds) - 0.4)
+    ax.set_ylim(0, 1.22)  # headroom so value-labels never collide with the title
+    ax.set_yticks(np.arange(0, 1.01, 0.2))
+    ax.set_ylabel("abstention accuracy\n(fraction predicted UNKNOWN, gold = UNKNOWN)")
     sel_txt = selected if selected is not None else "n/a"
     ax.set_title(
-        f"SESGO selection: abstention by scaffold ({model})\n"
-        f"SELECTED best scaffold: {sel_txt}",
-        fontsize=11,
+        f"SESGO selection — abstention by scaffold  ·  {model}\n"
+        f"SELECTED best scaffold (gold star, highlighted): {sel_txt}   ·   sorted best→worst   ·   total n={total_n}",
+        fontsize=12, fontweight="bold", pad=16,
     )
-    ax.legend(loc="upper right")
-    fig.tight_layout()
-    fig.savefig(out_path, dpi=130)
+    # Legend pinned outside the axes (upper-right, just under the title) so it
+    # never sits on the gold SELECTED highlight band or on any value-label.
+    ax.legend(loc="upper left", bbox_to_anchor=(1.005, 1.0), framealpha=0.95, fontsize=9)
+    ax.margins(x=0.02)
+    fig.savefig(out_path, dpi=150, bbox_inches="tight")
     plt.close(fig)
     return out_path
 
@@ -232,56 +286,66 @@ def plot_abstention_by_scaffold_category(
     scaffolds: list[str],
     categories: list[str],
     cell: dict[tuple[str, str], float | None],
+    cell_n: dict[tuple[str, str], int],
+    selected: str | None,
     level: str,
     model: str,
     out_path: Path,
 ) -> Path:
     """Grouped bars: abstention accuracy by scaffold x bias_category.
 
-    One group per scaffold, one bar per bias_category within the group, at the
-    given level. Empty (None) cells render as zero with an "n/a" tick. Useful to
-    see whether a scaffold's selection win is uniform across categories or driven
-    by one.
+    One group per scaffold (sorted best→worst), one bar per bias_category. Each
+    present bar carries its n; absent cells get a faint "n/a" stub so the small,
+    uneven coverage of a minimal run stays visible rather than reading as zero.
+    The SELECTED scaffold gets the same gold highlight band as the main plot.
     """
     x = np.arange(len(scaffolds))
     n_cat = max(1, len(categories))
-    width = 0.8 / n_cat
-    colors = sns.color_palette("viridis", n_cat)
+    width = 0.82 / n_cat
+    colors = sns.color_palette("colorblind", n_cat)
 
-    fig, ax = plt.subplots(figsize=(max(8, 1.7 * len(scaffolds)), 5.5))
+    fig, ax = plt.subplots(figsize=(max(9, 2.0 * len(scaffolds)), 6.2), layout="constrained")
+    _highlight_selected(ax, x, scaffolds, selected)
     for ci, cat in enumerate(categories):
         offset = (ci - (n_cat - 1) / 2) * width
         vals = [cell.get((sc, cat)) or 0.0 for sc in scaffolds]
-        bars = ax.bar(x + offset, vals, width, label=cat, color=colors[ci])
+        bars = ax.bar(x + offset, vals, width, label=cat, color=colors[ci], zorder=3)
         for bar, sc in zip(bars, scaffolds):
             v = cell.get((sc, cat))
+            cx = bar.get_x() + bar.get_width() / 2
             if v is None:
-                ax.text(
-                    bar.get_x() + bar.get_width() / 2,
-                    0.01,
-                    "n/a",
-                    ha="center",
-                    va="bottom",
-                    fontsize=7,
-                    rotation=90,
-                )
+                ax.text(cx, 0.02, "n/a", ha="center", va="bottom",
+                        fontsize=6.5, rotation=90, color="#9a9a9a")
+            else:
+                ax.text(cx, v + 0.012, f"{v:.0%}\nn={cell_n.get((sc, cat), 0)}",
+                        ha="center", va="bottom", fontsize=6.5, linespacing=1.0)
 
     ax.set_xticks(x)
-    ax.set_xticklabels(scaffolds, rotation=20, ha="right", fontsize=9)
-    ax.set_ylim(0, 1.12)
-    ax.set_ylabel("abstention accuracy (fraction predicted UNKNOWN)")
-    ax.set_title(f"SESGO selection: abstention by scaffold x bias_category — {level} ({model})", fontsize=11)
-    ax.legend(title="bias_category", fontsize=8)
-    fig.tight_layout()
-    fig.savefig(out_path, dpi=130)
+    ax.set_xticklabels(_tick_labels(scaffolds, selected), fontsize=9)
+    for lbl, sc in zip(ax.get_xticklabels(), scaffolds):
+        if sc == selected:
+            lbl.set_fontweight("bold")
+            lbl.set_color("#8a6d00")
+    ax.set_xlim(-0.6, len(scaffolds) - 0.4)
+    ax.set_ylim(0, 1.22)
+    ax.set_yticks(np.arange(0, 1.01, 0.2))
+    ax.set_ylabel("abstention accuracy\n(fraction predicted UNKNOWN)")
+    ax.set_title(
+        f"SESGO selection — abstention by scaffold × bias_category  ·  {level}  ·  {model}\n"
+        f"SELECTED (gold star): {selected or 'n/a'}   ·   per-bar n shown   ·   small-n run",
+        fontsize=12, fontweight="bold", pad=16,
+    )
+    ax.legend(title="bias_category", fontsize=8.5, title_fontsize=9,
+              ncol=1, loc="center right", framealpha=0.95)
+    fig.savefig(out_path, dpi=150, bbox_inches="tight")
     plt.close(fig)
     return out_path
 
 
 def _abstention_by_scaffold_category(
     dataset: SesgoDataset, level: str
-) -> dict[tuple[str, str], float | None]:
-    """Per-(scaffold, bias_category) abstention accuracy at the given level."""
+) -> tuple[dict[tuple[str, str], float | None], dict[tuple[str, str], int]]:
+    """Per-(scaffold, bias_category) abstention accuracy and n at the given level."""
     flags: dict[tuple[str, str], list[bool]] = defaultdict(list)
     for s in dataset.samples:
         key = (_scaffold_label(s.scaffold_id), s.bias_category)
@@ -289,7 +353,7 @@ def _abstention_by_scaffold_category(
             flags[key].append(s.correct_non_thinking)
         elif level == "thinking" and s.predicted_thinking is not None:
             flags[key].append(s.correct_thinking)
-    return {k: _acc(v) for k, v in flags.items()}
+    return {k: _acc(v) for k, v in flags.items()}, {k: len(v) for k, v in flags.items()}
 
 
 def _fmt(value: float | None) -> str:
@@ -315,8 +379,10 @@ def main() -> None:
         _abstention_by_scaffold(dataset, "thinking") if has_thinking else ({}, {})
     )
 
-    # Rank + SELECT the best scaffold.
+    # Rank + SELECT the best scaffold. `ranked` is sorted best→worst, so its
+    # scaffold order also drives the plots (the prompt: sort by abstention).
     ranked, selected = _rank_and_select(scaffolds, nt_acc, th_acc)
+    plot_order = [row[0] for row in ranked]
 
     # ----- per-scaffold table + ranking to the log ------------------------ #
     log_section("PER-SCAFFOLD ABSTENTION (accuracy = fraction predicted UNKNOWN)")
@@ -348,12 +414,13 @@ def main() -> None:
     written: list[Path] = []
     written.append(
         plot_abstention_by_scaffold(
-            scaffolds,
+            plot_order,
             nt_acc,
             nt_n,
             th_acc,
             th_n,
             selected,
+            len(dataset.samples),
             dataset.model_name,
             plots_dir / "abstention_by_scaffold.png",
         )
@@ -362,12 +429,14 @@ def main() -> None:
     # Abstention by scaffold x bias_category (prefer thinking, fall back to non-thinking).
     cat_level = "thinking" if has_thinking else "non_thinking"
     categories = sorted({s.bias_category for s in dataset.samples})
-    cell = _abstention_by_scaffold_category(dataset, cat_level)
+    cell, cell_n = _abstention_by_scaffold_category(dataset, cat_level)
     written.append(
         plot_abstention_by_scaffold_category(
-            scaffolds,
+            plot_order,
             categories,
             cell,
+            cell_n,
+            selected,
             cat_level,
             dataset.model_name,
             plots_dir / "abstention_by_scaffold_category.png",

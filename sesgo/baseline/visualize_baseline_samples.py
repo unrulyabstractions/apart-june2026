@@ -11,8 +11,8 @@ Because the baseline has one rendering per item — no format variation, no scaf
 over per item. We therefore slice the population instead:
   - OVERALL non-thinking abstention accuracy (fraction predicting UNKNOWN).
   - abstention accuracy BY bias_category / question polarity / language.
-  - mean non-thinking role-prob vector [TARGET, OTHER, UNKNOWN] overall and BY
-    bias_category — where the un-abstained mass leaks (target vs other group).
+  - mean non-thinking role-prob vector [TARGET, OTHER, UNKNOWN] overall and per
+    every slice axis — where the un-abstained mass leaks (target vs other group).
 
 Plots land at out/sesgo/baseline/<MODEL>/plots/. A stats table is
 logged. Robust to subsampled data — a slice may hold only a few items.
@@ -40,8 +40,7 @@ import numpy as np  # noqa: E402
 import seaborn as sns  # noqa: E402
 
 # Bootstrap the repo root onto sys.path so `from src... import ...` resolves
-# regardless of cwd. From <repo>/sesgo/baseline/x.py, parents[2] is
-# the root.
+# regardless of cwd. From <repo>/sesgo/baseline/x.py, parents[2] is the root.
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[2]))
 
 from src.common.logging import log, log_header, log_section  # noqa: E402
@@ -49,8 +48,18 @@ from src.datasets.sesgo_eval import SesgoDataset, SesgoSample  # noqa: E402
 
 # Non-thinking prob vector is ordered [TARGET, OTHER, UNKNOWN].
 _ROLE_NAMES = ("target", "other", "unknown")
-# The population axes we slice abstention by (everything is one rendering/item).
+# The population axes we slice by (everything is one rendering/item).
 _SLICE_AXES = ("bias_category", "question_polarity", "language")
+# Human-friendly section titles for each axis (small-multiple panel headers).
+_AXIS_TITLES = {
+    "OVERALL": "overall",
+    "bias_category": "by bias category",
+    "question_polarity": "by question polarity",
+    "language": "by language",
+}
+# Colorblind-safe palette (Okabe–Ito): one hue per role, reused everywhere.
+_ROLE_COLORS = {"target": "#E69F00", "other": "#56B4E9", "unknown": "#009E73"}
+_BAR_COLOR = "#0072B2"  # single-series abstention bars (Okabe–Ito blue)
 
 
 def parse_args() -> argparse.Namespace:
@@ -78,20 +87,18 @@ def _scored(dataset: SesgoDataset) -> list[SesgoSample]:
     return [s for s in dataset.samples if s.predicted_non_thinking is not None]
 
 
+def _group_by(samples: list[SesgoSample], axis: str) -> dict[str, list[SesgoSample]]:
+    """Partition samples by the string value of `axis`, key-sorted."""
+    groups: dict[str, list[SesgoSample]] = defaultdict(list)
+    for s in samples:
+        groups[str(getattr(s, axis))].append(s)
+    return {k: groups[k] for k in sorted(groups)}
+
+
 def _abstention_accuracy(samples: list[SesgoSample]) -> tuple[float | None, int]:
     """Overall (fraction predicting UNKNOWN, n) over the given samples."""
     flags = [s.correct_non_thinking for s in samples]
     return (sum(flags) / len(flags) if flags else None), len(flags)
-
-
-def _accuracy_by(
-    samples: list[SesgoSample], axis: str
-) -> dict[str, tuple[float | None, int]]:
-    """Map each value of `axis` -> (abstention accuracy, n), sorted by key."""
-    groups: dict[str, list[SesgoSample]] = defaultdict(list)
-    for s in samples:
-        groups[str(getattr(s, axis))].append(s)
-    return {k: _abstention_accuracy(groups[k]) for k in sorted(groups)}
 
 
 def _mean_role_prob(samples: list[SesgoSample]) -> list[float] | None:
@@ -102,94 +109,102 @@ def _mean_role_prob(samples: list[SesgoSample]) -> list[float] | None:
     return [float(np.mean(col)) for col in zip(*vecs)]
 
 
-def _mean_role_prob_by(
-    samples: list[SesgoSample], axis: str
-) -> dict[str, list[float]]:
-    """Map each value of `axis` -> mean role-prob vector, sorted by key."""
-    groups: dict[str, list[SesgoSample]] = defaultdict(list)
-    for s in samples:
-        groups[str(getattr(s, axis))].append(s)
-    out: dict[str, list[float]] = {}
-    for k in sorted(groups):
-        vec = _mean_role_prob(groups[k])
-        if vec is not None:
-            out[k] = vec
+def _sections(scored: list[SesgoSample]) -> list[tuple[str, dict[str, list[SesgoSample]]]]:
+    """Ordered (axis, {value: samples}) sections: OVERALL then each slice axis."""
+    out: list[tuple[str, dict[str, list[SesgoSample]]]] = [("OVERALL", {"all items": scored})]
+    out += [(axis, _group_by(scored, axis)) for axis in _SLICE_AXES]
     return out
 
 
-# --------------------------------------------------------------------------- #
-# Plots
-# --------------------------------------------------------------------------- #
-def plot_overall_accuracy(
-    overall: tuple[float | None, int],
-    by_axis: dict[str, dict[str, tuple[float | None, int]]],
-    model: str,
-    out_path: Path,
-) -> Path:
-    """Bar chart: overall abstention accuracy plus each slice's per-value bars."""
-    labels: list[str] = []
-    vals: list[float] = []
-    ns: list[int] = []
-    acc, n = overall
-    labels.append("OVERALL")
-    vals.append(acc if acc is not None else 0.0)
-    ns.append(n)
-    for axis in _SLICE_AXES:
-        for key, (a, kn) in by_axis[axis].items():
-            labels.append(f"{axis}={key}")
-            vals.append(a if a is not None else 0.0)
-            ns.append(kn)
+def _suptitle(fig, model: str, subtitle: str, n: int) -> None:
+    """Two-line figure title: study + breakdown, with n and model for context."""
+    fig.suptitle(
+        f"SESGO non-thinking baseline · {model}  (n={n} scored items)\n{subtitle}",
+        fontsize=13, fontweight="bold",
+    )
 
-    fig, ax = plt.subplots(figsize=(max(8, len(labels) * 0.9), 5))
-    colors = ["#30638e"] + sns.color_palette("viridis", len(labels) - 1)
-    bars = ax.bar(range(len(labels)), vals, color=colors)
-    for bar, a, kn in zip(bars, vals, ns):
-        ax.text(bar.get_x() + bar.get_width() / 2, bar.get_height() + 0.01,
-                f"{a:.0%}\nn={kn}", ha="center", va="bottom", fontsize=8)
-    ax.set_xticks(range(len(labels)))
-    ax.set_xticklabels(labels, rotation=30, ha="right")
-    ax.set_ylim(0, 1.1)
-    ax.set_ylabel("non-thinking abstention accuracy (fraction predicting UNKNOWN)")
-    ax.set_title(f"SESGO non-thinking baseline: abstention accuracy ({model})")
-    fig.tight_layout()
-    fig.savefig(out_path, dpi=130)
+
+# --------------------------------------------------------------------------- #
+# Plots — both use small-multiples so each breakdown dimension reads on its own.
+# --------------------------------------------------------------------------- #
+def plot_overall_accuracy(scored: list[SesgoSample], model: str, out_path: Path) -> Path:
+    """Small-multiples of abstention accuracy: one panel per breakdown dimension."""
+    sections = _sections(scored)
+    overall_acc, n = _abstention_accuracy(scored)
+    widths = [max(1, len(grp)) for _, grp in sections]
+    fig, axes = plt.subplots(
+        1, len(sections), figsize=(11, 4.6), sharey=True,
+        gridspec_kw={"width_ratios": widths}, constrained_layout=True,
+    )
+    for ax, (axis, grp) in zip(np.atleast_1d(axes), sections):
+        keys = list(grp)
+        vals, ns = zip(*((_abstention_accuracy(grp[k])) for k in keys))
+        vals = [v if v is not None else 0.0 for v in vals]
+        bars = ax.bar(range(len(keys)), vals, color=_BAR_COLOR, width=0.7)
+        for bar, v, kn in zip(bars, vals, ns):
+            ax.text(bar.get_x() + bar.get_width() / 2, v + 0.015,
+                    f"{v:.0%}\nn={kn}", ha="center", va="bottom", fontsize=8.5)
+        # Dashed reference at the population mean so slices read as above/below.
+        if overall_acc is not None:
+            ax.axhline(overall_acc, ls="--", lw=1, color="#555555", alpha=0.7, zorder=0)
+        ax.set_xticks(range(len(keys)))
+        ax.set_xticklabels(keys, rotation=30, ha="right", fontsize=9)
+        ax.set_title(_AXIS_TITLES[axis], fontsize=11)
+        ax.margins(x=0.15)
+    axes_flat = np.atleast_1d(axes)
+    axes_flat[0].set_ylim(0, 1.18)
+    axes_flat[0].set_ylabel("abstention accuracy\n(fraction predicting UNKNOWN)", fontsize=10)
+    axes_flat[-1].text(
+        0.99, overall_acc, f" overall {overall_acc:.0%}", transform=axes_flat[-1].get_yaxis_transform(),
+        ha="right", va="bottom", fontsize=8, color="#555555", clip_on=False,
+    )
+    _suptitle(fig, model, "abstention accuracy by population slice", n)
+    fig.savefig(out_path, dpi=150, bbox_inches="tight")
     plt.close(fig)
     return out_path
 
 
-def plot_role_prob(
-    overall: list[float] | None,
-    by_category: dict[str, list[float]],
-    model: str,
-    out_path: Path,
-) -> Path:
-    """Grouped bars: mean non-thinking role-prob [target,other,unknown].
-
-    One group of three role bars for OVERALL, then one per bias_category.
-    """
-    groups: list[tuple[str, list[float]]] = []
-    if overall is not None:
-        groups.append(("OVERALL", overall))
-    for key in by_category:
-        groups.append((f"cat={key}", by_category[key]))
-
-    fig, ax = plt.subplots(figsize=(max(7, len(groups) * 1.8), 5))
-    n_roles = len(_ROLE_NAMES)
-    width = 0.8 / n_roles
-    palette = sns.color_palette("Set2", n_roles)
-    x = np.arange(len(groups))
+def _role_bars(ax, keys: list[str], vecs: list[list[float]]) -> None:
+    """Draw grouped target/other/unknown bars for one panel."""
+    width = 0.8 / len(_ROLE_NAMES)
+    x = np.arange(len(keys))
     for r, role in enumerate(_ROLE_NAMES):
-        heights = [g[1][r] for g in groups]
-        ax.bar(x + (r - (n_roles - 1) / 2) * width, heights, width,
-               label=role, color=palette[r])
+        offset = (r - (len(_ROLE_NAMES) - 1) / 2) * width
+        ax.bar(x + offset, [v[r] for v in vecs], width, label=role,
+               color=_ROLE_COLORS[role])
     ax.set_xticks(x)
-    ax.set_xticklabels([g[0] for g in groups], rotation=20, ha="right")
-    ax.set_ylim(0, 1.0)
-    ax.set_ylabel("mean non-thinking role probability")
-    ax.set_title(f"SESGO non-thinking baseline: mean role-prob [target/other/unknown] ({model})")
-    ax.legend(title="role")
-    fig.tight_layout()
-    fig.savefig(out_path, dpi=130)
+    ax.set_xticklabels(keys, rotation=30, ha="right", fontsize=9)
+    ax.margins(x=0.1)
+
+
+def plot_role_prob(scored: list[SesgoSample], model: str, out_path: Path) -> Path:
+    """Small-multiples of mean role-prob [target/other/unknown] per breakdown."""
+    sections = _sections(scored)
+    panels = [
+        (axis, list(grp), [v for k in grp if (v := _mean_role_prob(grp[k])) is not None])
+        for axis, grp in sections
+    ]
+    widths = [max(1, len(keys)) for _, keys, _ in panels]
+    fig, axes = plt.subplots(
+        1, len(panels), figsize=(12, 4.8), sharey=True,
+        gridspec_kw={"width_ratios": widths}, constrained_layout=True,
+    )
+    for ax, (axis, keys, vecs) in zip(np.atleast_1d(axes), panels):
+        _role_bars(ax, keys, vecs)
+        ax.set_title(_AXIS_TITLES[axis], fontsize=11)
+    axes_flat = np.atleast_1d(axes)
+    axes_flat[0].set_ylim(0, 1.0)
+    axes_flat[0].set_ylabel("mean non-thinking role probability", fontsize=10)
+    # Reserve a strip of whitespace below the panels for the legend so it never
+    # collides with the rotated x-tick labels, then anchor the legend into it.
+    fig.get_layout_engine().set(rect=(0, 0.08, 1, 0.92))
+    handles, labels = axes_flat[0].get_legend_handles_labels()
+    fig.legend(handles, labels, title="role", ncol=len(_ROLE_NAMES),
+               loc="lower center", bbox_to_anchor=(0.5, 0.0), frameon=False,
+               fontsize=10, title_fontsize=10)
+    _, n = _abstention_accuracy(scored)
+    _suptitle(fig, model, "mean role-probability mass [target / other / unknown]", n)
+    fig.savefig(out_path, dpi=150, bbox_inches="tight")
     plt.close(fig)
     return out_path
 
@@ -208,6 +223,22 @@ def _fmt_vec(vec: list[float] | None) -> str:
     return "[" + ", ".join(f"{x:.3f}" for x in vec) + "]"
 
 
+def _log_stats(scored: list[SesgoSample]) -> None:
+    """Emit the full baseline stats table to the log."""
+    log_section("NON_THINKING_BASELINE STATS")
+    log(f"  scored samples (non-thinking present): {len(scored)}")
+    acc, n = _abstention_accuracy(scored)
+    log(f"  overall abstention accuracy: {_fmt(acc, pct=True)} (n={n})")
+    log(f"  mean role-prob [target, other, unknown] overall: {_fmt_vec(_mean_role_prob(scored))}")
+    for axis in _SLICE_AXES:
+        log(f"  by {axis}:")
+        for key, grp in _group_by(scored, axis).items():
+            a, kn = _abstention_accuracy(grp)
+            log(f"    {key:<12}: abstain {_fmt(a, pct=True):>6} (n={kn})  "
+                f"role {_fmt_vec(_mean_role_prob(grp))}")
+    log("  NOTE: ambiguous gold is always UNKNOWN, so abstention == accuracy.")
+
+
 def main() -> None:
     """Load the SesgoDataset, compute every baseline statistic, plot, and log."""
     args = parse_args()
@@ -219,41 +250,16 @@ def main() -> None:
     log(f"[viz] {n_items} distinct question_id(s)")
 
     scored = _scored(dataset)
+    _log_stats(scored)
 
-    # Overall + per-axis abstention accuracy.
-    overall_acc = _abstention_accuracy(scored)
-    acc_by = {axis: _accuracy_by(scored, axis) for axis in _SLICE_AXES}
-
-    # Mean role-prob vector overall + by bias_category.
-    overall_prob = _mean_role_prob(scored)
-    prob_by_cat = _mean_role_prob_by(scored, "bias_category")
-
-    # ----- stats table to the log ----------------------------------------- #
-    log_section("NON_THINKING_BASELINE STATS")
-    log(f"  scored samples (non-thinking present): {len(scored)}")
-    acc, n = overall_acc
-    log(f"  overall abstention accuracy: {_fmt(acc, pct=True)} (n={n})")
-    for axis in _SLICE_AXES:
-        log(f"  abstention accuracy by {axis}:")
-        for key, (a, kn) in acc_by[axis].items():
-            log(f"    {key:<12}: {_fmt(a, pct=True):>6} (n={kn})")
-    log(f"  mean role-prob [target, other, unknown] overall: {_fmt_vec(overall_prob)}")
-    log("  mean role-prob [target, other, unknown] by bias_category:")
-    for key, vec in prob_by_cat.items():
-        log(f"    {key:<12}: {_fmt_vec(vec)}")
-    log("  NOTE: ambiguous gold is always UNKNOWN, so abstention == accuracy.")
-
-    # ----- plots ---------------------------------------------------------- #
     plots_dir = args.out_dir / "sesgo" / "baseline" / dataset.model_name / "plots"
     plots_dir.mkdir(parents=True, exist_ok=True)
-    sns.set_theme(style="whitegrid")
+    sns.set_theme(style="whitegrid", font_scale=1.0)
 
-    written: list[Path] = []
-    written.append(plot_overall_accuracy(
-        overall_acc, acc_by, dataset.model_name, plots_dir / "abstention_accuracy.png"))
-    written.append(plot_role_prob(
-        overall_prob, prob_by_cat, dataset.model_name, plots_dir / "role_prob.png"))
-
+    written = [
+        plot_overall_accuracy(scored, dataset.model_name, plots_dir / "abstention_accuracy.png"),
+        plot_role_prob(scored, dataset.model_name, plots_dir / "role_prob.png"),
+    ]
     log(f"[viz] wrote {len(written)} plot(s):")
     for p in written:
         log(f"  {p}")
