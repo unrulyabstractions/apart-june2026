@@ -31,7 +31,15 @@ command -v vastai >/dev/null || { echo "vastai not found. pip install vastai" >&
 mkdir -p "$FLEET_DIR"
 
 # TSV columns: model  bare  gpu  max_price  disk_gb  shard_index  shard_count
-PLAN="$(/usr/bin/env python3 "$HERE/fleet_sizing.py" plan)"
+# FLEET_PLAN_FILE lets a controller launch a SUBSET / sharded plan (e.g. only the
+# models still missing, or one model split across K boxes) without editing the
+# shared fleet_sizing.py another controller is reading. Unset == the full default
+# plan, so default behavior is unchanged.
+if [ -n "${FLEET_PLAN_FILE:-}" ]; then
+  PLAN="$(cat "$FLEET_PLAN_FILE")"
+else
+  PLAN="$(/usr/bin/env python3 "$HERE/fleet_sizing.py" plan)"
+fi
 echo ">> Fleet plan (model / gpu / \$max / disk / shard):"
 printf '%s\n' "$PLAN" | awk -F'\t' '{printf "   %-40s %-10s $%-5s %sG  shard %s/%s\n",$1,$3,$4,$5,$6+1,$7}'
 
