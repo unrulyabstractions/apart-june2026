@@ -22,7 +22,10 @@
 #   DISK         GB disk
 #   TAG          quarantine subdir under sync/ (e.g. q32)
 # Optional:
-#   ITEMS        distinct items to keep (default 12 -> 432 samples, matches ref)
+#   MODES        space-separated readout modes on this box (default "nonthinking";
+#                Qwen wants "nonthinking thinking"; reasoning ckpts want "thinking")
+#   SHARD_INDEX  this box's shard index (default 0)
+#   SHARD_COUNT  total shards for this model (default 1; >1 shards the FULL dataset)
 #   HF_TOKEN     for gated models (Llama)
 #   MIN_RELIABILITY  reliability2 floor (default 0.985)
 #
@@ -43,7 +46,10 @@ REMOTE_ROOT="/root/apart"
 : "${MAX_PRICE:?set MAX_PRICE}"
 : "${DISK:?set DISK}"
 : "${TAG:?set TAG}"
-ITEMS="${ITEMS:-12}"
+MODES="${MODES:-nonthinking}"
+SHARD_INDEX="${SHARD_INDEX:-0}"
+SHARD_COUNT="${SHARD_COUNT:-1}"
+LIMIT="${LIMIT:-}"   # cap prompts (validation / throughput sizing); empty = FULL dataset
 MIN_RELIABILITY="${MIN_RELIABILITY:-0.985}"
 
 IID_FILE="$HERE/.stab_${TAG}.iid"
@@ -181,33 +187,39 @@ log "at_setup (uv sync, cu124 pin, device check)"
 run_on_box "bash cloud/at_setup.sh" 2>&1 | sed "s/^/[$TAG setup] /"
 [ "${PIPESTATUS[0]}" -eq 0 ] || { log "FATAL: at_setup failed"; exit 6; }
 
-# ── 7. RUN the stability collection (canonical on-box driver) ──
-log "collect stability (ITEMS=$ITEMS) for $MODEL"
-run_on_box "export HF_TOKEN='${HF_TOKEN:-}'; MODEL='$MODEL' STUDIES='stability' ITEMS='$ITEMS' bash cloud/fleet_model_run.sh" \
-  2>&1 | sed "s/^/[$TAG run] /"
-[ "${PIPESTATUS[0]}" -eq 0 ] || { log "FATAL: stability collection failed"; exit 7; }
+# ── 7. BUILD the full SESGO datasets on-box (sync_up excludes data/), then RUN the
+#    greedy readout for each MODE. HF/CUDA backend (NOT vLLM); FULL dataset (no
+#    subsample); --shard-* lets several boxes split one model's 41.5k prompts. ──
+log "build datasets (build_stability_datasets) for $MODEL"
+run_on_box ".venv/bin/python -m experiment.generate.build_stability_datasets --out-dir data" \
+  2>&1 | sed "s/^/[$TAG data] /"
+[ "${PIPESTATUS[0]}" -eq 0 ] || { log "FATAL: dataset build failed"; exit 7; }
 
-# ── 8. Verify the result is non-empty BEFORE we destroy the box ──
-NS="$(run_on_box "[ -x .venv/bin/python ] && .venv/bin/python -c \"import json; print(len(json.load(open('out/sesgo/stability/$BARE_MODEL/response_samples.json'))['samples']))\" 2>/dev/null || echo 0")"
-NS="$(printf '%s' "$NS" | tr -dc '0-9')"
-log "remote response_samples.json has ${NS:-0} samples"
-if [ "${NS:-0}" -lt 1 ]; then
-  log "FATAL: empty/missing response_samples.json on box -- aborting (no sync, will destroy)"
-  exit 8
-fi
+SHARD_SUF=""; [ "${SHARD_COUNT:-1}" -gt 1 ] && SHARD_SUF="/shard_${SHARD_INDEX}_of_${SHARD_COUNT}"
+LIMIT_ARG=""; [ -n "$LIMIT" ] && LIMIT_ARG="--limit $LIMIT"
+for MODE in $MODES; do
+  log "run_greedy_readout mode=$MODE shard=$SHARD_INDEX/$SHARD_COUNT limit='${LIMIT:-full}' (HF backend)"
+  run_on_box "export HF_TOKEN='${HF_TOKEN:-}'; time .venv/bin/python -m experiment.stability.run_greedy_readout \
+      --model '$MODEL' --mode '$MODE' --backend huggingface \
+      --dataset data/full_prompt_dataset.json --study stability --out-dir out \
+      --shard-index ${SHARD_INDEX:-0} --shard-count ${SHARD_COUNT:-1} $LIMIT_ARG" \
+    2>&1 | sed "s/^/[$TAG run:$MODE] /"
+  [ "${PIPESTATUS[0]}" -eq 0 ] || { log "FATAL: readout failed (mode=$MODE)"; exit 8; }
 
-# ── 9. Render the per-model stability plots ON the box ──
-log "render stability plots"
-run_on_box ".venv/bin/python sesgo/stability/visualize_stability_samples.py out/sesgo/stability/$BARE_MODEL/response_samples.json" \
-  2>&1 | sed "s/^/[$TAG viz] /"
-# Plots are a nice-to-have; do not abort the whole run if the renderer hiccups.
-[ "${PIPESTATUS[0]}" -eq 0 ] || log "WARN: plot render returned non-zero (continuing to sync samples)"
+  # Verify the slice is non-empty BEFORE we destroy the box (new flat layout).
+  OUT="out/stability/${BARE_MODEL}-${MODE}${SHARD_SUF}/response_samples.json"
+  NS="$(run_on_box ".venv/bin/python -c \"import json; print(len(json.load(open('$OUT'))['samples']))\" 2>/dev/null || echo 0")"
+  NS="$(printf '%s' "$NS" | tr -dc '0-9')"
+  log "remote $OUT has ${NS:-0} samples"
+  [ "${NS:-0}" -ge 1 ] || { log "FATAL: empty/missing $OUT -- aborting (no sync, will destroy)"; exit 8; }
+done
 
-# ── 10. SYNC results BACK into a DISJOINT quarantine sync/<TAG>/ ──
+# ── 8. SYNC results BACK into the gitignored quarantine sync/<TAG>/ (--ignore-existing,
+#    no --delete; pulls the flat out/stability/ tree). ──
 log "sync_back -> sync/$TAG/"
 SYNC_SUBDIR="$TAG" STUDIES="stability" INSTANCE="$INSTANCE" bash "$HERE/sync_back.sh" 2>&1 | sed "s/^/[$TAG back] /"
 [ "${PIPESTATUS[0]}" -eq 0 ] || { log "FATAL: sync_back failed (box will still be destroyed)"; exit 9; }
 
-log "SUCCESS: $NS samples collected for $BARE_MODEL on $GPU_NAME; quarantined under sync/$TAG/"
+log "SUCCESS: $BARE_MODEL modes='$MODES' shard=$SHARD_INDEX/$SHARD_COUNT on $GPU_NAME; quarantined under sync/$TAG/"
 # EXIT trap destroys the box now.
 exit 0

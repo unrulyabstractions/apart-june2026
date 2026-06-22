@@ -58,10 +58,11 @@ DRY=""; [ "${DRY_RUN:-0}" = "1" ] && DRY="--dry-run"
 read -r -a STUDIES <<< "${STUDIES:-divergence stability}"
 
 for study in "${STUDIES[@]}"; do
-  src="$SSH_USER@$SSH_HOST:$REMOTE_ROOT/out/sesgo/$study/"
-  dst="$LOCAL_SYNC/sesgo/$study/"
+  # Post-Stage-0 layout is FLAT: out/<study>/ (the old out/sesgo/<study>/ was flattened).
+  src="$SSH_USER@$SSH_HOST:$REMOTE_ROOT/out/$study/"
+  dst="$LOCAL_SYNC/$study/"
   mkdir -p "$dst"
-  echo "[sync_back] $study  $SSH_HOST:.../out/sesgo/$study/  ->  sync/sesgo/$study/  (--ignore-existing, no --delete)"
+  echo "[sync_back] $study  $SSH_HOST:.../out/$study/  ->  sync/$study/  (--ignore-existing, no --delete)"
   # -av  : archive + verbose
   # --ignore-existing : NEVER overwrite a file already present locally
   # (NO --delete) : NEVER remove anything local
@@ -69,6 +70,6 @@ for study in "${STUDIES[@]}"; do
 done
 
 echo
-echo "[sync_back] done. New files (if any) are quarantined under: $LOCAL_SYNC/sesgo/"
+echo "[sync_back] done. New files (if any) are quarantined under: $LOCAL_SYNC/"
 echo "[sync_back] 1) INSPECT them:   find $LOCAL_SYNC -type f"
 echo "[sync_back] 2) PROMOTE to out: bash cloud/merge_sync.sh"
