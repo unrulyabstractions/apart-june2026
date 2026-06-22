@@ -69,7 +69,13 @@ rsync_retry \
   --exclude='/out/'             \
   --exclude='/datasets/'        \
   --exclude='/sync/'            \
-  --exclude='/cloud/.fleet*/'   \
+  --exclude='/data/'            \
+  --exclude='/jobs/'            \
+  --exclude='/.backups/'        \
+  --exclude='/worktree/'        \
+  --exclude='/cloud/.fleet*'    \
+  --exclude='/cloud/*.log'      \
+  --exclude='/cloud/.*.log'     \
   --exclude='/cloud/.plan*'     \
   --exclude='.git/'             \
   --exclude='.venv/'            \
