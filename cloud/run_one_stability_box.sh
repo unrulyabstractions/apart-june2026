@@ -179,54 +179,72 @@ for i in $(seq 1 40); do
   sleep 10
 done
 
-# ── 5. SYNC code + SESGO prompt sources UP (reuse sync_up.sh) ──
-log "sync_up"
-INSTANCE="$INSTANCE" bash "$HERE/sync_up.sh" 2>&1 | sed "s/^/[$TAG up] /"
-[ "${PIPESTATUS[0]}" -eq 0 ] || { log "FATAL: sync_up failed"; exit 5; }
+# Steps that talk to the box over the (flaky) vast network are RETRIED before we give up and
+# destroy the box — a single transient drop must NEVER kill an otherwise-good run. sync_up
+# (rsync) and at_setup (uv sync / pip) are idempotent, so re-running is always safe.
 
-# ── 6. uv sync + cu124 torch pin + device check (reuse at_setup.sh) ──
-log "at_setup (uv sync, cu124 pin, device check)"
-run_on_box "bash cloud/at_setup.sh" 2>&1 | sed "s/^/[$TAG setup] /"
-[ "${PIPESTATUS[0]}" -eq 0 ] || { log "FATAL: at_setup failed"; exit 6; }
+# ── 5. SYNC code + SESGO prompt sources UP (retried) ──
+sync_up_ok=0
+for attempt in 1 2 3 4 5; do
+  log "sync_up (attempt $attempt/5)"
+  INSTANCE="$INSTANCE" bash "$HERE/sync_up.sh" 2>&1 | sed "s/^/[$TAG up] /"
+  [ "${PIPESTATUS[0]}" -eq 0 ] && { sync_up_ok=1; break; }
+  log "sync_up attempt $attempt FAILED; waiting 25s before retry"; sleep 25
+done
+[ "$sync_up_ok" = 1 ] || { log "FATAL: sync_up failed after 5 attempts"; exit 5; }
 
-# ── 7. BUILD the full SESGO datasets on-box (sync_up excludes data/), then RUN the
-#    greedy readout for each MODE. HF/CUDA backend (NOT vLLM); FULL dataset (no
-#    subsample); --shard-* lets several boxes split one model's 41.5k prompts. ──
-log "build datasets (build_stability_datasets) for $MODEL"
-run_on_box ".venv/bin/python -m experiment.generate.build_stability_datasets --out-dir data" \
-  2>&1 | sed "s/^/[$TAG data] /"
-[ "${PIPESTATUS[0]}" -eq 0 ] || { log "FATAL: dataset build failed"; exit 7; }
+# ── 6. uv sync + cu124 torch pin + device check (retried; re-running also HEALS a
+#    half-finished / corrupted torch install, e.g. a missing libtorch_global_deps.so) ──
+setup_ok=0
+for attempt in 1 2 3 4; do
+  log "at_setup (attempt $attempt/4)"
+  run_on_box "bash cloud/at_setup.sh" 2>&1 | sed "s/^/[$TAG setup] /"
+  [ "${PIPESTATUS[0]}" -eq 0 ] && { setup_ok=1; break; }
+  log "at_setup attempt $attempt FAILED; waiting 30s before retry"; sleep 30
+done
+[ "$setup_ok" = 1 ] || { log "FATAL: at_setup failed after 4 attempts"; exit 6; }
 
-SHARD_SUF=""; [ "${SHARD_COUNT:-1}" -gt 1 ] && SHARD_SUF="/shard_${SHARD_INDEX}_of_${SHARD_COUNT}"
-LIMIT_ARG=""; [ -n "$LIMIT" ] && LIMIT_ARG="--limit $LIMIT"
-# Run BOTH readout datasets per mode: the full stability set (study=stability, 6930) and
-# the small forced-fork set (study=forked, 385). The two deliverable figures need both.
-for MODE in $MODES; do
-  for SPEC in "full_prompt_dataset.json:stability" "forced_fork.json:forked"; do
-    DS="${SPEC%%:*}"; STUDY="${SPEC##*:}"
-    log "run_greedy_readout mode=$MODE study=$STUDY shard=$SHARD_INDEX/$SHARD_COUNT limit='${LIMIT:-full}' (HF)"
-    run_on_box "export HF_TOKEN='${HF_TOKEN:-}'; time .venv/bin/python -m experiment.stability.run_greedy_readout \
-        --model '$MODEL' --mode '$MODE' --backend huggingface \
-        --dataset data/$DS --study $STUDY --out-dir out \
-        --max-reasoning $MAX_REASONING \
-        --shard-index ${SHARD_INDEX:-0} --shard-count ${SHARD_COUNT:-1} $LIMIT_ARG" \
-      2>&1 | sed "s/^/[$TAG $STUDY:$MODE] /"
-    [ "${PIPESTATUS[0]}" -eq 0 ] || { log "FATAL: readout failed (study=$STUDY mode=$MODE)"; exit 8; }
+# ── 7. RUN the readout DETACHED on the box, then POLL for completion ──
+# The whole build+readout pipeline runs on the box under `setsid nohup`
+# (cloud/on_box_stability_run.sh), writing a terminal marker (out/.STAB_DONE | .STAB_FAILED).
+# A dropped ssh connection CANNOT interrupt it — the job runs detached and we just reconnect
+# each poll. The readout is checkpoint-resumable, and the on-box script only marks DONE once
+# every slice reaches its full expected sample count, so DONE means truly complete.
+log "launch detached on-box run (survives ssh drops)"
+launch_ok=0
+for attempt in 1 2 3 4 5; do
+  rep="$(run_on_box "cd $REMOTE_ROOT && MODEL='$MODEL' BARE_MODEL='$BARE_MODEL' MODES='$MODES' MAX_REASONING='$MAX_REASONING' SHARD_INDEX='${SHARD_INDEX:-0}' SHARD_COUNT='${SHARD_COUNT:-1}' LIMIT='${LIMIT:-}' HF_TOKEN='${HF_TOKEN:-}' setsid nohup bash cloud/on_box_stability_run.sh >out/stab_run.log 2>&1 </dev/null & echo LAUNCHED" 2>&1)"
+  printf '%s' "$rep" | grep -q LAUNCHED && { launch_ok=1; break; }
+  log "launch attempt $attempt failed; retry in 15s"; sleep 15
+done
+[ "$launch_ok" = 1 ] || { log "FATAL: could not launch on-box run"; exit 7; }
 
-    # Verify the slice is non-empty BEFORE we destroy the box (flat out/<study>/ layout).
-    OUT="out/$STUDY/${BARE_MODEL}-${MODE}${SHARD_SUF}/response_samples.json"
-    NS="$(run_on_box ".venv/bin/python -c \"import json; print(len(json.load(open('$OUT'))['samples']))\" 2>/dev/null || echo 0")"
-    NS="$(printf '%s' "$NS" | tr -dc '0-9')"
-    log "remote $OUT has ${NS:-0} samples"
-    [ "${NS:-0}" -ge 1 ] || { log "FATAL: empty/missing $OUT -- aborting (no sync, will destroy)"; exit 8; }
-  done
+# Poll for the terminal marker. An ssh blip during a poll yields empty state and is simply
+# ignored — the detached job keeps running and the next poll reconnects.
+poll_start=$(date +%s); poll_max=$((20 * 3600))
+while true; do
+  sleep 60
+  state="$(run_on_box "if [ -f out/.STAB_DONE ]; then echo DONE; elif [ -f out/.STAB_FAILED ]; then echo FAILED; else echo RUNNING; fi" 2>/dev/null | tr -dc 'A-Z')"
+  prog="$(run_on_box "tail -n1 out/stab_run.log 2>/dev/null" 2>/dev/null | tail -n1)"
+  log "poll state=${state:-blip} | ${prog}"
+  [ "$state" = DONE ] && { log "on-box run DONE"; break; }
+  if [ "$state" = FAILED ]; then
+    run_on_box "tail -n 30 out/stab_run.log" 2>&1 | sed "s/^/[$TAG runlog] /"
+    log "FATAL: on-box run reported FAILED"; exit 8
+  fi
+  [ $(( $(date +%s) - poll_start )) -gt $poll_max ] && { log "FATAL: on-box run exceeded ${poll_max}s"; exit 8; }
 done
 
 # ── 8. SYNC results BACK into the gitignored quarantine sync/<TAG>/ (--ignore-existing,
 #    no --delete; pulls the flat out/stability/ + out/forked/ trees). ──
-log "sync_back -> sync/$TAG/"
-SYNC_SUBDIR="$TAG" STUDIES="stability forked" INSTANCE="$INSTANCE" bash "$HERE/sync_back.sh" 2>&1 | sed "s/^/[$TAG back] /"
-[ "${PIPESTATUS[0]}" -eq 0 ] || { log "FATAL: sync_back failed (box will still be destroyed)"; exit 9; }
+log "sync_back -> sync/$TAG/ (retried)"
+back_ok=0
+for attempt in 1 2 3 4 5; do
+  SYNC_SUBDIR="$TAG" STUDIES="stability forked" INSTANCE="$INSTANCE" bash "$HERE/sync_back.sh" 2>&1 | sed "s/^/[$TAG back] /"
+  [ "${PIPESTATUS[0]}" -eq 0 ] && { back_ok=1; break; }
+  log "sync_back attempt $attempt FAILED; waiting 25s"; sleep 25
+done
+[ "$back_ok" = 1 ] || { log "FATAL: sync_back failed after 5 attempts (box will still be destroyed)"; exit 9; }
 
 log "SUCCESS: $BARE_MODEL modes='$MODES' shard=$SHARD_INDEX/$SHARD_COUNT on $GPU_NAME; quarantined under sync/$TAG/"
 # EXIT trap destroys the box now.
