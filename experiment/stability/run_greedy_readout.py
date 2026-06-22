@@ -105,9 +105,12 @@ def _readout(runner: ModelRunner, rec: dict, thinking: bool, max_reasoning: int)
 
     budget = max_reasoning if thinking else _UNBOUNDED
     full_ids = runner.generate_trajectory(prompt_ids, max_new_tokens=budget, temperature=0.0).token_ids
-    if thinking and "</think>" not in runner.decode_ids(full_ids[len(prompt_ids):]):
-        # Reasoning hit the cap without closing — force the stop-thinking token and let the
-        # model commit an answer (still greedy), instead of recording a non-answer loop.
+    gen_ids = full_ids[len(prompt_ids):]
+    ended_on_eos = bool(gen_ids) and gen_ids[-1] == runner.eos_token_id
+    # Force a stop-token + answer ONLY if the model is STILL mid-reasoning: it hit the cap
+    # without ever closing </think> AND without stopping on EOS. If it already answered and
+    # emitted EOS, leave it — appending </think> would make it ramble past its own answer.
+    if thinking and "</think>" not in runner.decode_ids(gen_ids) and not ended_on_eos:
         full_ids = full_ids + runner.encode_ids("\n</think>\n\n", add_special_tokens=False)
         full_ids = runner.generate_trajectory(
             full_ids, max_new_tokens=_ANSWER_BUDGET, temperature=0.0).token_ids
