@@ -21,18 +21,14 @@ from sesgo.common.plain_language_labels import (
 )
 from .divergence_plot_styles import AXIS_LABEL, save_fig, titled
 
-# Plain-language name + "what high means" for each per-question divergence metric.
+# Plain-language name for each per-question divergence metric.
 _METRIC_TITLE = {
-    "default-uncertainty": "How indecisive {model} is on ambiguous questions",
-    "default-deviation": "How far {model} strays from abstaining on ambiguous questions",
+    "default-uncertainty": "Indecision",
+    "default-deviation": "Drift from abstaining",
 }
 _METRIC_YLABEL = {
-    "default-uncertainty": "How much the answer wavered\n(group average)",
-    "default-deviation": "How far from abstaining correctly\n(group average)",
-}
-_METRIC_HIGH = {
-    "default-uncertainty": "Higher = the answer flips around more across reasoning tries.",
-    "default-deviation": "Higher = the model commits to a group instead of abstaining.",
+    "default-uncertainty": "Answer entropy",
+    "default-deviation": "Drift from abstaining",
 }
 # Raw provenance codes -> plain group labels (categories, wording); else verbatim.
 _GROUP_LABEL = {**CATEGORY_LABEL, **POLARITY_LABEL}
@@ -74,8 +70,5 @@ def plot_breakdown(metric: str, axis: str, groups, model, out_path, vmax: float)
     ax.set_ylim(0, vmax)
     ax.set_ylabel(_METRIC_YLABEL.get(metric, metric))
     axis_name = AXIS_LABEL.get(axis, axis)
-    titled(ax,
-           _METRIC_TITLE.get(metric, metric).format(model=model) + f", by {axis_name}",
-           f"Bars = group average; dots = individual questions; whiskers = 95% range. "
-           f"{_METRIC_HIGH.get(metric, '')}")
+    titled(ax, f"{_METRIC_TITLE.get(metric, metric)} by {axis_name}")
     return save_fig(fig, out_path)

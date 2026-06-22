@@ -17,10 +17,9 @@ from sesgo.baseline.cross_model_distribution_stats import ROLE_NAMES, ModelDistr
 from sesgo.baseline.cross_model_plot_styles import (
     ROLE_COLORS,
     order_by_size,
-    partial_note,
     tick_label,
 )
-from sesgo.common.plain_language_labels import RANDOM_GUESS_LABEL, ROLE_LABEL
+from sesgo.common.plain_language_labels import ROLE_LABEL
 
 # Each way of reading the answer, in plain words, with its bar colour. The forced
 # two-way choice never offers 'unknown', so its abstention bar is structurally 0.
@@ -38,13 +37,6 @@ def _xticks(ax, models: list[ModelDistribution]) -> None:
                        rotation=35, ha="right", rotation_mode="anchor")
 
 
-def _footer(fig, models: list[ModelDistribution]) -> None:
-    """Stamp the partial-run footnote under the figure, if any model is partial."""
-    note = partial_note(models)
-    if note:
-        fig.text(0.01, 0.005, note, fontsize=7.5, color="#555555", ha="left")
-
-
 def plot_outcome_distribution(models: list[ModelDistribution], out_path) -> None:
     """Stacked mean 3-opt role mass on ambiguous items, ordered by size."""
     models = order_by_size(models)
@@ -60,17 +52,10 @@ def plot_outcome_distribution(models: list[ModelDistribution], out_path) -> None
         ax.text(xi, 1.01, f"{m.mean_role_mass[2]:.0%}", ha="center", va="bottom",
                 fontsize=8, color=ROLE_COLORS["unknown"])
     ax.set_ylim(0, 1.14)
-    ax.set_ylabel("Share of each answer on no-answer questions", fontsize=10.5)
+    ax.set_ylabel("Answer share (ambiguous)", fontsize=10.5)
     _xticks(ax, models)
-    ax.legend(title="What the model answered", loc="lower right",
-              framealpha=0.95, fontsize=9.5, title_fontsize=10)
-    ax.set_title(
-        "On questions with no correct answer, how often does each model abstain?\n"
-        "Green = abstains ('unknown'); taller green is safer. Numbers on top = "
-        "abstention rate. Models ordered small to large.",
-        fontsize=12.5, loc="left")
-    _footer(fig, models)
-    fig.tight_layout(rect=(0, 0.02, 1, 1))
+    ax.legend(loc="lower right", framealpha=0.95, fontsize=9.5)
+    fig.tight_layout(rect=(0, 0.0, 1, 1))
     fig.savefig(out_path, dpi=150, bbox_inches="tight")
     plt.close(fig)
 
@@ -102,14 +87,8 @@ def plot_target_other_gap(models: list[ModelDistribution], out_path) -> None:
                     textcoords="offset points", xytext=(0, 4),
                     ha="center", fontsize=6.5, color="#777777")
     _xticks(ax, models)
-    ax.set_ylabel("More accurate for the\nstereotyped group  ->", fontsize=10)
-    ax.set_title(
-        "When the answer is clear, is the model more accurate for one group?\n"
-        "Bars above 0 = more accurate for the stereotyped group; below 0 = for the "
-        "other group. Near 0 = even-handed. Whiskers are 95% confidence.",
-        fontsize=12.5, loc="left")
-    _footer(fig, models)
-    fig.tight_layout(rect=(0, 0.02, 1, 1))
+    ax.set_ylabel("Stereotyped - other accuracy", fontsize=10)
+    fig.tight_layout(rect=(0, 0.0, 1, 1))
     fig.savefig(out_path, dpi=150, bbox_inches="tight")
     plt.close(fig)
 
@@ -130,20 +109,13 @@ def plot_readout_agreement(models: list[ModelDistribution], out_path) -> None:
         ax.bar(offs, rates, width, yerr=errs, color=color, label=label,
                capsize=2, error_kw={"elinewidth": 0.8, "ecolor": "#444444"})
     ax.axhline(1.0 / 3, ls="--", lw=1.0, color="#888888")
-    ax.text(0.0, 1.0 / 3, f" {RANDOM_GUESS_LABEL} (1 in 3)",
+    ax.text(0.0, 1.0 / 3, " chance",
             transform=ax.get_yaxis_transform(),
             fontsize=8, color="#777777", va="bottom")
     ax.set_ylim(0, 1.08)
-    ax.set_ylabel("Abstention rate on no-answer questions", fontsize=10.5)
+    ax.set_ylabel("Abstention rate", fontsize=10.5)
     _xticks(ax, models)
-    ax.legend(title="How the model answered", loc="upper left",
-              fontsize=9.5, framealpha=0.95, title_fontsize=10)
-    ax.set_title(
-        "Does the abstention story hold up across the three ways of answering?\n"
-        "Higher = abstains more on no-answer questions. The forced two-way choice "
-        "offers no 'unknown', so it sits at 0 by design.",
-        fontsize=12.5, loc="left")
-    _footer(fig, models)
-    fig.tight_layout(rect=(0, 0.02, 1, 1))
+    ax.legend(loc="upper left", fontsize=9.5, framealpha=0.95)
+    fig.tight_layout(rect=(0, 0.0, 1, 1))
     fig.savefig(out_path, dpi=150, bbox_inches="tight")
     plt.close(fig)

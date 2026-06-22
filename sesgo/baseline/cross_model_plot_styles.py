@@ -3,7 +3,7 @@
 One Okabe-Ito palette (per family and per role), one size-ordering of models, and
 one compact x-tick labeller, so every distribution figure agrees on colour, order
 and labels. Partial models (fewer items than the full 2310-item run) get a ``*``
-appended to their tick label and an ``n=`` annotation, never a silent omission.
+appended to their tick label, never a silent omission.
 """
 
 from __future__ import annotations
@@ -45,12 +45,3 @@ def tick_label(m: ModelDistribution) -> str:
 def family_color(m: ModelDistribution) -> str:
     """Okabe-Ito hue for a model's family (grey fallback for unknowns)."""
     return FAMILY_COLORS.get(m.family, "#555555")
-
-
-def partial_note(models: list[ModelDistribution]) -> str:
-    """Footnote naming any partial models, or '' when every run is complete."""
-    partials = [f"{m.model} (n={m.n_ambig + m.n_disambig})"
-                for m in models if is_partial(m)]
-    if not partials:
-        return ""
-    return "* partial run (fewer items): " + ", ".join(partials)

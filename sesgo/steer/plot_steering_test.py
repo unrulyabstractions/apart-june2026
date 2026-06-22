@@ -37,22 +37,10 @@ from src.common.logging import log, log_header  # noqa: E402
 from src.steer import SteeringTestResult  # noqa: E402
 from steering_plot_styles import draw_panel, save_fig  # noqa: E402
 
-# Plain-language y-axis title and a one-line "how to read this" line per metric.
+# Plain-language y-axis title per metric.
 _METRIC_AXIS = {
-    "abstain_rate": "How often the model answered 'unknown'",
-    "mean_unknown_prob": "Probability the model gave to answering 'unknown'",
-}
-_METRIC_HOWTO = {
-    "abstain_rate": (
-        "Each line shows how often the model abstained (answered 'unknown') as we "
-        "push harder toward the scaffold direction. Higher up = more abstaining. "
-        "Whiskers are 95% confidence intervals."
-    ),
-    "mean_unknown_prob": (
-        "Each line shows how much probability the model placed on answering "
-        "'unknown' as we push harder toward the scaffold direction. Higher up = "
-        "closer to abstaining."
-    ),
+    "abstain_rate": "Abstention rate",
+    "mean_unknown_prob": "P(unknown)",
 }
 _DEFAULT_INPUTS = (
     "out/sesgo/steer/Qwen3-0.6B/steering_test.json",
@@ -111,16 +99,8 @@ def build_figure(results: list[SteeringTestResult], metric: str):
     for ax, result in zip(axes[0], results):
         draw_panel(ax, result, metric)
     axes[0][0].set_ylabel(_METRIC_AXIS[metric], fontsize=11)
-    fig.suptitle(
-        "Steering the model toward the debiasing scaffold makes it abstain more",
-        fontsize=15.5, fontweight="bold", y=1.0,
-    )
-    fig.text(
-        0.5, 0.945, _METRIC_HOWTO[metric],
-        ha="center", fontsize=10, style="italic", color="#555555", wrap=True,
-    )
     _shared_legend(fig, axes[0][0])
-    fig.tight_layout(rect=(0, 0.07, 1, 0.93))
+    fig.tight_layout(rect=(0, 0.08, 1, 0.99))
     return fig
 
 

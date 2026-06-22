@@ -1,28 +1,37 @@
-# SESGO paper — state at 2026-06-21 (deadline tonight 11:59pm AoE)
+# FINAL PUSH (hackathon, hours left) — parallel work tracker
 
-## DONE + on main (pushed)
-- Plot overhaul: ALL families plain-language (no 3-opt/non-thinking/p(UNKNOWN)/chance), shared
-  sesgo/common/plain_language_labels.py. Reviewer blocker fixed (full_data_axis jargon + stale PNG).
-- Geometry Qwen3-32B rendered (0->37 plots); O(n^2) analyze fixed; thinking_outcome axis.
-- Dynamics: full 60-position forking O_t + change-point + both branching trees. HONEST result =
-  no significant single change point on 0.6B (Bayes factor 0.023); strongest fork t=42.
-- 7 NARRATIVE KEY FIGURES (one per study), each image-verified by me in the PDF:
-  F1 outcome-mass-vs-scale mosaic, F2 disambig accuracy + wording gap, F3 format-invariance
-  small-vs-big, F4 pre/post-think agreement, F5 scaffold->abstention delta, F6 O_t/change-point,
-  F7 scaffold-boundary PCA (separation 0.71 @ layer 14). Reviewer punch-list fixed (F4 declutter,
-  F6 CVD colours, F2 plain ticks, full_data blocker, geometry caption ranges).
-- Paper: all 7 + hero breakdown + branching tree integrated into per-study appendices with
-  finding-based captions. Builds clean: 18pp, 0 missing figures, 0 errors. Geometry n reconciled
-  to the full 4620-sample run.
-- Data-loss root-cause + prevention in tasks/lessons.md; agents-stay-in-worktrees rule in CLAUDE.md.
+## RUNNING — cloud (all credit-gated, destroy-on-done; ~$57 credit)
+- [ ] forking Qwen3-0.6B full-CoT  (af84145d) — O_t + forking_positions/
+- [ ] forking Qwen3-32B dynamics   (a8e10be1) — 50/pos, parallel, fastest backend, token excerpts; in uv-sync
+- [ ] divergence Qwen3-0.6B + 32B  (a6bbef4f) — 1 prompt x ~100 samples + per-gen vocab entropy
+- [ ] selection Qwen3-32B          (a0b107cf) — the empty cell (re-launched after a crash; no orphan)
 
-## REMAINING (small)
-- [ ] Cosmetic nits (reviewer LOW): selection title/subtitle order (gloss above title on 3 figs);
-      geometry pca_scatter_label annotation box overlaps the orange cloud. Both optional polish.
-- [ ] §Results in the MAIN body is a deliberate STUB — the AUTHOR writes it (per request).
+## RUNNING — local polish workflow wlpewfk4m (5 agents)
+- [ ] dynamics 5-panel restored+polished (O_t+token strip+pull/drift/potential+single diversity+changepoint), minimal text, fork-token highlights
+- [ ] minimal-text baseline/cross_model/full_data + gemma-FREE re-render + promote bias VARIANT B to canonical bias_alignment_accuracy.png
+- [ ] minimal-text divergence/selection/steer (kill all how-to-read/verbose legends)
+- [ ] F3 stability split by format axis (label vs role order), minimal
+- [ ] geometry minimal-text + depth_scatters ALL colour axes in per-axis subfolders
 
-## TRULY-LOST cells (need a cloud re-run — DEFERRED, documented, NOT run unattended)
-- baseline Qwen3-8B; selection Llama-70B/Llama-1B/Qwen-32B; geometry Llama-1B/3B.
-- partial-but-usable + shown honestly: baseline Qwen3-32B (n=1376), gemma-2-27b-it (degenerate,
-  flagged in F2). Full divergence beyond n=47 not run (user: do NOT sample more).
-- To fill in the morning (watch the spend): a small credit-gated, checkpointed fleet via cloud/.
+## WHEN WORKFLOW DONE — MY verification + integration pass (do NOT skip)
+1. [ ] RENDER-PASS: actually RUN every figure script; catch crashes. KNOWN BUG:
+       sesgo/baseline/cross_model_disambig_scaling_figure.py — plot_disambig_scaling() def takes
+       (cells,out_path) but main() calls it with (cells,out_path,n_models). FIX signature mismatch.
+2. [ ] IMAGE-VERIFY every figure (minimal text? clean? gemma gone? legends outside?). Iterate until polished.
+3. [ ] Integrate updated/new figures into appendix/*.tex (bias B already at canonical path; depth-scatters; F3; dynamics).
+4. [ ] Rebuild paper; verify PDF with image tokens (0 placeholders, 0 errors).
+5. [ ] git add + commit + push (paper appendix + sesgo/ figure code).
+
+## WHEN CLOUD DONE
+6. [ ] Sync + VERIFY data quality (NOT uniform/NaN like gemma) for each: forking-32B, divergence, selection-32B.
+7. [ ] Re-render the affected figures (dynamics-32B, divergence re-scoped, selection-32B) + integrate.
+
+## FINAL
+8. [ ] HF re-upload out/ (now 3.7G, clean) EXCLUDING **/*.log and **/activations/** ; confirm commit lands.
+9. [ ] Final out/ audit (no shards/activations/gemma/degenerate cells); honest gaps note.
+
+## DONE this push
+- out/ cleaned 68G->3.7G (0 shards, 0 activations, gemma-2-27b-it removed — was degenerate uniform 1/3)
+- paper modularized (homo-style: main.tex thin + paperdefs + sections/ + appendix/ + figures/)
+- stability grid completed on cloud (Qwen 0.6B/32B, Llama 1B/70B); F3 within-family
+- bias variant B chosen (clean: realizable triangle + ideal point, family-hue x size-shade, single legend, no how-to-read)

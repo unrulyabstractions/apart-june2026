@@ -110,20 +110,22 @@ def _node_positions(tree: BranchingTree) -> list[tuple[float, float]]:
     return pos
 
 
-def _legend(ax, labels: list[str]) -> None:
+def _legend(ax, labels: list[str], *, show_title: bool) -> None:
     """Outcome-category legend (Okabe-Ito swatches) below the title."""
     handles = [mpatches.Patch(facecolor=_node_color(lbl, i), edgecolor="white", label=lbl)
                for i, lbl in enumerate(labels)]
     ax.legend(handles=handles, loc="lower center", ncol=len(labels), fontsize=8.5,
               frameon=True, framealpha=0.9, bbox_to_anchor=(0.5, -0.04),
-              title="outcome category", title_fontsize=8.5)
+              title="outcome category" if show_title else None, title_fontsize=8.5)
 
 
-def plot_branching_tree(tree: BranchingTree, path, title: str) -> str:
+def plot_branching_tree(tree: BranchingTree, path, title: str, *,
+                        minimal: bool = False) -> str:
     """Render the branching tree to ``path`` and return the written path.
 
-    ``title`` is the figure heading (the study + item); the paper-style subtitle
-    and the per-node outcome distributions come straight from the tree.
+    ``title`` is the figure heading. When ``minimal`` is set, the paper-style
+    subtitle, the caption line, and the legend title are dropped (publication
+    minimal-text mode); the per-node outcome distributions come from the tree.
     """
     fig, ax = plt.subplots(figsize=(11, 6))
     pos = _node_positions(tree)
@@ -150,13 +152,13 @@ def plot_branching_tree(tree: BranchingTree, path, title: str) -> str:
     ys = [p[1] for p in pos]
     ax.set_ylim(min(ys) - 0.9, max(ys) + 0.9)
     ax.axis("off")
-    # Title + two stacked subtitles, each on its own line above the data so none
-    # of the chrome ever collides with the title or the top branch node.
+    # Short bold title; in non-minimal mode add the paper subtitle + item caption.
     fig.suptitle(title, fontsize=13.5, fontweight="bold", y=0.99)
-    ax.text(0.5, 1.075, "branching-tree of outcome distributions (arXiv:2601.06116)",
-            transform=ax.transAxes, ha="center", va="bottom", fontsize=9,
-            color=REF, style="italic")
-    ax.text(0.5, 1.035, tree.caption, transform=ax.transAxes, ha="center",
-            va="bottom", fontsize=8.5, color="#444444")
-    _legend(ax, labels)
+    if not minimal:
+        ax.text(0.5, 1.075, "branching-tree of outcome distributions (arXiv:2601.06116)",
+                transform=ax.transAxes, ha="center", va="bottom", fontsize=9,
+                color=REF, style="italic")
+        ax.text(0.5, 1.035, tree.caption, transform=ax.transAxes, ha="center",
+                va="bottom", fontsize=8.5, color="#444444")
+    _legend(ax, labels, show_title=not minimal)
     return save_fig(fig, path)

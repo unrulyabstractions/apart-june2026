@@ -27,7 +27,6 @@ from sesgo.common.plain_language_labels import (
 from selection_metrics_helpers import (
     counts_by_category,
     counts_by_level,
-    readout_title,
 )
 from selection_plot_helpers import (
     SERIES_COLOR,
@@ -38,8 +37,7 @@ from selection_plot_helpers import (
 
 # Random guessing on a three-way (target / other / unknown) ambiguous question.
 _CHANCE_AMBIG = 1 / 3
-_ABSTAIN_AXIS = "Abstention rate\n(answers 'unknown')"
-_HOW_TO_READ_BETTER = "Each bar = the share of ambiguous items the model abstained on (higher is better). Whiskers = 95% CIs; numbers = sample size."
+_ABSTAIN_AXIS = "Abstention rate"
 
 
 def _present_categories(dataset, level: str) -> list[str]:
@@ -60,11 +58,7 @@ def figure_abstention_by_readout(dataset, model: str, out_path: Path) -> Path:
     fig, ax = plt.subplots(figsize=(max(6.5, 2.6 * len(drawn) + 1.5), 5.4),
                            layout="constrained")
     panel(ax, labels, indexed, colors, _ABSTAIN_AXIS, _CHANCE_AMBIG)
-    figure_titles(
-        fig,
-        f"How often the model refuses to guess on ambiguous questions  ·  {model}",
-        _HOW_TO_READ_BETTER,
-    )
+    figure_titles(fig, f"Abstention by answering style  ·  {model}")
     return save_figure(fig, out_path)
 
 
@@ -80,11 +74,7 @@ def figure_abstention_by_category(dataset, model: str, out_path: Path) -> Path:
                            layout="constrained")
     panel(ax, labels, indexed, colors, _ABSTAIN_AXIS, _CHANCE_AMBIG,
           badge=READOUT_LABEL["non_thinking"])
-    figure_titles(
-        fig,
-        f"Does the model guess more on some kinds of bias?  ·  {model}",
-        _HOW_TO_READ_BETTER,
-    )
+    figure_titles(fig, f"Abstention by bias category  ·  {model}")
     return save_figure(fig, out_path)
 
 
@@ -99,14 +89,9 @@ def figure_abstention_panels(dataset, model: str, out_path: Path) -> Path:
     for ax, lvl in zip(axes[:, 0], drawn):
         label = READOUT_LABEL[lvl]
         indexed = {label: counts[lvl]} if lvl in counts else {label: None}
-        # Badge carries the short readout name + one-line gloss as the panel's
-        # plain caption; the x-tick would just repeat it, so it is hidden.
+        # Badge carries the short readout name; the x-tick would repeat it, so hidden.
         panel(ax, [label], indexed, [SERIES_COLOR[lvl]], _ABSTAIN_AXIS,
-              _CHANCE_AMBIG, badge=readout_title(lvl), show_xticklabels=False,
+              _CHANCE_AMBIG, badge=label, show_xticklabels=False,
               show_legend=(ax is axes[0, 0]))
-    figure_titles(
-        fig,
-        f"Abstention on ambiguous questions, by answering style  ·  {model}",
-        _HOW_TO_READ_BETTER,
-    )
+    figure_titles(fig, f"Abstention by answering style  ·  {model}")
     return save_figure(fig, out_path)

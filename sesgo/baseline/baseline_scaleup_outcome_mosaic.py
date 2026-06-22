@@ -148,12 +148,12 @@ def render(cells: list[OutcomeCell], out_path: pathlib.Path) -> None:
             if c == 0:
                 ax.set_ylabel(fam, fontsize=13, fontweight="bold", labelpad=10)
     _add_legend_and_titles(fig)
-    fig.text(0.5, 0.052, "Model size (parameters, left to right)      left bar = "
-             f"{POLARITY_LABEL['nonneg']}      right bar = {POLARITY_LABEL['neg']}",
-             ha="center", fontsize=11)
-    fig.text(0.02, 0.46, "Average answer mass  (each bar sums to 1)",
-             va="center", rotation=90, fontsize=11)
-    fig.subplots_adjust(left=0.085, right=0.985, top=0.79, bottom=0.095,
+    fig.text(0.5, 0.052,
+             f"Model size (B params)   left = {POLARITY_LABEL['nonneg']}, "
+             f"right = {POLARITY_LABEL['neg']}",
+             ha="center", fontsize=10)
+    fig.text(0.02, 0.46, "Average answer mass", va="center", rotation=90, fontsize=11)
+    fig.subplots_adjust(left=0.085, right=0.985, top=0.88, bottom=0.095,
                         hspace=0.36, wspace=0.1)
     out_path.parent.mkdir(parents=True, exist_ok=True)
     fig.savefig(out_path, dpi=170)
@@ -161,18 +161,10 @@ def render(cells: list[OutcomeCell], out_path: pathlib.Path) -> None:
 
 
 def _add_legend_and_titles(fig) -> None:
-    """Plain-sentence title, how-to-read subtitle, and the t/o/u colour key."""
-    fig.suptitle("Bigger models more often abstain on unanswerable questions "
-                 "instead of guessing a group", fontsize=16, fontweight="bold", y=0.975)
-    fig.text(0.5, 0.905, "How to read this: each bar is the model's average answer; a "
-             "tall GREEN cap = it correctly declines to pick a group (good).",
-             ha="center", fontsize=11.5, color="#333333")
-    fig.text(0.5, 0.885, "Black whisker = Wilson 95% CI on the abstention rate; "
-             "n = ambiguous items behind the bars.",
-             ha="center", fontsize=10.5, color="#666666")
+    """The target / other / unknown colour key (no titles, no how-to-read text)."""
     handles = [plt.Rectangle((0, 0), 1, 1, color=_ROLE_COLOR[r]) for r in _ROLES]
     fig.legend(handles, [ROLE_LABEL[r] for r in _ROLES], loc="upper center",
-               bbox_to_anchor=(0.5, 0.866), ncol=3, frameon=False,
+               bbox_to_anchor=(0.5, 0.95), ncol=3, frameon=False,
                fontsize=11.5, handlelength=1.3)
 
 

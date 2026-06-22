@@ -75,14 +75,10 @@ def _agreement(sample: dict, role: str) -> ItemAgreement:
     return ItemAgreement(sample["bias_category"], pre, post, n, lo, hi)
 
 
-def _draw_panel(ax, items: list[ItemAgreement], role: str, *, show_diag_text: bool,
+def _draw_panel(ax, items: list[ItemAgreement], role: str, *,
                 marker: float = 58) -> None:
     """One pre-vs-post scatter with the y=x diagonal and FAINT Wilson whiskers."""
     ax.plot([0, 1], [0, 1], color="#555555", lw=1.4, ls="--", zorder=1)
-    if show_diag_text:
-        ax.text(0.32, 0.37, "on the line = thinking didn't change the answer",
-                transform=ax.transAxes, rotation=45, rotation_mode="anchor",
-                ha="center", va="bottom", fontsize=7.5, color="#777777", style="italic")
     for cat in CATEGORY_ORDER:
         grp = [it for it in items if it.category == cat]
         if not grp:
@@ -104,23 +100,19 @@ def _draw_panel(ax, items: list[ItemAgreement], role: str, *, show_diag_text: bo
 
 
 def build_figure(samples: list[dict]):
-    """Main abstain panel + two companions (target / other), shared n annotation."""
+    """Main abstain panel + two companions (target / other), shared legend."""
     items = _scored_items(samples)
-    n_items = len(items)
-    fig = plt.figure(figsize=(13.0, 6.8))
+    fig = plt.figure(figsize=(13.0, 6.4))
     gs = fig.add_gridspec(2, 2, width_ratios=[1.25, 1.0], height_ratios=[1, 1],
-                          left=0.07, right=0.985, top=0.79, bottom=0.17,
-                          wspace=0.26, hspace=0.66)
+                          left=0.07, right=0.985, top=0.95, bottom=0.16,
+                          wspace=0.26, hspace=0.5)
     ax_main = fig.add_subplot(gs[:, 0])
     ax_tgt = fig.add_subplot(gs[0, 1])
     ax_oth = fig.add_subplot(gs[1, 1])
 
-    _draw_panel(ax_main, [_agreement(s, "unknown") for s in items], "unknown",
-                show_diag_text=True)
-    _draw_panel(ax_tgt, [_agreement(s, "target") for s in items], "target",
-                show_diag_text=False, marker=32)
-    _draw_panel(ax_oth, [_agreement(s, "other") for s in items], "other",
-                show_diag_text=False, marker=32)
+    _draw_panel(ax_main, [_agreement(s, "unknown") for s in items], "unknown")
+    _draw_panel(ax_tgt, [_agreement(s, "target") for s in items], "target", marker=32)
+    _draw_panel(ax_oth, [_agreement(s, "other") for s in items], "other", marker=32)
 
     # ONE shared legend below the panels, out of the data area.
     counts = {c: sum(1 for s in items if s["bias_category"] == c) for c in CATEGORY_ORDER}
@@ -128,21 +120,7 @@ def build_figure(samples: list[dict]):
                markerfacecolor=CATEGORY_COLOR[c], label=f"{CATEGORY_LABEL[c]} (n={counts[c]})")
                for c in CATEGORY_ORDER if counts[c]]
     fig.legend(handles=handles, loc="lower center", ncol=len(handles), frameon=False,
-               fontsize=9, bbox_to_anchor=(0.5, 0.02), title="Social-group category",
-               title_fontsize=9)
-
-    fig.text(0.5, 0.95,
-             "Thinking step by step often moves Qwen3-0.6B's answer on ambiguous "
-             "bias questions -- usually away from abstaining",
-             ha="center", va="center", fontsize=13, fontweight="bold")
-    fig.text(0.5, 0.885,
-             "How to read this: each dot is one question. Dots ON the dashed line mean "
-             "thinking left the answer unchanged; in the left panel, dots BELOW the line",
-             ha="center", va="center", fontsize=9, color="#555555", style="italic")
-    fig.text(0.5, 0.855,
-             f"mean thinking made the model abstain less often. {n_items} questions; "
-             "post-thinking bars are Wilson 95% intervals.",
-             ha="center", va="center", fontsize=9, color="#555555", style="italic")
+               fontsize=9, bbox_to_anchor=(0.5, 0.02))
     return fig
 
 

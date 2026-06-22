@@ -27,7 +27,7 @@ from sesgo.baseline.baseline_plot_palette import (
     ordered_categories,
 )
 from sesgo.baseline.cross_model_aggregation import CONDITIONS
-from sesgo.common import CATEGORY_LABEL, RANDOM_GUESS_LABEL
+from sesgo.common import CATEGORY_LABEL
 
 
 def _bar_with_ci(ax, x: float, cell: AccuracyCell, color: str) -> None:
@@ -59,7 +59,7 @@ def _accuracy_panel(ax, cond: str, cells: list[AccuracyCell], cats: list[str]) -
                 _bar_with_ci(ax, x, cell, SLICE_COLORS[slice_label])
     chance = CHANCE.get(cond, 1 / 3)
     ax.axhline(chance, ls="--", lw=1.0, color="#888888", alpha=0.8, zorder=1)
-    ax.text(0.004, chance, f" {RANDOM_GUESS_LABEL} ({chance:.0%})",
+    ax.text(0.004, chance, " chance",
             transform=ax.get_yaxis_transform(), ha="left", va="bottom",
             fontsize=7.5, color="#777777")
     ax.set_xticks(range(len(cats)))
@@ -71,7 +71,7 @@ def _accuracy_panel(ax, cond: str, cells: list[AccuracyCell], cats: list[str]) -
     ax.margins(x=0.04)
 
 
-def plot_accuracy(cells: list[AccuracyCell], cats: list[str], model: str, n: int, out_path):
+def plot_accuracy(cells: list[AccuracyCell], cats: list[str], out_path):
     """Stacked figure: one answering-mode row each, all in plain language."""
     cats = ordered_categories(cats)
     conds = [c for c, _ in CONDITIONS]
@@ -82,17 +82,9 @@ def plot_accuracy(cells: list[AccuracyCell], cats: list[str], model: str, n: int
     np.atleast_1d(axes)[-1].set_xlabel("Bias category", fontsize=11)
     handles = [plt.Rectangle((0, 0), 1, 1, color=SLICE_COLORS[s]) for s, _, _ in SLICES]
     fig.legend(handles, [SLICE_LABELS[s] for s, _, _ in SLICES],
-               title="What each bar measures (taller = better)", loc="lower center",
-               ncol=1, bbox_to_anchor=(0.5, 0.0), frameon=False,
-               fontsize=9.5, title_fontsize=10)
-    fig.suptitle(
-        f"How well {model} answers SESGO social-bias questions  (n={n} scored items)\n"
-        "Each row is one way of answering.  Taller bars are better.  When the orange "
-        "and light-blue bars differ a lot, the model is more accurate for one group "
-        "than the other - a sign of bias.",
-        fontsize=12, fontweight="bold",
-    )
-    fig.tight_layout(rect=(0, 0.08, 1, 0.95))
+               loc="lower center", ncol=3, bbox_to_anchor=(0.5, 0.0), frameon=False,
+               fontsize=9.5)
+    fig.tight_layout(rect=(0, 0.05, 1, 1.0))
     fig.savefig(out_path, dpi=150, bbox_inches="tight")
     plt.close(fig)
     return out_path

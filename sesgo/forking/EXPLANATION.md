@@ -57,11 +57,13 @@ Written to `forking_analysis.json`.
 
 The headline figure is the **stacked-area `O_t` vs token position** (one colored
 band per outcome category, `y ∈ [0, 1]`), with the detected change-point token
-marked by a red dashed line and the base-path tokens drawn beneath, each shaded by
-`p(τ=t|y)` on a yellow→red heatmap (the forking token gets a red box). Companion
-panels show the dynamic states, the diversity series, and survival with the
-`p(τ=t|y)` curve overlaid. The band widths show how the outcome distribution
-"collapses" as the model commits.
+marked by a red dashed line and the base-path tokens drawn beneath in a token
+strip. Each token is shaded by its `O_t` jump `Δ_t = ||O_t - O_{t-1}||`, and the
+**forking tokens** — the large-jump base-path tokens that flip the outcome
+distribution — get a bold red box, so you can read WHICH words flip the answer.
+Companion panels show the dynamic states (pull / drift / potential), a single
+diversity line `H(O_t)`, and survival with the `p(τ=t|y)` curve overlaid. The band
+widths show how the outcome distribution "collapses" as the model commits.
 
 ## Stage 5b — branching tree (`render_branching_tree.py`)
 
@@ -80,7 +82,9 @@ encodes the branch mass and which carries its opening token label, and one legen
 names the outcome categories. The same renderer is imported by the divergence study
 (`sesgo/divergence/visualize_divergence_samples.py`), where the branches are the two
 NAMED identities of a representative ambiguous item — so both studies present the
-fork the same way the paper does.
+fork the same way the paper does. The divergence driver passes `minimal=True`,
+which drops the arXiv subtitle, the item caption, and the legend title for a
+publication-clean tree; the forking driver keeps the default annotated mode.
 
 ## Verification status
 

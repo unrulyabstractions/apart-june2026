@@ -25,8 +25,8 @@ BASELINE_COLOR = "#444444"  # alpha = 0, no steering applied
 PUSH_AWAY_FILL = "#CC79A7"  # negative-alpha control (steering the opposite way)
 
 # Plain-language curve labels reused by the panel drawer and the shared legend.
-HELDOUT_LABEL = "Held-out questions (never used to build the direction)"
-FITTED_LABEL = "Questions used to build the direction"
+HELDOUT_LABEL = "Held-out"
+FITTED_LABEL = "Fit set"
 
 
 def save_fig(fig, path):
@@ -79,13 +79,13 @@ def draw_panel(ax, result: SteeringTestResult, metric: str) -> None:
 
     # Shade the negative-alpha region: there we steer the OPPOSITE way (the control).
     ax.axvspan(left, 0.0, color=PUSH_AWAY_FILL, alpha=0.08, lw=0, zorder=0)
-    ax.text(left / 2.0, 0.02, "steered the\nopposite way", ha="center", va="bottom",
+    ax.text(left / 2.0, 0.02, "opposite", ha="center", va="bottom",
             fontsize=8, color="#8a4d6f", style="italic", zorder=1)
 
     # The scaffold's own abstention: the behaviour steering is trying to reproduce.
     ref = getattr(result.scaffold_reference, metric)
     ax.axhline(ref, color=TARGET_COLOR, ls="--", lw=1.6, zorder=1,
-               label=f"Scaffold's own level ({ref:.0%})")
+               label=f"Scaffold ({ref:.0%})")
 
     # No-steering reference at alpha = 0.
     base_pt = next(p for p in result.sweep if p.alpha == 0.0)
@@ -103,10 +103,9 @@ def draw_panel(ax, result: SteeringTestResult, metric: str) -> None:
     _draw_curve(ax, hx, hy, hn, color=HELDOUT_COLOR, label=HELDOUT_LABEL,
                 lw=2.4, ms=7, z=3, metric=metric)
 
-    ax.set_title(f"{short}   ({result.n_ambiguous_test_items} held-out questions)",
+    ax.set_title(f"{short}  (n={result.n_ambiguous_test_items})",
                  fontsize=12, fontweight="bold", pad=8)
-    ax.set_xlabel("Steering strength  (higher = push harder toward the scaffold)",
-                  fontsize=9.5)
+    ax.set_xlabel("Steering strength", fontsize=9.5)
     ax.set_ylim(-0.03, 1.08)
     ax.set_yticks(np.arange(0.0, 1.01, 0.2))
     ax.set_yticklabels([f"{t:.0%}" for t in np.arange(0.0, 1.01, 0.2)])

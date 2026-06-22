@@ -20,16 +20,14 @@ from __future__ import annotations
 
 import numpy as np
 
-from sesgo.geometry.geometry_plain_labels import axis_title
-
 from .geometry_plot_helpers import robust_limits
 
 # Sequential, perceptually-uniform colormap for every continuous signal.
 _SEQ_CMAP = "viridis"
-# Plain axis-depth label shared by the heatmap and the layer sweep.
-_DEPTH_X_LABEL = "Layer in the network (middle to last)"
-# Plain name for the silhouette score: how cleanly the colour groups separate.
-_SEPARATION_LABEL = "How cleanly the groups separate (0 = overlapping)"
+# Short axis-depth label shared by the heatmap and the layer sweep.
+_DEPTH_X_LABEL = "Layer"
+# Short name for the silhouette score.
+_SEPARATION_LABEL = "Separation"
 
 
 def draw_continuous_scatter(ax, coords: np.ndarray, values: list[float], evr: list[float]):
@@ -56,8 +54,8 @@ def draw_continuous_scatter(ax, coords: np.ndarray, values: list[float], evr: li
     ax.set_ylim(*ylim)
     ax.axhline(0, color="#cccccc", lw=0.8, zorder=1)
     ax.axvline(0, color="#cccccc", lw=0.8, zorder=1)
-    ax.set_xlabel(f"PC1  ({evr[0]:.0%} of variance)")
-    ax.set_ylabel(f"PC2  ({evr[1]:.0%} of variance)" if len(evr) > 1 else "PC2")
+    ax.set_xlabel(f"PC1  ({evr[0]:.0%})")
+    ax.set_ylabel(f"PC2  ({evr[1]:.0%})" if len(evr) > 1 else "PC2")
     return sc
 
 
@@ -85,7 +83,7 @@ def draw_silhouette_heatmap(ax, table: dict) -> None:
     ax.set_xticks(range(len(layers)))
     ax.set_xticklabels([str(L) for L in layers])
     ax.set_yticks(range(len(axes)))
-    ax.set_yticklabels([axis_title(a, a.replace("_", " ")) for a in axes], fontsize=8.5)
+    ax.set_yticklabels([a.replace("_", " ") for a in axes], fontsize=8.5)
     ax.set_xlabel(_DEPTH_X_LABEL)
     for i in range(grid.shape[0]):
         for j in range(grid.shape[1]):
@@ -109,8 +107,8 @@ def draw_layer_sweep(ax, table: dict, axis_keys, palette) -> None:
             continue
         ys = [np.nan if v is None else float(v) for v in series]
         ax.plot(layers, ys, marker="o", lw=2.0, color=palette[i % len(palette)],
-                label=axis_title(key, key.replace("_", " ")))
+                label=key.replace("_", " "))
     ax.axhline(0, color="#888888", lw=1.0, zorder=1)
     ax.set_xlabel(_DEPTH_X_LABEL)
     ax.set_ylabel(_SEPARATION_LABEL)
-    ax.legend(title="Coloured by", frameon=True, fontsize=9)
+    ax.legend(frameon=True, fontsize=9)

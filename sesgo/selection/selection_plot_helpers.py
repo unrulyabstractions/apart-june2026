@@ -11,7 +11,6 @@ marks the random-guessing rate. All rendered text is plain English (see
 from __future__ import annotations
 
 from pathlib import Path
-from textwrap import fill
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -96,12 +95,9 @@ def panel(ax, labels, counts, colors, ylabel, chance,
                       "alpha": 0.92})
 
 
-def figure_titles(fig, title: str, how_to_read: str) -> None:
-    """Bold plain-sentence title ABOVE a wrapped italic 'how to read this' line."""
-    fig.suptitle(title, fontsize=13.5, fontweight="bold", y=1.08)
-    fig.text(0.5, 1.012, fill(how_to_read, width=86), ha="center", va="top",
-             fontsize=9.5, color="#444444", style="italic",
-             transform=fig.transFigure, linespacing=1.25)
+def figure_titles(fig, title: str) -> None:
+    """Short bold figure title. No how-to-read gloss."""
+    fig.suptitle(title, fontsize=13.5, fontweight="bold", y=1.02)
 
 
 def save_figure(fig, out_path: Path) -> Path:

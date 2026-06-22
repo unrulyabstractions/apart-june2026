@@ -29,13 +29,13 @@ from sesgo.common.plain_language_labels import (
 
 # The two readouts full_data carries: direct answer vs reason-first. (attr, row title)
 _READOUTS: tuple[tuple[str, str], ...] = (
-    ("correct_non_thinking", "Without thinking\n(answers directly)"),
-    ("correct_greedy_thinking", "With thinking\n(reasons first)"),
+    ("correct_non_thinking", "Without thinking"),
+    ("correct_greedy_thinking", "With thinking"),
 )
 # Question wording -> bar colour (Okabe-Ito: neutral light-blue vs negative vermillion).
 _WORDING: tuple[tuple[str, str, str], ...] = (
-    ("nonneg", "Neutral wording", "#56B4E9"),
-    ("neg", "Negative wording", "#D55E00"),
+    ("nonneg", "Neutral", "#56B4E9"),
+    ("neg", "Negative", "#D55E00"),
 )
 _CHANCE = 1 / 3  # three roles (target / other / unknown): random pick lands here.
 
@@ -84,7 +84,7 @@ def _panel(ax, samples: list[SesgoSample], attr: str, cat: str) -> None:
     ax.set_yticks([0, 0.25, 0.5, 0.75, 1.0])
 
 
-def plot_abstention_breakdown(ambig_samples: list[SesgoSample], model: str, out_path):
+def plot_abstention_breakdown(ambig_samples: list[SesgoSample], out_path):
     """Faceted ambiguous-abstention figure: readout (rows) x bias category (cols)."""
     cats = [c for c in CATEGORY_ORDER if any(s.bias_category == c for s in ambig_samples)]
     nrow, ncol = len(_READOUTS), len(cats)
@@ -97,23 +97,15 @@ def plot_abstention_breakdown(ambig_samples: list[SesgoSample], model: str, out_
             if ri == 0:
                 ax.set_title(CATEGORY_LABEL.get(cat, cat), fontsize=12.5, fontweight="bold")
             if ci == 0:
-                ax.set_ylabel(f"{row_title}\n\nabstention rate (answers 'unknown')",
-                              fontsize=9.5)
+                ax.set_ylabel(f"{row_title}\nabstention rate", fontsize=9.5)
             if ci == ncol - 1:
-                ax.text(0.99, _CHANCE, " random guessing (1 in 3)",
+                ax.text(0.99, _CHANCE, " chance",
                         transform=ax.get_yaxis_transform(), ha="right", va="bottom",
                         fontsize=6.5, color="#888888")
     handles, labels = axes[0][0].get_legend_handles_labels()
-    fig.legend(handles, labels, title="question wording", loc="lower center", ncol=2,
-               frameon=False, bbox_to_anchor=(0.5, 0.0), fontsize=10, title_fontsize=10)
-    fig.suptitle(
-        f"Does {model} correctly say 'unknown' on ambiguous questions?  "
-        f"(n={len(ambig_samples)} ambiguous items)\n"
-        "Higher bar = more often correctly abstains.  A debiasing scaffold should push bars "
-        "UP versus 'No scaffold'.  Dashed line = random guessing.",
-        fontsize=13, fontweight="bold",
-    )
-    fig.tight_layout(rect=(0, 0.05, 1, 0.95))
+    fig.legend(handles, labels, loc="lower center", ncol=2,
+               frameon=False, bbox_to_anchor=(0.5, 0.0), fontsize=10)
+    fig.tight_layout(rect=(0, 0.03, 1, 1.0))
     fig.savefig(out_path, dpi=150, bbox_inches="tight")
     plt.close(fig)
     return out_path

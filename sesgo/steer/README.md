@@ -66,10 +66,9 @@ uv run python sesgo/steer/plot_steering_test.py \
 One row of per-model panels: held-out **TEST** abstention vs alpha (the causal
 claim) overlaid with the in-sample **TRAIN** curve, marking the alpha=0 unsteered
 baseline, the negative-alpha control region, and the real-scaffold reference.
-Rendered labels are plain-language (no pipeline jargon): the TEST curve reads
-"Held-out questions (never used to build the direction)", the TRAIN curve reads
-"Questions used to build the direction", alpha reads "Steering strength (higher =
-push harder toward the scaffold)", and the abstention metric carries Wilson 95%
+Rendered labels are minimal plain-language (no pipeline jargon, no how-to-read
+gloss): the TEST curve legend reads "Held-out", the TRAIN curve reads "Fit set",
+alpha reads "Steering strength", and the abstention metric carries Wilson 95%
 whiskers. With no args it defaults to the three Qwen3 bundles. Writes
 `out/sesgo/steer/figures/abstention_vs_alpha.png`.
 

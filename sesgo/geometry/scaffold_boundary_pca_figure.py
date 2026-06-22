@@ -119,13 +119,9 @@ def load_boundary() -> BoundaryCell:
 
 
 def render(cell: BoundaryCell) -> None:
-    """Draw the PC1-PC2 scatter coloured by scaffold with a plain-language caption."""
+    """Draw the PC1-PC2 scatter coloured by scaffold (minimal text per the rule)."""
     base = np.array(cell.baseline_xy)
     scaf = np.array(cell.scaffold_xy)
-    frac = int(cell.layer) / (TOTAL_LAYERS - 1)
-    where = ("a quarter of the way" if frac < 0.4 else
-             "halfway" if frac < 0.6 else
-             "two thirds of the way" if frac < 0.75 else "deep")
     base_name = SCAFFOLD_LABEL[None]
     scaf_name = SCAFFOLD_LABEL["interpretive_direction"]
 
@@ -134,32 +130,23 @@ def render(cell: BoundaryCell) -> None:
                        (scaf, OK["scaffold"], f"{scaf_name}  (n={len(scaf)})")):
         ax.scatter(xy[:, 0], xy[:, 1], s=10, alpha=0.45, color=c, edgecolors="none", label=lbl)
 
-    ax.set_title(
-        "A one-sentence debiasing instruction splits the model's internal state\n"
-        f"into two clearly separated regions  (layer {cell.layer} of "
-        f"{TOTAL_LAYERS - 1}, {where} through the network)",
-        fontsize=15, fontweight="bold", pad=58)
-    ax.text(0.5, 1.085,
-            "How to read this: each dot is one question's internal state; the further apart\n"
-            "the two colours sit, the more the instruction reshaped what the model represents.",
-            transform=ax.transAxes, ha="center", va="bottom", fontsize=10.5, color="#444")
+    ax.set_title("Scaffold decision boundary", fontsize=14, fontweight="bold", pad=10)
+    ax.text(0.0, 1.0, f"layer {cell.layer}/{TOTAL_LAYERS - 1}", transform=ax.transAxes,
+            ha="left", va="bottom", fontsize=9, color="#666")
 
-    ax.set_xlabel(f"Main axis of variation  ({cell.pc1_var:.0f}% of the spread)", fontsize=11)
-    ax.set_ylabel(f"Second axis of variation  ({cell.pc2_var:.0f}% of the spread)", fontsize=11)
-    ax.legend(loc="upper center", bbox_to_anchor=(0.5, -0.1), ncol=2,
+    ax.set_xlabel(f"PC1  ({cell.pc1_var:.0f}%)", fontsize=11)
+    ax.set_ylabel(f"PC2  ({cell.pc2_var:.0f}%)", fontsize=11)
+    ax.legend(loc="upper center", bbox_to_anchor=(0.5, -0.09), ncol=2,
               frameon=False, fontsize=10.5, markerscale=2.2, handletextpad=0.3)
 
-    sep = (f"Separation score = {cell.silhouette:.2f}  "
-           f"(95% CI {cell.ci_low:.2f}-{cell.ci_high:.2f})\n"
-           "1 = the two groups sit fully apart    0 = they overlap    "
-           "below 0 = they are intermixed")
-    ax.text(0.025, 0.965, sep, transform=ax.transAxes, ha="left", va="top", fontsize=10,
-            bbox=dict(boxstyle="round,pad=0.5", fc="white", ec="#bbb", alpha=0.95))
+    sep = f"sep {cell.silhouette:.2f} [{cell.ci_low:.2f}, {cell.ci_high:.2f}]"
+    ax.text(0.025, 0.965, sep, transform=ax.transAxes, ha="left", va="top", fontsize=9.5,
+            bbox=dict(boxstyle="round,pad=0.4", fc="white", ec="#bbb", alpha=0.95))
 
     for s in ("top", "right"):
         ax.spines[s].set_visible(False)
     ax.tick_params(labelsize=9.5)
-    fig.subplots_adjust(top=0.72, bottom=0.16, left=0.085, right=0.975)
+    fig.subplots_adjust(top=0.9, bottom=0.16, left=0.085, right=0.975)
     OUT.parent.mkdir(parents=True, exist_ok=True)
     fig.savefig(OUT, dpi=200)
     plt.close(fig)

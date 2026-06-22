@@ -14,22 +14,21 @@ BEHAVIOURAL (read directly from response_samples.json):
   accuracy_by_readout.png   : non-thinking vs greedy-thinking vs sampled-thinking
     accuracy STACKED as subfigures, each split by context condition.
 
-GEOMETRY (from analysis/projections.json; run analyze_geometry.py first):
+GEOMETRY (from analysis/projections.json; run analyze_geometry.py first). Per the
+MINIMAL-TEXT rule each figure carries only its data, a short title, short axis /
+tick / legend labels, and CIs — no how-to-read prose or explanatory subtitles;
+the depth / n / separation-score sit in a tiny corner tag.
   pca_scatter_<position>.png : PC1-PC2 scatter coloured by scaffold, centroids +
     baseline->interpretive shift arrow, at every structural position, rendered at
     the ADAPTIVE feature layer (the captured mid->last layer that maximises the
-    scaffold silhouette at the answer-label position — where the structure is
-    clearest). The title carries that layer + its model-relative depth (e.g.
-    "layer 31/36 (0.86 depth)") so the chosen depth is comparable across sizes.
+    scaffold silhouette at the answer-label position).
   pca_by_<axis>.png / pca_axes_grid.png : the SAME feature-layer answer projection
     recoloured by EVERY axis in the shared geometry_color_axes registry —
-    CATEGORICAL axes (scaffold, origin, language, bias category, question polarity,
-    context condition, accuracy, selected/gold role, readout, identities, gold,
-    label style) get a discrete legend; CONTINUOUS answer-distribution signals
+    CATEGORICAL axes get a discrete legend; CONTINUOUS answer-distribution signals
     (top-choice prob/logit, entropy, diversity, inverse perplexity) get a
     sequential colormap + colorbar.
   silhouette_by_layer_axis.png : (layer x axis) silhouette HEATMAP — at what depth
-    each colour-by axis becomes separable (the per-layer differentiation, visible).
+    each colour-by axis becomes separable.
   silhouette_layer_sweep.png : silhouette-vs-layer line sweep for the KEY axes
     (accuracy, context_condition, selected_role, scaffold).
   centroid_shift_by_position.png : centroid-shift magnitude per (layer, position)
@@ -71,7 +70,6 @@ from sesgo.geometry.geometry_color_axes import (  # noqa: E402
     SCAFFOLD_AXIS_KEY,
 )
 from sesgo.geometry.geometry_plain_labels import (  # noqa: E402
-    axis_title,
     axis_value_label,
     position_label,
 )
@@ -89,13 +87,11 @@ from sesgo.geometry.geometry_plot_helpers import (  # noqa: E402
     BASELINE,
     PALETTE,
     apply_style,
-    axis_caption,
     draw_axis_scatter,
     finish,
     plot_accuracy_by_condition,
     plot_accuracy_by_readout,
     robust_limits,
-    wrapped,
 )
 
 _POSITIONS = (
@@ -133,11 +129,10 @@ def _colour(label: str, ordered: list[str]) -> str:
 
 
 def _layer_phrase(feat: FeatureLayer) -> str:
-    """Plain "layer 14 of 28 (halfway through)" tag, no pipeline jargon."""
+    """Short "layer 14/28" depth tag for the scatter corner annotations."""
     if feat.total_layers <= 0:
-        return "averaged over the prompt"
-    return (f"layer {feat.layer_index} of {feat.total_layers} "
-            f"({feat.relative_depth:.0%} of the way through the network)")
+        return "mean over prompt"
+    return f"layer {feat.layer_index}/{feat.total_layers}"
 
 
 def _wrap_tick(text: str, width: int = 14) -> str:
@@ -146,19 +141,17 @@ def _wrap_tick(text: str, width: int = 14) -> str:
 
 
 def _separation_note(sil: float | None, lo=None, hi=None) -> str:
-    """Compact, plain separation-score phrase (empty when no score is available)."""
+    """Compact separation-score tag (empty when no score is available)."""
     if sil is None:
         return ""
-    note = f"Separation score {sil:.2f} (1 = fully apart, 0 = overlapping, below 0 = intermixed)"
-    return note + (f" [{lo:.2f}, {hi:.2f}]" if lo is not None else "")
+    return f"sep {sil:.2f}" + (f" [{lo:.2f}, {hi:.2f}]" if lo is not None else "")
 
 
-def _scatter_subtitle(ptype: str, feat: FeatureLayer, n: int, sep: str) -> str:
-    """One wrapped 'how to read it' subtitle line shared by the PCA scatters."""
-    base = f"Read at {position_label(ptype)}; {_layer_phrase(feat)}, n={n}"
-    if sep:
-        base += f". {sep}"
-    return wrapped(base, 90)
+def _corner_tag(ax, feat: FeatureLayer, n: int, sep: str) -> None:
+    """Tiny top-left corner tag: depth, n, and (optionally) the separation score."""
+    parts = [_layer_phrase(feat), f"n={n}"] + ([sep] if sep else [])
+    ax.text(0.0, 1.0, "  ".join(parts), transform=ax.transAxes, ha="left",
+            va="bottom", fontsize=8.5, color="#666")
 
 
 def _ordered_scaffolds(labels: set[str]) -> list[str]:
@@ -212,7 +205,7 @@ def _draw_centroid_shift(ax, stats: dict, ordered: list[str]) -> None:
         # scaffold clusters (they separate along PC1), with a thin connector to the
         # arrow midpoint, so the box never occludes a centroid or its point cloud.
         mx, my = (bx + tx) / 2, (by + ty) / 2
-        ax.annotate(f"how far the scaffold\nmoved the state = {sh['shift_magnitude']:.1f}{ci}",
+        ax.annotate(f"shift {sh['shift_magnitude']:.1f}{ci}",
                     xy=(mx, my), xytext=(0.5, 0.03), textcoords="axes fraction",
                     fontsize=8.5, fontweight="bold", color="#333333", ha="center", va="bottom",
                     bbox=dict(boxstyle="round,pad=0.25", fc="white", ec="#999999", alpha=0.92),
@@ -246,22 +239,19 @@ def plot_pca_scatter(block: dict, ptype: str, feat: FeatureLayer, model: str, ou
               & (coords[:, 1] >= ylim[0]) & (coords[:, 1] <= ylim[1]))
     n_off = int((~inside).sum())
     if n_off:
-        ax.text(0.99, 0.01, f"{n_off} outlier point(s) off-view",
+        ax.text(0.99, 0.01, f"{n_off} off-view",
                 transform=ax.transAxes, ha="right", va="bottom", fontsize=8,
                 color="#777777", style="italic")
     ax.axhline(0, color="#cccccc", lw=0.8, zorder=1)
     ax.axvline(0, color="#cccccc", lw=0.8, zorder=1)
-    ax.set_xlabel(f"PC1  ({evr[0]:.0%} of variance)")
-    ax.set_ylabel(f"PC2  ({evr[1]:.0%} of variance)" if len(evr) > 1 else "PC2")
+    ax.set_xlabel(f"PC1  ({evr[0]:.0%})")
+    ax.set_ylabel(f"PC2  ({evr[1]:.0%})" if len(evr) > 1 else "PC2")
 
     sep = _separation_note(stats.get("silhouette"), stats.get("silhouette_ci_low"),
                            stats.get("silhouette_ci_high"))
-    ax.set_title(
-        wrapped(f"The model's internal state, with vs without a debiasing scaffold "
-                f"({model})", 62)
-        + "\nFar-apart clouds mean the scaffold changed how the model reads the prompt."
-        + f"\n{_scatter_subtitle(ptype, feat, block['n_samples'], sep)}", fontsize=11)
-    ax.legend(loc="best", frameon=True, framealpha=0.92, title="Coloured by scaffold")
+    ax.set_title(f"Scaffold vs none  ({model})", fontsize=12)
+    _corner_tag(ax, feat, block["n_samples"], sep)
+    ax.legend(loc="best", frameon=True, framealpha=0.92)
     return finish(fig, out_path)
 
 
@@ -311,34 +301,17 @@ def plot_pca_by_axis(block: dict, axis, feat: FeatureLayer, model: str, out_path
     fig, ax = plt.subplots(figsize=(8, 6.5))
     mappable, n_off = _draw_one_axis(ax, block, axis, evr)
     if n_off:
-        ax.text(0.99, 0.01, f"{n_off} outlier point(s) off-view",
+        ax.text(0.99, 0.01, f"{n_off} off-view",
                 transform=ax.transAxes, ha="right", va="bottom", fontsize=8,
                 color="#777777", style="italic")
-    pretty = axis_title(axis.key, axis.pretty)
-    sep, cap, n_distinct = "", None, None
+    sep = ""
     if mappable is not None:
-        fig.colorbar(mappable, ax=ax, fraction=0.046, pad=0.02, label=pretty)
+        fig.colorbar(mappable, ax=ax, fraction=0.046, pad=0.02)
     else:
         sep = _separation_note(_axis_silhouette(block, axis.key))
-        cat_values = [_cat_value(s, axis.key) for s in block["samples"]]
-        n_distinct = len({v for v in cat_values if v is not None})
-        cap = axis_caption(cat_values)
-        ax.legend(loc="best", frameon=True, framealpha=0.92, fontsize=8,
-                  title=f"Coloured by {pretty}", title_fontsize=9)
-    subtitle = _scatter_subtitle(_AXIS_PANEL_POSITION, feat, block["n_samples"], sep)
-    if cap:
-        subtitle += f"\n{cap}"
-    # The "separate clusters = encodes this" gloss only makes sense with >=2 colours to
-    # contrast; gate it so a single-value axis or a continuous colourbar reads honestly.
-    if mappable is not None:
-        howto = "\nColour = the value; a smooth gradient across the cloud means the state tracks it."
-    elif n_distinct is not None and n_distinct <= 1:
-        howto = "\nOnly one value is present in this run — no contrast to show."
-    else:
-        howto = "\nSeparate clusters mean the model encodes this; overlap means it does not."
-    ax.set_title(
-        wrapped(f"The model's internal state, coloured by {pretty}  ({model})", 62)
-        + howto + f"\n{subtitle}", fontsize=11)
+        ax.legend(loc="best", frameon=True, framealpha=0.92, fontsize=8)
+    ax.set_title(axis.key.replace("_", " "), fontsize=12, fontweight="bold")
+    _corner_tag(ax, feat, block["n_samples"], sep)
     return finish(fig, out_path)
 
 
@@ -352,23 +325,15 @@ def plot_axes_grid(block: dict, feat: FeatureLayer, model: str, out_path: Path) 
     flat = axes.ravel()
     for ax, axis in zip(flat, _AXES):
         mappable, _ = _draw_one_axis(ax, block, axis, evr)
-        title = axis_title(axis.key, axis.pretty)
         if axis.continuous:
             fig.colorbar(mappable, ax=ax, fraction=0.046, pad=0.02)
         else:
-            cap = axis_caption([_cat_value(s, axis.key) for s in block["samples"]])
-            title += f"\n({cap})" if cap else ""
             ax.legend(loc="best", frameon=True, framealpha=0.9, fontsize=6.5,
                       markerscale=0.8, handletextpad=0.3, borderpad=0.3)
-        ax.set_title(title, fontsize=10)
+        ax.set_title(axis.key.replace("_", " "), fontsize=10)
     for ax in flat[n:]:
         ax.axis("off")
-    fig.suptitle(
-        wrapped(f"The same internal state, coloured many ways  ({model})", 78)
-        + "\nEach panel recolours the model's state at the answer token. Separate "
-          "clusters = the model encodes that property; overlap = it does not."
-        + f"\n{_layer_phrase(feat)}, n={block['n_samples']}",
-        fontsize=12, fontweight="bold")
+    fig.suptitle(f"Coloured many ways  ({model})", fontsize=12, fontweight="bold")
     return finish(fig, out_path)
 
 
@@ -415,14 +380,10 @@ def plot_centroid_shift_bars(results: dict, model: str, out_path: Path) -> Path:
     ax.set_xticks(x)
     ax.set_xticklabels([f"{_wrap_tick(position_label(p), 12)}\n(n={n_by_pos[p]})"
                         for p in positions], fontsize=8)
-    ax.set_xlabel("Where in the prompt we read the model's state")
-    ax.set_ylabel("How far the scaffold moved the state\n(distance between cloud centres)")
-    ax.set_title(
-        wrapped(f"How much the debiasing scaffold shifts the model's internal state "
-                f"({model})", 64)
-        + "\nTaller bars = a bigger shift. Bars run shallow (dark) to deep (yellow); "
-          "whiskers show 95% confidence intervals.")
-    ax.legend(title="Read at layer", frameon=True, ncol=2, fontsize=8,
+    ax.set_xlabel("Token position")
+    ax.set_ylabel("Centroid shift")
+    ax.set_title(f"Scaffold shift by position  ({model})")
+    ax.legend(title="Layer", frameon=True, ncol=2, fontsize=8,
               title_fontsize=9, loc="upper left")
     return finish(fig, out_path)
 
@@ -458,19 +419,11 @@ def plot_silhouette_separability(results: dict, feat: FeatureLayer, model: str, 
                 fontsize=8.5, fontweight="bold")
     ax.axhline(0, color="#888888", lw=1.0, zorder=2)
     ax.set_xticks(x)
-    ax.set_xticklabels([_wrap_tick(axis_title(p[0], p[0]), 12) for p in pairs],
+    ax.set_xticklabels([_wrap_tick(p[0].replace("_", " "), 12) for p in pairs],
                        fontsize=7.5, rotation=30, ha="right")
-    ax.set_ylabel("How cleanly the groups separate\n(0 = overlapping, 1 = fully apart)")
-    ax.text(0.0, -0.42, "Bars below 0 mean those groups land closer together than "
-            "random, i.e. the model does not separate them.",
-            transform=ax.transAxes, fontsize=8, color="#777777", style="italic",
-            ha="left", va="top")
-    ax.set_title(
-        wrapped(f"Which prompt or answer properties the model encodes in its state "
-                f"({model}, n={block['n_samples']})", 70)
-        + "\nTaller bars = the model separates those groups more strongly. Read at "
-        + f"{position_label(_AXIS_PANEL_POSITION)}, {_layer_phrase(feat)}."
-        + "\nBlue bar (scaffold) shows a 95% confidence interval.", fontsize=11)
+    ax.set_ylabel("Separation score")
+    ax.set_title(f"Separability by axis  ({model})", fontsize=12)
+    _corner_tag(ax, feat, block["n_samples"], "")
     return finish(fig, out_path)
 
 
@@ -480,7 +433,7 @@ def plot_explained_variance(results: dict, feat: FeatureLayer, model: str, out_p
     cells = results[layer]
     positions = [p for p in _POSITIONS if p in cells]
     n_pc = 3
-    direction_labels = ("1st direction", "2nd direction", "3rd direction")
+    direction_labels = ("PC1", "PC2", "PC3")
     fig, ax = plt.subplots(figsize=(8.5, 5.5))
     x = np.arange(len(positions))
     width = 0.8 / n_pc
@@ -491,22 +444,14 @@ def plot_explained_variance(results: dict, feat: FeatureLayer, model: str, out_p
         for bar, v in zip(bars, vals):
             ax.text(bar.get_x() + bar.get_width() / 2, bar.get_height(),
                     f"{v:.0%}", ha="center", va="bottom", fontsize=8.5)
-    cum3 = [sum(cells[p]["explained_variance_ratio"][:3]) for p in positions]
     tallest = max(cells[p]["explained_variance_ratio"][0] for p in positions)
     ax.set_ylim(0, min(1.0, tallest + 0.12))
     ax.set_xticks(x)
-    ax.set_xticklabels([f"{_wrap_tick(position_label(p))}\n(n={cells[p]['n_samples']})"
-                        for p in positions], fontsize=8.5)
-    ax.set_xlabel("Where in the prompt we read the model's state")
-    ax.set_ylabel("Share of the spread captured")
-    cum_note = ",  ".join(f"{position_label(p)} {c:.0%}" for p, c in zip(positions, cum3))
-    ax.set_title(
-        wrapped(f"How much of the model's variation the 2D view captures  ({model})", 64)
-        + "\nThe scatter plots show the first two bars; higher means the 2D picture "
-          "is more faithful."
-        + "\n" + wrapped(f"First three together: {cum_note}", 78)
-        + f"\n{_layer_phrase(feat)}", fontsize=10.5)
-    ax.legend(title="Spread direction", frameon=True)
+    ax.set_xticklabels([_wrap_tick(position_label(p)) for p in positions], fontsize=8.5)
+    ax.set_xlabel("Token position")
+    ax.set_ylabel("Explained variance")
+    ax.set_title(f"Explained variance  ({model})", fontsize=12)
+    ax.legend(title="Direction", frameon=True)
     return finish(fig, out_path)
 
 
@@ -518,12 +463,7 @@ def plot_silhouette_heatmap(table: dict, model: str, out_path: Path) -> Path:
     fig, ax = plt.subplots(figsize=(1.0 + 0.55 * len(table["layers"]),
                                     0.45 * len(table["axes"]) + 2.0))
     draw_silhouette_heatmap(ax, table)
-    ax.set_title(
-        wrapped(f"At which depth the model starts to encode each property  ({model})", 56)
-        + f"\nRead at {position_label(table['position'])}. "
-          "Red = cleanly separated, white = overlapping."
-        + "\nRead each row left to right to see how deep the separation appears.",
-        fontsize=10.5)
+    ax.set_title(f"Separation by depth  ({model})", fontsize=12)
     return finish(fig, out_path)
 
 
@@ -531,10 +471,7 @@ def plot_silhouette_layer_sweep(table: dict, model: str, out_path: Path) -> Path
     """Silhouette-vs-layer sweep for the KEY axes (accuracy / context / role / scaffold)."""
     fig, ax = plt.subplots(figsize=(8.5, 5.5))
     draw_layer_sweep(ax, table, KEY_SWEEP_AXIS_KEYS, AXIS_PALETTE)
-    ax.set_title(
-        wrapped(f"How deep in the network each property becomes readable  ({model})", 62)
-        + f"\nRead at {position_label(table['position'])}. A line rising above 0 marks "
-          "the depth where that property separates.", fontsize=11)
+    ax.set_title(f"Separation vs depth  ({model})", fontsize=12)
     return finish(fig, out_path)
 
 

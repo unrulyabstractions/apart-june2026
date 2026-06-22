@@ -10,15 +10,11 @@ from __future__ import annotations
 
 from sesgo.common import CATEGORY_ORDER, READOUT_LABEL
 
-# Plain-language headline per answering mode (accuracy-figure row title). The
-# forced two-way row only offers two answers, so its option count differs.
+# Short headline per answering mode (accuracy-figure row title).
 COND_TITLE: dict[str, str] = {
-    "non_thinking": f"{READOUT_LABEL['non_thinking']}  -  "
-    "three options offered, including 'unknown'",
-    "non_thinking_2opt": f"{READOUT_LABEL['non_thinking_2opt']}  -  "
-    "only the two named groups offered, no 'unknown'",
-    "greedy_thinking": f"{READOUT_LABEL['greedy_thinking']}  -  "
-    "writes reasoning, then answers from three options",
+    "non_thinking": READOUT_LABEL["non_thinking"],
+    "non_thinking_2opt": READOUT_LABEL["non_thinking_2opt"],
+    "greedy_thinking": READOUT_LABEL["greedy_thinking"],
 }
 
 # Okabe-Ito hues: one per accuracy slice (shared with the role legend palette).
@@ -26,9 +22,9 @@ SLICE_COLORS: dict[str, str] = {
     "ambig": "#0072B2", "disambig-target": "#E69F00", "disambig-other": "#56B4E9",
 }
 SLICE_LABELS: dict[str, str] = {
-    "ambig": "Correctly abstains on ambiguous questions (correct answer is 'unknown')",
-    "disambig-target": "Correct when the stereotyped group is the answer",
-    "disambig-other": "Correct when the other group is the answer",
+    "ambig": "Abstains (ambiguous)",
+    "disambig-target": "Stereotyped group",
+    "disambig-other": "Other group",
 }
 ROLE_NAMES: tuple[str, ...] = ("target", "other", "unknown")
 ROLE_COLORS: dict[str, str] = {"target": "#E69F00", "other": "#56B4E9", "unknown": "#009E73"}

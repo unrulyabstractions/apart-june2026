@@ -31,7 +31,6 @@ from sesgo.baseline.disambig_wording_cells import (  # noqa: E402
 from sesgo.common.plain_language_labels import (  # noqa: E402
     CATEGORY_LABEL,
     CATEGORY_ORDER,
-    RANDOM_GUESS_LABEL,
 )
 
 # Okabe-Ito colourblind-safe hues: one per family (top facets) and a distinct one
@@ -85,13 +84,8 @@ def _gap_panel(ax, cells: list[DisambigCell]) -> None:
     ax.set_xticks(x)
     ax.set_xticklabels([f"{fam}\n{s:g}B" for s, fam, _ in models], fontsize=8,
                        rotation=0, ha="center")
-    ax.set_ylabel("Better on negatively-\nworded questions  ->", fontsize=9.5)
-    ax.set_title(
-        "How much does negative wording help each model? (accuracy on negative "
-        "minus neutral wording, by bias category)",
-        fontsize=11.5, fontweight="bold", loc="left")
-    ax.legend(title="Bias category", ncol=4, loc="upper left", frameon=False,
-              fontsize=9, title_fontsize=9.5)
+    ax.set_ylabel("Negative - neutral accuracy", fontsize=9.5)
+    ax.legend(ncol=4, loc="upper left", frameon=False, fontsize=9)
     ax.grid(True, axis="y", ls=":", alpha=0.4)
 
 
@@ -99,30 +93,24 @@ def _family_legend(fig, cells: list[DisambigCell]) -> None:
     """Colour key for the accuracy facets (one entry per present model family)."""
     handles = [plt.Line2D([], [], color=_FAMILY_COLORS[f], marker="o", linestyle="-",
                           label=f) for f in _FAMILY_ORDER if any(c.family == f for c in cells)]
-    fig.legend(handles=handles, title="Model family (line colour)", loc="upper left",
-               bbox_to_anchor=(1.005, 0.9), frameon=False, fontsize=10, title_fontsize=10.5)
+    fig.legend(handles=handles, loc="upper left",
+               bbox_to_anchor=(1.005, 0.9), frameon=False, fontsize=10)
 
 
-def plot_disambig_scaling(cells: list[DisambigCell], out_path, n_models: int) -> None:
+def plot_disambig_scaling(cells: list[DisambigCell], out_path) -> None:
     """Render the two-panel scaling + wording-gap figure for the baseline sweep."""
     fig = plt.figure(figsize=(13, 12), constrained_layout=True)
     gs = fig.add_gridspec(3, 2, height_ratios=[1, 1, 1.15])
     facets = [fig.add_subplot(gs[i // 2, i % 2]) for i in range(len(CATEGORY_ORDER))]
     for ax, cat in zip(facets, CATEGORY_ORDER):
         _accuracy_facet(ax, cat, cells)
-        ax.set_ylabel("Accuracy on clear questions\n(higher is better)", fontsize=9)
-        ax.set_xlabel("Model size (billions of parameters, log scale)", fontsize=9.5)
-    facets[0].text(0.02, 1.0 / 3 + 0.01, f"{RANDOM_GUESS_LABEL} (1 in 3)",
+        ax.set_ylabel("Accuracy", fontsize=9)
+        ax.set_xlabel("Model size (B params, log scale)", fontsize=9.5)
+    facets[0].text(0.02, 1.0 / 3 + 0.01, "chance",
                    transform=facets[0].get_yaxis_transform(),
                    ha="left", va="bottom", fontsize=8, color="#777777")
     _family_legend(fig, cells)
     _gap_panel(fig.add_subplot(gs[2, :]), cells)
-    fig.suptitle(
-        f"On clear questions (one answer is correct), do bigger models do better, "
-        f"and does wording sway them?   ({n_models} models)\n"
-        "Top: accuracy vs model size, one line per family, by bias category. Bottom: "
-        "above 0 = more accurate when the question is negatively loaded. Wilson 95% CIs.",
-        fontsize=13, fontweight="bold")
     fig.savefig(out_path, dpi=150, bbox_inches="tight")
     plt.close(fig)
 
@@ -144,7 +132,7 @@ def main() -> None:
     plots_dir = base_dir / "cross_model" / "plots"
     plots_dir.mkdir(parents=True, exist_ok=True)
     out_path = plots_dir / "disambig_scaling_wording_gap.png"
-    plot_disambig_scaling(cells, out_path, n_models)
+    plot_disambig_scaling(cells, out_path)
     print(f"wrote {out_path}  ({n_models} models, {len(cells)} cells)")
 
 

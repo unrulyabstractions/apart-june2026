@@ -17,15 +17,15 @@ from src.common.math import wilson_err
 from sesgo.baseline.baseline_accuracy_slices import AccuracyCell
 from sesgo.baseline.full_data_axis_slices import AXES
 from sesgo.baseline.cross_model_aggregation import CONDITIONS
-from sesgo.common.plain_language_labels import RANDOM_GUESS_LABEL, READOUT_LABEL
+from sesgo.common.plain_language_labels import READOUT_LABEL
 
 # Okabe–Ito palette, one hue per axis so the three columns read as distinct facets.
 _AXIS_COLOR = {"language": "#0072B2", "origin": "#D55E00", "scaffold": "#009E73"}
-# Plain-language facet titles — a non-expert reads these directly, no pipeline codes.
+# Short facet titles, one per new full-data axis.
 _AXIS_TITLE = {
-    "language": "Question language (Spanish vs English)",
-    "origin": "Question source (written fresh vs adapted from the BBQ benchmark)",
-    "scaffold": "Debiasing scaffold",
+    "language": "Language",
+    "origin": "Source",
+    "scaffold": "Scaffold",
 }
 # Plain-language tick labels: raw data codes -> human words (two-line to keep room).
 _SHORT = {
@@ -70,7 +70,7 @@ def _axis_panel(ax, cond: str, axis: str, cells: list[AccuracyCell], values: lis
     ax.margins(x=0.08)
 
 
-def plot_full_axes(cells_by_axis: dict, axis_vals: dict, model: str, n: int, out_path):
+def plot_full_axes(cells_by_axis: dict, axis_vals: dict, out_path):
     """Grid figure: rows = readouts, columns = the three new axes. Returns out_path."""
     conds = [c for c, _ in CONDITIONS]
     # Width per column scales with how many bars it holds (scaffold has 4, the
@@ -88,14 +88,8 @@ def plot_full_axes(cells_by_axis: dict, axis_vals: dict, model: str, n: int, out
             if ri == 0:
                 ax.set_title(_AXIS_TITLE[axis], fontsize=11, fontweight="bold")
             if ci == 0:
-                ax.set_ylabel(f"{READOUT_LABEL.get(cond, cond)}\nabstains correctly", fontsize=8.5)
-    fig.suptitle(
-        f"How often {model} correctly says 'unknown' on ambiguous questions\n"
-        f"— by question language, source, and debiasing scaffold  (n={n} ambiguous items)\n"
-        f"Higher bar = more often correctly abstains.  Dashed line = {RANDOM_GUESS_LABEL}.",
-        fontsize=13, fontweight="bold",
-    )
-    fig.subplots_adjust(left=0.07, right=0.99, top=0.90, bottom=0.08, wspace=0.18, hspace=0.30)
+                ax.set_ylabel(f"{READOUT_LABEL.get(cond, cond)}\nabstention", fontsize=8.5)
+    fig.subplots_adjust(left=0.07, right=0.99, top=0.95, bottom=0.08, wspace=0.18, hspace=0.30)
     fig.savefig(out_path, dpi=150, bbox_inches="tight")
     plt.close(fig)
     return out_path

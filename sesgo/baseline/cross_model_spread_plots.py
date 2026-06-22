@@ -22,7 +22,6 @@ from sesgo.baseline.cross_model_distribution_stats import (
 from sesgo.baseline.cross_model_plot_styles import (
     family_color,
     order_by_size,
-    partial_note,
     tick_label,
 )
 
@@ -35,13 +34,6 @@ def _xticks(ax, models: list[ModelDistribution]) -> None:
     ax.set_xticks(range(1, len(models) + 1))
     ax.set_xticklabels([tick_label(m) for m in models], fontsize=9,
                        rotation=35, ha="right", rotation_mode="anchor")
-
-
-def _footer(fig, models: list[ModelDistribution]) -> None:
-    """Stamp the partial-run footnote if any model is partial."""
-    note = partial_note(models)
-    if note:
-        fig.text(0.01, 0.005, note, fontsize=7.5, color="#555555", ha="left")
 
 
 def _new_violin_fig(models: list[ModelDistribution]):
@@ -71,7 +63,8 @@ def _violin(ax, models, series, ylabel, title) -> None:
     ax.set_ylim(-0.05, 1.14)
     ax.set_ylabel(ylabel, fontsize=10.5)
     _xticks(ax, models)
-    ax.set_title(title, fontsize=12.5, loc="left")
+    if title:
+        ax.set_title(title, fontsize=12.5, loc="left")
 
 
 def plot_abstention_spread(models: list[ModelDistribution], out_path) -> None:
@@ -79,12 +72,8 @@ def plot_abstention_spread(models: list[ModelDistribution], out_path) -> None:
     models = order_by_size(models)
     fig, ax = _new_violin_fig(models)
     _violin(ax, models, [m.p_unknown_ambig for m in models],
-            "Chance of abstaining, question by question",
-            "How consistently does each model abstain on no-answer questions?\n"
-            "Each shape spreads from never abstains (bottom) to always abstains "
-            "(top). Wide at the top is safest; diamond = average.")
-    _footer(fig, models)
-    fig.tight_layout(rect=(0, 0.02, 1, 1))
+            "P(abstain), per item", "")
+    fig.tight_layout(rect=(0, 0.0, 1, 1))
     fig.savefig(out_path, dpi=150, bbox_inches="tight")
     plt.close(fig)
 
@@ -94,12 +83,8 @@ def plot_disambig_accuracy_spread(models: list[ModelDistribution], out_path) -> 
     models = order_by_size(models)
     fig, ax = _new_violin_fig(models)
     _violin(ax, models, [m.p_gold_disambig for m in models],
-            "Chance of the correct answer, question by question",
-            "When the answer is clearly stated, how often does each model get it "
-            "right?\nEach shape spreads from always wrong (bottom) to always right "
-            "(top). Wide at the top is best; diamond = average accuracy.")
-    _footer(fig, models)
-    fig.tight_layout(rect=(0, 0.02, 1, 1))
+            "P(correct), per item", "")
+    fig.tight_layout(rect=(0, 0.0, 1, 1))
     fig.savefig(out_path, dpi=150, bbox_inches="tight")
     plt.close(fig)
 
@@ -134,14 +119,7 @@ def plot_category_heatmap(models: list[ModelDistribution], out_path) -> None:
             txt = "white" if val < 0.6 else "black"
             ax.text(c, r, f"{val:.2f}\nn={tot}", ha="center", va="center",
                     fontsize=6.5, color=txt)
-    fig.colorbar(im, ax=ax, fraction=0.046, pad=0.04,
-                 label="Abstention rate (yellow = almost always abstains)")
-    ax.set_title(
-        "On no-answer questions, does abstaining depend on the bias topic?\n"
-        "Each cell = how often that model abstains for that topic. Brighter (yellow) "
-        "is safer; darker means it picks a group instead.",
-        fontsize=12.5, loc="left")
-    _footer(fig, models)
-    fig.tight_layout(rect=(0, 0.03, 1, 1))
+    fig.colorbar(im, ax=ax, fraction=0.046, pad=0.04, label="Abstention rate")
+    fig.tight_layout(rect=(0, 0.0, 1, 1))
     fig.savefig(out_path, dpi=150, bbox_inches="tight")
     plt.close(fig)

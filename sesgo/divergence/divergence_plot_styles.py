@@ -51,7 +51,6 @@ AXIS_LABEL = {
     "question_polarity": "question wording",
     "language": "language",
 }
-SUBTITLE = "Measured over the model's free-form reasoning tries on ambiguous questions"
 LN3, LN2 = float(np.log(3)), float(np.log(2))
 
 
@@ -67,11 +66,9 @@ def save_fig(fig, path):
     return path
 
 
-def titled(ax, title: str, sub: str | None = None) -> None:
-    """Bold title with the paper-nodding subtitle, padded clear of the data."""
-    ax.set_title(title, fontsize=12.5, fontweight="bold", pad=22)
-    ax.text(0.5, 1.012, sub or SUBTITLE, transform=ax.transAxes,
-            ha="center", va="bottom", fontsize=8.5, color=REF, style="italic")
+def titled(ax, title: str) -> None:
+    """Short bold axes title, padded clear of the data. No subtitle."""
+    ax.set_title(title, fontsize=12.5, fontweight="bold", pad=12)
 
 
 def boot_band(ax, values, *, vertical: bool, color: str = ACCENT) -> tuple[float, float]:

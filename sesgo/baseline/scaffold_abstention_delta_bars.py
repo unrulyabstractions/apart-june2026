@@ -15,7 +15,6 @@ from __future__ import annotations
 import sys
 from dataclasses import dataclass
 from pathlib import Path
-from textwrap import fill
 
 import matplotlib
 
@@ -117,7 +116,7 @@ def _panel(ax, bars: list[DeltaBar]) -> None:
     ax.set_axisbelow(True)
 
 
-def plot_scaffold_deltas(ambig: list[SesgoSample], model: str, out_path: Path) -> Path:
+def plot_scaffold_deltas(ambig: list[SesgoSample], out_path: Path) -> Path:
     """Faceted diverging delta figure: readout (rows) x bias category (cols)."""
     cats = [c for c in CATEGORY_ORDER if any(s.bias_category == c for s in ambig)]
     nrow, ncol = len(_READOUTS), len(cats)
@@ -131,30 +130,14 @@ def plot_scaffold_deltas(ambig: list[SesgoSample], model: str, out_path: Path) -
             ax = axes[ri][ci]
             bars = _category_deltas(ambig, attr, cat)
             _panel(ax, bars)
-            n_per_arm = bars[0].n_scaffold if bars else 0
             ax.set_yticklabels(ytick_labels if ci == 0 else [""] * len(bars), fontsize=9)
             if ri == 0:
-                ax.set_title(f"{CATEGORY_LABEL.get(cat, cat)}\n(~{n_per_arm} items/scaffold)",
-                             fontsize=11.5, fontweight="bold")
+                ax.set_title(CATEGORY_LABEL.get(cat, cat), fontsize=11.5, fontweight="bold")
             if ci == 0:
                 ax.set_ylabel(row_title, fontsize=11, fontweight="bold")
             if ri == nrow - 1:
-                ax.set_xlabel("Change in correct-abstention rate\n"
-                              "vs no scaffold (percentage points)", fontsize=9)
-    fig.suptitle(
-        f"Each debiasing scaffold mostly RAISES how often {model} correctly says "
-        f"'unknown' on ambiguous questions\n"
-        + fill("How to read this: each bar is one scaffold's abstention rate minus the "
-               "no-scaffold rate. Bars to the RIGHT (green) mean the scaffold improves "
-               "correct abstention; to the LEFT (orange) mean it hurts. Whiskers are "
-               "Newcombe 95% confidence intervals.", width=118),
-        fontsize=12.5, fontweight="bold",
-    )
-    # Footnote: the line crossing zero is the only honest 'no effect' reference.
-    fig.text(0.5, 0.005, "Bars whose 95% interval crosses the central 0-line are not "
-             "statistically distinguishable from no change.", ha="center", va="bottom",
-             fontsize=8.5, color="#555555", style="italic")
-    fig.tight_layout(rect=(0, 0.03, 1, 0.90))
+                ax.set_xlabel("Abstention change (pts)", fontsize=9)
+    fig.tight_layout(rect=(0, 0.0, 1, 1.0))
     fig.savefig(out_path, dpi=150, bbox_inches="tight")
     plt.close(fig)
     return out_path
@@ -169,8 +152,7 @@ def main() -> None:
     ambig = [s for s in scored if s.gold_label is SesgoLabel.UNKNOWN]
     plots_dir = src.parent / "plots"
     plots_dir.mkdir(parents=True, exist_ok=True)
-    out = plot_scaffold_deltas(ambig, dataset.model_name,
-                               plots_dir / "scaffold_abstention_delta.png")
+    out = plot_scaffold_deltas(ambig, plots_dir / "scaffold_abstention_delta.png")
     print(f"wrote {out}  (ambiguous n={len(ambig)})")
 
 

@@ -33,9 +33,9 @@ from .thinking_contrast_metrics import (
 )
 
 _OUTCOME_LABEL = {
-    "target": "Names the stereotyped group",
-    "other": "Names the other group",
-    "unknown": "Abstains ('unknown')  — correct here",
+    "target": "Stereotyped group",
+    "other": "Other group",
+    "unknown": "Abstains",
 }
 
 
@@ -71,14 +71,7 @@ def plot_outcome_mix(ambig: list[SesgoSample], model: str, out_path):
     handles, labels = axes[0][0].get_legend_handles_labels()
     fig.legend(handles, labels, loc="lower center", ncol=3, frameon=False,
                bbox_to_anchor=(0.5, 0.0), fontsize=9)
-    fig.tight_layout(rect=(0, 0.08, 1, 0.88))
-    fig.suptitle(
-        f"On ambiguous questions, what does {model} answer — and does reasoning help?",
-        fontsize=13.5, fontweight="bold", y=0.99)
-    fig.text(0.5, 0.92,
-             "Each bar splits the model's answers three ways; a taller blue "
-             "'Abstains' band is the desired behaviour.",
-             ha="center", fontsize=9, color="#555555", style="italic")
+    fig.tight_layout(rect=(0, 0.06, 1, 0.97))
     return save_fig(fig, out_path)
 
 
@@ -123,16 +116,9 @@ def plot_abstention_contrast(ambig: list[SesgoSample], model: str, out_path):
             if ri == 0:
                 ax.set_title(CATEGORY_LABEL[cat], fontsize=12, fontweight="bold")
             if ci == 0:
-                ax.set_ylabel(f"{way_title}\n\nAbstention rate (answers 'unknown')",
-                              fontsize=9.5)
+                ax.set_ylabel(f"{way_title}\n\nAbstention rate", fontsize=9.5)
     handles, labels = axes[0][0].get_legend_handles_labels()
-    fig.legend(handles, labels, title="question wording", loc="lower center", ncol=2,
-               frameon=False, bbox_to_anchor=(0.5, 0.0), fontsize=10, title_fontsize=10)
-    fig.suptitle(
-        f"Does {model} correctly abstain on ambiguous questions — direct vs reasoned?  "
-        f"(n={len(ambig)} questions)\n"
-        "Higher bar = more often correctly abstains.  Compare the rows: does "
-        "reasoning first push bars UP?",
-        fontsize=13, fontweight="bold")
-    fig.tight_layout(rect=(0, 0.05, 1, 0.95))
+    fig.legend(handles, labels, loc="lower center", ncol=2, frameon=False,
+               bbox_to_anchor=(0.5, 0.0), fontsize=10)
+    fig.tight_layout(rect=(0, 0.05, 1, 0.98))
     return save_fig(fig, out_path)

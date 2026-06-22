@@ -182,8 +182,8 @@ def draw_axis_scatter(ax, coords: np.ndarray, values: list[str], evr: list[float
     ax.set_ylim(*ylim)
     ax.axhline(0, color="#cccccc", lw=0.8, zorder=1)
     ax.axvline(0, color="#cccccc", lw=0.8, zorder=1)
-    ax.set_xlabel(f"PC1  ({evr[0]:.0%} of variance)")
-    ax.set_ylabel(f"PC2  ({evr[1]:.0%} of variance)" if len(evr) > 1 else "PC2")
+    ax.set_xlabel(f"PC1  ({evr[0]:.0%})")
+    ax.set_ylabel(f"PC2  ({evr[1]:.0%})" if len(evr) > 1 else "PC2")
     inside = (
         (coords[:, 0] >= xlim[0]) & (coords[:, 0] <= xlim[1])
         & (coords[:, 1] >= ylim[0]) & (coords[:, 1] <= ylim[1])
@@ -191,20 +191,12 @@ def draw_axis_scatter(ax, coords: np.ndarray, values: list[str], evr: list[float
     return int((~inside).sum())
 
 
-def axis_caption(values: list[str]) -> str | None:
-    """Note capping when many distinct values were folded to the top few + rest."""
-    n_distinct = len(set(values))
-    if n_distinct <= TOP_K:
-        return None
-    return f"{n_distinct} distinct values; legend shows the {TOP_K} most common, rest grouped"
-
-
 # ── Behavioural accuracy plots (per condition, Wilson-CI'd) ───────────────────
 
 # Context conditions in display order, with the plain right-answer rule annotated.
 _CONDITIONS = (
-    ("ambig", "Ambiguous question\n(right answer: 'unknown')"),
-    ("disambig", "Clear question\n(right answer is stated)"),
+    ("ambig", "Ambiguous"),
+    ("disambig", "Clear"),
 )
 # Bar colour per condition: blue = ambiguous, orange = clear.
 _COND_COLOUR = {"ambig": PALETTE[0], "disambig": PALETTE[1]}
@@ -245,25 +237,22 @@ def plot_accuracy_by_condition(dataset: GeometryDataset, out_path: Path) -> Path
         ax3,
         _bucket_by_condition(samples, "correct_non_thinking",
                              lambda s: s.predicted_non_thinking is not None),
-        "Share of answers that are right",
-        "Three-way answer (model may say 'unknown')")
+        "Share right",
+        "Three-way answer")
     # The forced two-way choice is undefined for ambiguous items (no 'unknown' to
     # pick), so only score items where correct_2opt is a bool (clear question).
     _condition_panel(
         ax2,
         _bucket_by_condition(samples, "correct_2opt",
                              lambda s: s.picked_2opt is not None and s.correct_2opt is not None),
-        "Share that pick the right group",
-        "Forced two-way choice (no 'unknown' offered)")
+        "Share right",
+        "Forced two-way choice")
     # Annotate the blank ambiguous bar in the empty space above it (not below the
     # axis, where it would collide with the two-line tick labels).
-    ax2.text(0.25, 0.5, "No bar here: with no\n'unknown' option, no\ngroup can be correct",
+    ax2.text(0.25, 0.5, "no 'unknown':\nno correct group",
              transform=ax2.transAxes, fontsize=8.5, color="#777777", style="italic",
              ha="center", va="center")
-    fig.suptitle(wrapped("How often the model answers correctly, by question type "
-                         f"({dataset.model_name})", 66)
-                 + "\nTaller bars are better. Top: with an 'unknown' option. "
-                   "Bottom: forced to pick a group.",
+    fig.suptitle(f"Accuracy by question type  ({dataset.model_name})",
                  fontsize=12, fontweight="bold")
     return finish(fig, out_path)
 
@@ -272,19 +261,18 @@ def plot_accuracy_by_readout(dataset: GeometryDataset, out_path: Path) -> Path:
     """Accuracy under each way of reading the answer out, split by question type."""
     samples = dataset.samples
     readouts = [
-        ("Without thinking (answers directly)", "correct_non_thinking",
+        ("No thinking", "correct_non_thinking",
          lambda s: s.predicted_non_thinking is not None),
-        ("With thinking (single reasoned answer)",
+        ("Greedy thinking",
          "correct_greedy_thinking", lambda s: s.predicted_greedy_thinking is not None),
-        ("Free-form thinking (sampled reasoning draws)", "correct_thinking",
+        ("Sampled thinking", "correct_thinking",
          lambda s: s.predicted_thinking is not None),
     ]
     fig, axes = plt.subplots(len(readouts), 1, figsize=(8.0, 4.0 * len(readouts)),
                              sharey=True)
     for ax, (title, attr, defined) in zip(axes, readouts):
         _condition_panel(ax, _bucket_by_condition(samples, attr, defined),
-                         "Share of answers that are right", title)
-    fig.suptitle(wrapped("Does letting the model reason change how often it is right? "
-                         f"({dataset.model_name})", 66),
+                         "Share right", title)
+    fig.suptitle(f"Accuracy by readout  ({dataset.model_name})",
                  fontsize=13, fontweight="bold")
     return finish(fig, out_path)

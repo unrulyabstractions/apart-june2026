@@ -186,8 +186,8 @@ def main() -> None:
     rep = pick_representative_item(ambig)
     if rep is not None:
         tree = build_divergence_tree(rep, dataset.model)
-        title = f"How one ambiguous question's answer splits for {m}"
-        written.append(plot_branching_tree(tree, plots / "branching_tree.png", title))
+        written.append(plot_branching_tree(tree, plots / "branching_tree.png",
+                                           "Answer branching", minimal=True))
     else:
         log("[viz] no representative ambiguous item for the branching tree — skipping")
 

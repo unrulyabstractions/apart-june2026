@@ -108,15 +108,14 @@ def main() -> None:
     plots_dir.mkdir(parents=True, exist_ok=True)
     sns.set_theme(style="whitegrid", font_scale=1.0)
     out_path = plot_full_axes(
-        cells_by_axis, axis_vals, dataset.model_name, len(ambig),
-        plots_dir / "abstention_by_axis.png",
+        cells_by_axis, axis_vals, plots_dir / "abstention_by_axis.png",
     )
     log(f"[viz] wrote {out_path}")
 
     # The hero breakdown: ambiguous abstention by thinking x scaffold x wording,
     # faceted per bias category -- the plain-language view of whether scaffolds work.
     breakdown_path = plot_abstention_breakdown(
-        ambig, dataset.model_name, plots_dir / "abstention_breakdown.png",
+        ambig, plots_dir / "abstention_breakdown.png",
     )
     log(f"[viz] wrote {breakdown_path}")
 

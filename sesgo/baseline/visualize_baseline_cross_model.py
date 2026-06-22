@@ -113,7 +113,7 @@ def main() -> None:
     sns.set_theme(style="whitegrid", font_scale=1.0)
 
     out_path = plots_dir / "baseline_size_sweep.png"
-    plot_size_sweep(points, out_path, n_models=len(placed))
+    plot_size_sweep(points, out_path)
     log(f"[viz] wrote size-sweep figure over {len(placed)} model(s):")
     log(f"  {out_path}")
 

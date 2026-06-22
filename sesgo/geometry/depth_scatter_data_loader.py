@@ -1,24 +1,26 @@
-"""Stream the giant projections.json and pull only the depth cells we plot.
+"""Stream the giant projections.json and pull the full sample rows we plot.
 
 A model's ``analysis/projections.json`` is hundreds of MB to ~2 GB, so we never
-parse it whole. For a chosen token position we locate the byte span of each
-(layer, position) cell with a header regex, then pull from the WANTED layers only:
-each sample's per-scaffold 2D + 3D PCA coordinates, the explained-variance of the
-first three PCA axes, and the scaffold-separation score with its 95% CI. Depth is
-``layer / n_layers``; we map each target depth to the nearest available layer.
+parse it whole. For the answer token we locate the byte span of each (layer,
+position) cell with a header regex, then for the WANTED depth layers we parse
+every sample object in that cell (each carries its 2D + 3D PCA coordinates plus
+all ~20 colour-by fields) and the explained variance of the first three PCA axes.
+Depth is ``layer / n_layers``; each target depth maps to the nearest layer.
 
-Used by ``depth_scatter_panel_render.py`` (run-by-path) to draw 2D + 3D scatters.
+Used by ``depth_scatter_panel_render.py`` to draw a 2D + 3D scatter per depth,
+recoloured by every axis in the shared ``COLOR_AXES`` registry.
 """
 
 from __future__ import annotations
 
 import bisect
+import json
 import mmap
 import re
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from sesgo.common import normalize_scaffold
+from sesgo.geometry.geometry_color_axes import COLOR_AXES
 from src.common.base_schema import BaseSchema
 
 # One source of truth for how deep each model is (depth = layer / n_layers).
@@ -26,22 +28,23 @@ MODEL_LAYERS: dict[str, int] = {"Qwen3-0.6B": 28, "Qwen3-32B": 64}
 TARGET_DEPTHS: tuple[float, ...] = (0.5, 0.7, 0.9)
 # The answer token: the state right where the model commits to its answer.
 POSITION = "label"
+# Every colour-by field name we keep per sample (DRY: the shared registry).
+AXIS_KEYS: tuple[str, ...] = tuple(a.key for a in COLOR_AXES)
 
 
 @dataclass
 class DepthCell(BaseSchema):
-    """One (model, depth) cell: scaffold-split 2D + 3D clouds, score, variance."""
+    """One (model, depth) cell: every sample's 2D/3D coords + all colour columns."""
 
     model: str = ""
     depth: float = 0.0
     layer: str = ""
     n_layers: int = 0
-    silhouette: float = 0.0
-    ci_low: float = 0.0
-    ci_high: float = 0.0
     pc_var: list = field(default_factory=list)  # [PC1%, PC2%, PC3%] of spread.
-    baseline_xyz: list = field(default_factory=list)  # [[x,y,z], ...] no-scaffold.
-    scaffold_xyz: list = field(default_factory=list)  # [[x,y,z], ...] with scaffold.
+    coords2d: list = field(default_factory=list)  # [[x, y], ...]
+    coords3d: list = field(default_factory=list)  # [[x, y, z], ...]
+    # One column per colour-by axis: {axis_key: [value per sample, ...]} (1D dict).
+    columns: dict = field(default_factory=dict)
 
 
 def nearest_layers(model: str) -> dict[float, str]:
@@ -65,7 +68,6 @@ def load_depth_cells(model: str) -> list[DepthCell]:
     """Stream the projections file and return one DepthCell per target depth."""
     n = MODEL_LAYERS[model]
     want = nearest_layers(model)
-    layer_of_depth = {layer: depth for depth, layer in want.items()}
     with _mmap(model) as mm:
         spans = _cell_spans(mm)
         cells = []
@@ -100,14 +102,10 @@ class _mmap:
 
 _LAYER_HDR = re.compile(rb'\n        "(\d+|mean)": \{')
 _POS_HDR = re.compile(rb'\n            "([a-z_]+)": \{')
-_SIL = re.compile(
-    rb'"scaffold_stats".*?"silhouette": ([\-0-9eE.]+),\s*'
-    rb'"silhouette_ci_low": ([\-0-9eE.]+),\s*"silhouette_ci_high": ([\-0-9eE.]+)', re.S)
 _EVR = re.compile(
     rb'"explained_variance_ratio": \[\s*([\-0-9eE.]+),\s*([\-0-9eE.]+),\s*([\-0-9eE.]+)')
-_SAMP = re.compile(
-    rb'"scaffold_id": (null|"[^"]*").*?'
-    rb'"coord3d": \[\s*([\-0-9eE.]+),\s*([\-0-9eE.]+),\s*([\-0-9eE.]+)\s*\]', re.S)
+# One sample object: a flat brace-bounded blob ending at its coord3d array.
+_SAMPLE = re.compile(rb'\{[^{}]*?"coord3d": \[[^\]]*\]\s*\}', re.S)
 
 
 def _layer_headers(mm: memoryview) -> list[tuple[int, str]]:
@@ -132,15 +130,17 @@ def _cell_spans(mm: memoryview) -> dict:
 
 
 def _read_cell(region: memoryview) -> DepthCell:
-    """Parse one cell's score, 3-axis variance, and per-scaffold 3D coordinates."""
-    sil, evr = _SIL.search(region), _EVR.search(region)
+    """Parse one cell's 3-axis variance + every sample's coords and colour columns."""
+    evr = _EVR.search(region)
     samples = region[: region.find(b'"scaffold_stats"')]
-    base, scaf = [], []
-    for m in _SAMP.finditer(samples):
-        xyz = [float(m.group(i)) for i in (2, 3, 4)]
-        sid = None if m.group(1) == b"null" else m.group(1).decode().strip('"')
-        (base if normalize_scaffold(sid) is None else scaf).append(xyz)
+    coords2d, coords3d = [], []
+    columns: dict[str, list] = {k: [] for k in AXIS_KEYS}
+    for m in _SAMPLE.finditer(samples):
+        row = json.loads(m.group(0))
+        coords2d.append(row["coord2d"])
+        coords3d.append(row["coord3d"])
+        for key in AXIS_KEYS:
+            columns[key].append(row.get(key))
     return DepthCell(
-        silhouette=float(sil.group(1)), ci_low=float(sil.group(2)), ci_high=float(sil.group(3)),
         pc_var=[float(evr.group(i)) * 100 for i in (1, 2, 3)],
-        baseline_xyz=base, scaffold_xyz=scaf)
+        coords2d=coords2d, coords3d=coords3d, columns=columns)

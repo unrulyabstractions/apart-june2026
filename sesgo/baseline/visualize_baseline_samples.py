@@ -115,8 +115,8 @@ def main() -> None:
     sns.set_theme(style="whitegrid", font_scale=1.0)
 
     written = [
-        plot_accuracy(cells, cats, dataset.model_name, len(scored), plots_dir / "accuracy.png"),
-        plot_role_prob(scored, cats, dataset.model_name, plots_dir / "role_prob.png"),
+        plot_accuracy(cells, cats, plots_dir / "accuracy.png"),
+        plot_role_prob(scored, cats, plots_dir / "role_prob.png"),
     ]
     log(f"[viz] wrote {len(written)} plot(s):")
     for p in written:
