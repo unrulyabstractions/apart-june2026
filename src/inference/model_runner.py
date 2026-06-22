@@ -624,8 +624,12 @@ class ModelRunner:
     ) -> GeneratedTrajectory:
         """Get sequence of next-token probabilities via single forward pass.
 
-        For token_ids = [t0, t1, t2, t3]:
-        Returns trajectory with logprobs [P(t1|t0), P(t2|t0,t1), P(t3|t0,t1,t2)]
+        Index-aligned per `GeneratedTrajectory.from_inference`: for token_ids =
+        [t0, t1, t2, t3] the result has the SAME length, with
+            logprobs[k]    == log P(t_k | t_0..t_{k-1})   (logprobs[0] == 0 for t0)
+            full_logits[k] == the distribution that produced t_k (full_logits[0] == 0)
+        so logprobs[k] == log_softmax(full_logits[k])[t_k]. Read a token's own
+        probability AND its distribution's entropy at the SAME index k — not k-1.
 
         Args:
             token_ids: Full token ID sequence

@@ -131,3 +131,19 @@ PREVENTION (enforce):
 - Fix: search the WHOLE answer segment (everything after the last </think> / [/THINK])
   for the cue. Mid-reasoning mentions are already excluded by the think-close split, so
   the tail restriction bought nothing and broke answer-then-explain responses.
+
+## label_prob and vocab_diversity must be read at the SAME trajectory index
+- Symptom (user caught it): label_prob=0.94 yet vocab_diversity=3.84 for one sample —
+  impossible, since 0.94 mass on the top token caps achievable diversity ~2.5.
+- Root cause: GeneratedTrajectory.from_inference aligns BOTH views at the same index k:
+  logprobs[k]=log P(t_k|prefix) AND full_logits[k]=the distribution that produced t_k,
+  with logprobs[k]==log_softmax(full_logits[k])[t_k]. The readout took label_prob from
+  logprobs[pos] (correct) but diversity from full_logits[pos-1] (the PRIOR token's
+  distribution) — an off-by-one. A STALE compute_trajectory docstring claiming
+  logprobs=[P(t1|t0),...] (length N-1, no leading 0) is what misled the indexing.
+- Fix: use full_logits[pos] for the diversity. Verified by recomputing: softmax(full_logits[pos])[token]
+  == label_prob exactly, and the invariant exp(entropy) <= max-given-p holds for all samples.
+- General rule: when a probability and an entropy describe the SAME decision, compute BOTH
+  from ONE distribution object, never index them separately. And sanity-check pairs with a
+  cheap physical invariant (a p≈1 spike must force diversity≈1) — it instantly flags
+  off-by-ones that look plausible in isolation.

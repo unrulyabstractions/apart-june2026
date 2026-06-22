@@ -132,10 +132,14 @@ def _readout(runner: ModelRunner, rec: dict, thinking: bool, max_reasoning: int)
     pos = len(prompt_ids) + len(runner.encode_ids(prefix, add_special_tokens=False))
     pos = min(max(pos, len(prompt_ids)), len(full_ids) - 1)
 
-    # Teacher-forced pass: the distribution that PRODUCED the answer token (full_logits[pos-1])
-    # and that token's own logprob (logprobs[pos]).
+    # Teacher-forced pass: read the SINGLE distribution that produced the answer token.
+    # The trajectory aligns both views at the same index pos: full_logits[pos] is the
+    # next-token distribution that emitted token[pos], and logprobs[pos] is that token's
+    # own logprob within it (logprobs[pos] == log_softmax(full_logits[pos])[token[pos]]).
+    # So label_prob and vocab_diversity describe ONE decision — they must use pos, not
+    # pos-1 (which is the PRIOR token's distribution and is unrelated to the answer).
     ct = runner.compute_trajectory(full_ids[: pos + 1])
-    dist = torch.log_softmax(ct.full_logits[pos - 1], dim=-1)
+    dist = torch.log_softmax(ct.full_logits[pos], dim=-1)
     # Degeneracy is judged on the ANSWER segment (after </think>): a force-closed reasoning
     # loop is expected; what matters is whether the committed answer itself is real.
     degenerate = _is_degenerate(answer_segment(generated))
