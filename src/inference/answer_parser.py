@@ -1,38 +1,19 @@
-"""Parse a model's response into the answer it COMMITTED to — (label, choice, offset).
+"""Parse a model's response into the answer it committed to — (label, choice, offset).
 
-label  = the option MARKER the model chose (e.g. "c)"), or "" if it never committed.
-choice = the role that marker maps to via position_labels (target/other/unknown),
-         or "invalid" when the model gave no parseable final answer.
-offset = char offset of the committed marker in response_text (for the readout), or -1.
-
-Design (the whole point): the model is INSTRUCTED to end with an explicit final-answer
-cue ("Respuesta final: <letra>"). We read the marker right after the LAST such cue.
-We do NOT scan for the first option marker — verbose models echo the option list while
-reasoning, and a thinking model that runs out of tokens mid-thought has NO answer at
-all. In both cases the correct result is `invalid`, never a guess.
+NOTHING about the prompt format is hardcoded here. The caller passes the EXPECTED answer
+prefix (`answer_cue` — exactly the final-answer prefix the prompt instructed the model to
+emit, carried on each dataset record) and the option markers. The committed answer is the
+option marker after
+the LAST occurrence of that cue, searched only in the response TAIL (the answer is the
+final line). A cue mentioned mid-reasoning, or a CoT cut off mid-thought, yields invalid.
 """
 
 from __future__ import annotations
 
-import re
-
 INVALID = "invalid"
 _THINK_CLOSE = "</think>"
-# The committed answer must be on/near the final line, so only the tail is searched —
-# a cue mentioned mid-reasoning (or a CoT cut off mid-thought) is not a commitment.
+# The committed answer is on/near the final line, so only the tail is searched.
 _TAIL_CHARS = 240
-
-# Final-answer cues, strongest first. Matched case-insensitively. The marker (or bare
-# letter) immediately following the LAST occurrence is the committed answer.
-_CUES = [
-    r"respuesta\s+final\s*:?",
-    r"final\s+answer\s*:?",
-    r"respuesta\s+seleccionada\s*:?",
-    r"respuesta\s+correcta\s+es\s*:?",
-    r"the\s+answer\s+is\s*:?",
-    r"\brespuesta\s*:",
-    r"\banswer\s*:",
-]
 
 
 def answer_segment(response_text: str) -> str:
@@ -52,25 +33,21 @@ def _marker_at(text: str, start: int, option_labels) -> tuple[str, int]:
     return (best[0], start + best[1]) if best else ("", -1)
 
 
-def find_committed_answer(response_text: str, option_labels) -> tuple[str, int]:
-    """The marker after a final-answer cue ON/NEAR THE LAST LINE, as (marker, char_offset).
-    ("", -1) if the model never committed. We search only the TAIL of the response: the
-    instruction puts the answer on the last line, so a cue mentioned mid-reasoning — or a
-    CoT that ran out of tokens and was cut off mid-thought — is NOT a commitment."""
+def find_committed_answer(response_text: str, option_labels, answer_cue: str) -> tuple[str, int]:
+    """Option marker after the LAST occurrence of `answer_cue` in the tail, as
+    (marker, char_offset). Falls back to a terse direct answer (a short tail that IS the
+    marker). ("", -1) when the model never committed to the expected format."""
     seg = answer_segment(response_text)
     base = len(response_text) - len(seg)
     tail = seg[-_TAIL_CHARS:]
     tbase = base + len(seg) - len(tail)
-    for cue in _CUES:
-        last = None
-        for mtch in re.finditer(cue, tail, flags=re.IGNORECASE):
-            last = mtch
-        if last is not None:
-            marker, off = _marker_at(tail, last.end(), option_labels)
-            if marker:
-                return marker, tbase + off
-    # No cue near the end: accept ONLY a terse direct answer occupying the whole tail
-    # (a short reply whose marker sits at the very start, e.g. "c)" / "c) No hay…").
+
+    idx = tail.lower().rfind(answer_cue.lower())
+    if idx != -1:
+        marker, off = _marker_at(tail, idx + len(answer_cue), option_labels)
+        if marker:
+            return marker, tbase + off
+    # Terse direct answer: a short tail whose marker is at the very start ("c)" / "c) …").
     terse = tail.strip()
     if len(terse) <= 60:
         marker, off = _marker_at(terse, 0, option_labels)
@@ -79,9 +56,10 @@ def find_committed_answer(response_text: str, option_labels) -> tuple[str, int]:
     return "", -1
 
 
-def parse_answer(response_text: str, option_labels, position_labels) -> tuple[str, str, int]:
-    """Return (label, choice, char_offset). 'invalid'/-1 when no answer was committed."""
-    label, off = find_committed_answer(response_text, option_labels)
+def parse_answer(response_text: str, option_labels, position_labels, answer_cue: str) -> tuple[str, str, int]:
+    """Return (label, choice, char_offset). 'invalid'/-1 when no committed answer in the
+    expected format. `answer_cue` is the prompt's instructed final-answer prefix."""
+    label, off = find_committed_answer(response_text, option_labels, answer_cue)
     if not label:
         return "", INVALID, -1
     role = position_labels[list(option_labels).index(label)]

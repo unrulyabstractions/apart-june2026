@@ -76,7 +76,8 @@ def main():
     for rec, prompt, out in zip(records, prompts, outs):
         o = out.outputs[0]
         text = o.text
-        label, choice, off = parse_answer(text, rec["option_labels"], rec["position_labels"])
+        label, choice, off = parse_answer(
+            text, rec["option_labels"], rec["position_labels"], rec.get("answer_cue", ""))
         logprobs = o.logprobs or []
         ti = min(max(_answer_token_index(tok, text, off), 0), max(len(logprobs) - 1, 0))
         lp_dict = logprobs[ti] if logprobs else {}

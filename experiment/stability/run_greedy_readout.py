@@ -94,17 +94,20 @@ def _templated_prompt(runner: ModelRunner, prompt: str, thinking: bool) -> str:
     return templated
 
 
-def _readout(runner: ModelRunner, rec: dict, thinking: bool) -> GreedyReadout:
-    """One prompt -> one GreedyReadout (greedy gen + teacher-forced answer-position read)."""
+def _readout(runner: ModelRunner, rec: dict, thinking: bool, temperature: float) -> GreedyReadout:
+    """One prompt -> one GreedyReadout. Non-thinking decodes greedily (temp 0); thinking
+    runs SAMPLE at a low, near-greedy temperature, because greedy decoding traps small
+    reasoning models in repetition loops that never terminate."""
     prompt = "\n".join(rec["text"])
     templated = _templated_prompt(runner, prompt, thinking)
     prompt_ids = runner.encode_ids(templated, add_special_tokens=True)
 
-    traj = runner.generate_trajectory(prompt_ids, max_new_tokens=_UNBOUNDED, temperature=0.0)
+    traj = runner.generate_trajectory(prompt_ids, max_new_tokens=_UNBOUNDED, temperature=temperature)
     full_ids = traj.token_ids
     generated = runner.decode_ids(full_ids[len(prompt_ids):])
 
-    label, choice, off = parse_answer(generated, rec["option_labels"], rec["position_labels"])
+    label, choice, off = parse_answer(
+        generated, rec["option_labels"], rec["position_labels"], rec.get("answer_cue", ""))
     # Token index of the answer position: the parsed label, else the first
     # post-thinking token (so invalid answers still get a defined readout).
     if off >= 0:
@@ -162,6 +165,9 @@ def main():
     ap.add_argument("--shard-count", type=int, default=1)
     ap.add_argument("--backend", choices=["auto", "huggingface", "mlx", "vllm"], default="auto",
                     help="force a backend (e.g. huggingface for archs MLX can't load locally)")
+    ap.add_argument("--thinking-temp", type=float, default=0.6,
+                    help="sampling temperature for THINKING mode (low/near-greedy; breaks "
+                         "repetition loops). Non-thinking always decodes greedily (0.0).")
     args = ap.parse_args()
 
     records = _load_records(Path(args.dataset), args.limit, args.shard_index, args.shard_count)
@@ -179,9 +185,10 @@ def main():
     runner = ModelRunner(args.model, backend=backend)
     ds = GreedyReadoutDataset(study=args.study, model=args.model, mode=args.mode, samples=samples)
 
+    temp = args.thinking_temp if thinking else 0.0
     todo = [r for r in records if r["prompt_id"] not in done]
     for i, rec in enumerate(todo, 1):
-        ds.samples.append(_readout(runner, rec, thinking))
+        ds.samples.append(_readout(runner, rec, thinking, temp))
         if i % _CHECKPOINT_EVERY == 0 or i == len(todo):
             json.dump(ds.to_dict(), out_file.open("w"), ensure_ascii=False, indent=2)
             print(f"[greedy] {i}/{len(todo)} (+{len(done)} resumed) checkpointed")
