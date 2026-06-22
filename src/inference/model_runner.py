@@ -1181,7 +1181,10 @@ class ModelRunner:
             # print(f"apply_chat_template: {self.model_name} is not chat model")
             return prompt
         tokenizer = self._tokenizer
-        if hasattr(tokenizer, "apply_chat_template"):
+        # Only wrap when a chat template actually exists. Base models (e.g.
+        # gemma-4-E2B) expose apply_chat_template but have NO template set, so the
+        # raw prompt — which already ends at the answer cue — is fed as-is.
+        if hasattr(tokenizer, "apply_chat_template") and getattr(tokenizer, "chat_template", None):
             # print(f"apply_chat_template: True for {self.model_name}")
             # Some models (e.g., Qwen 3.5) use enable_thinking parameter,
             # while others (e.g., Qwen 3) use prefix-based soft switch
@@ -1343,6 +1346,21 @@ class ModelRunner:
         tokenizer = AutoTokenizer.from_pretrained(
             self.model_name, trust_remote_code=True
         )
+        # Multimodal wrappers (e.g. Gemma4ForConditionalGeneration) carry the chat
+        # template on the PROCESSOR, not the bare tokenizer — copy it over so
+        # apply_chat_template works for the text-only path.
+        if getattr(tokenizer, "chat_template", None) is None:
+            try:
+                from transformers import AutoProcessor
+
+                proc = AutoProcessor.from_pretrained(self.model_name, trust_remote_code=True)
+                tmpl = getattr(proc, "chat_template", None) or getattr(
+                    getattr(proc, "tokenizer", None), "chat_template", None
+                )
+                if tmpl:
+                    tokenizer.chat_template = tmpl
+            except Exception:
+                pass
         self._backend = HuggingFaceBackend(self, tokenizer)
 
     def _init_mlx(self) -> None:

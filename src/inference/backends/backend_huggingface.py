@@ -80,6 +80,28 @@ class HuggingFaceBackend(Backend):
             )
             self._d_mlp = getattr(config, "intermediate_size", self._d_model * 4)
             self._arch_type = "llama"  # Covers Llama, Qwen3, Mistral, etc.
+        elif (
+            hasattr(self.runner._model, "model")
+            and hasattr(self.runner._model.model, "language_model")
+            and hasattr(self.runner._model.model.language_model, "layers")
+        ):
+            # Multimodal conditional-generation wrapper (e.g.
+            # Gemma4ForConditionalGeneration): the text decoder lives under
+            # model.model.language_model, and its dims come from config.text_config
+            # (the top-level config is the composite vision+text+audio config). We
+            # only need generate/forward + dims here — the per-layer refs below are
+            # for hook-based features this text-only path doesn't exercise.
+            lm = self.runner._model.model.language_model
+            text_cfg = getattr(config, "text_config", config)
+            self._layers_attr = "model.language_model.layers"
+            self._layers = lm.layers
+            self._n_layers = len(self._layers)
+            self._d_model = text_cfg.hidden_size
+            self._n_heads = text_cfg.num_attention_heads
+            self._d_head = getattr(text_cfg, "head_dim", self._d_model // self._n_heads)
+            self._n_kv_heads = getattr(text_cfg, "num_key_value_heads", self._n_heads)
+            self._d_mlp = getattr(text_cfg, "intermediate_size", self._d_model * 4)
+            self._arch_type = "llama"  # gemma decoder block is llama-like
         else:
             raise ValueError(f"Unknown model architecture: {type(self.runner._model)}")
 
