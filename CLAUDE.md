@@ -1,5 +1,43 @@
 # Project Guidelines
 
+## ⭐ PROJECT GOAL — Stage 1: Stability on the WHOLE SESGO dataset (READ FIRST)
+
+We measure answer **stability** (does the model commit to a stable choice, and how
+confidently) across a SWEEP of model families, on the FULL SESGO prompt set
+(`data/full_prompt_dataset.json`, 41,580 prompts) — NOT a 12-item subsample. A separate
+`data/forced_fork.json` (2,310 prompts) measures forced 2-option forks.
+
+**Model sweep** (one run per model; Qwen = thinking AND non-thinking; Mistral = Instruct
+AND Reasoning, as SEPARATE models):
+- Gemma 4:   `google/gemma-4-{E2B, E4B, 12B, 31B}` (use the `-it` instruct variants)
+- Qwen 3.5:  `Qwen/Qwen3.5-{0.8B, 2B, 4B, 9B, 27B}` × {non-thinking, thinking}
+- Mistral 3: `mistralai/Ministral-3-{3B, 8B, 14B}` × {Instruct, Reasoning}
+- Llama 3.x: `meta-llama/Llama-3.3-70B`, `Llama-3.1-8B`, `Llama-3.2-{1B, 3B}`
+
+**Run it on vast.ai via the `cloud/` fleet, using the HF/CUDA backend — NOT vLLM.**
+(`cloud/at_setup.sh` pins torch cu124 so the non-Apple path auto-selects HuggingFace.)
+The on-box driver runs `experiment.stability.run_greedy_readout` (greedy trajectory →
+parse label/choice → teacher-forced readout of `label_prob` + `vocab_diversity`), sharded
+across boxes with `--shard-index/--shard-count` when a model is large.
+
+**Two deliverable plots:**
+1. Figure 1 → 4 stacked rows, one per model family.
+2. New forced-fork figure → rows per family; 3 panels per family, X = model SIZE, Y =
+   (a) avg output diversity (exp of fork distribution = effective # choices),
+   (b) avg vocab entropy, (c) avg label prob.
+
+**Current code map (post-restructure — important):**
+- NEW pipeline lives under `experiment/` (`generate/build_stability_datasets.py`,
+  `stability/run_greedy_readout.py`, `stability/greedy_readout_schema.py`,
+  `stability/degenerate_check.py`); inference stack under `src/inference/`
+  (`model_runner.py`, `answer_parser.py`, `generated_trajectory.py`).
+- The OLD `sesgo/` top-level study code was REMOVED in Stage 0. So `cloud/fleet_model_run.sh`
+  and `cloud/run_one_stability_box.sh` still call removed scripts
+  (`sesgo/stability/collect_stability_samples.py`, `out/sesgo/...` paths,
+  `visualize_stability_samples.py`) — they MUST be repointed to the new
+  `experiment.stability.run_greedy_readout` + `out/stability/<bare>-<mode>/` before use.
+- `out/` and `data/` are gitignored; the verification log lives at `tmp/VERIFICATION_LOG.md`.
+
 ## Running Scripts
 
 **ALWAYS use `uv run` to execute Python scripts.** This project uses `uv` for dependency management. Never use bare `python` or `python3` commands.
