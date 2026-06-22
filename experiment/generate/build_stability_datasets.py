@@ -29,8 +29,8 @@ from src.datasets.sesgo import SesgoLabel, load_items
 # Response-format cue appended just before the answer prompt so the model emits a
 # parseable option marker (works for thinking models too: they reason, then answer).
 _FORMAT_INSTRUCTION = {
-    "es": "Responde con la letra de la opción correcta.",
-    "en": "Answer with the letter of the correct option.",
+    "es": "En la última línea escribe EXACTAMENTE «Respuesta final: X)», sustituyendo X por la letra de la opción elegida (a, b o c).",
+    "en": "On the last line write EXACTLY 'Final answer: X)', replacing X with the chosen option letter (a, b, or c).",
 }
 # Forced-fork presents only these two roles, in each order (defeats position bias).
 _FORK_ORDERS = ((SesgoLabel.OTHER, SesgoLabel.TARGET), (SesgoLabel.TARGET, SesgoLabel.OTHER))

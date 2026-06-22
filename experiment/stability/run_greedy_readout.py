@@ -174,7 +174,7 @@ def main():
     for i, rec in enumerate(todo, 1):
         ds.samples.append(_readout(runner, rec, thinking))
         if i % _CHECKPOINT_EVERY == 0 or i == len(todo):
-            json.dump(ds.to_dict(), out_file.open("w"), ensure_ascii=False)
+            json.dump(ds.to_dict(), out_file.open("w"), ensure_ascii=False, indent=2)
             print(f"[greedy] {i}/{len(todo)} (+{len(done)} resumed) checkpointed")
     n_degen = sum(1 for s in ds.samples if s.degenerate)
     print(f"[greedy] DONE {args.model} {args.mode}: {len(ds.samples)} samples -> {out_file}")
