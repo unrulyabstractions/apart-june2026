@@ -86,7 +86,8 @@ def main():
         ds.samples.append(GreedyReadout(
             sample_idx=rec["sample_idx"], prompt_id=rec["prompt_id"], prompt_text=prompt,
             response_text=text, choice=choice, label=label,
-            label_logprob=float(label_lp), vocab_entropy=_entropy_topk(lp_dict),
+            label_prob=math.exp(float(label_lp)) if label_lp == label_lp else float("nan"),
+            vocab_diversity=math.exp(_entropy_topk(lp_dict)) if lp_dict else float("nan"),
         ))
 
     out_dir = Path(args.out_dir) / args.study / f"{args.model.rstrip('/').split('/')[-1]}-{args.mode}"

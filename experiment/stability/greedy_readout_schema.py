@@ -24,8 +24,8 @@ class GreedyReadout(BaseSchema):
     response_text: str
     choice: str          # target / other / unknown / invalid
     label: str           # the option marker picked, e.g. "c)" ("" if none parsed)
-    label_logprob: float  # logprob the model gave the chosen label token | context
-    vocab_entropy: float  # Shannon entropy (nats) of the next-token dist at that position
+    label_prob: float       # probability the model gave the chosen label token | context
+    vocab_diversity: float  # effective number of next-token choices (Hill D1 = exp(entropy))
     degenerate: bool = False  # response was a repetition loop / garbage (e.g. a backend that
                               # silently mis-generates) — excluded from analysis, never silent
 

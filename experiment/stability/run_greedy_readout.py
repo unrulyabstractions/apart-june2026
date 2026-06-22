@@ -22,11 +22,12 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 from pathlib import Path
 
 import torch
 
-from src.common.math import shannon_entropy
+from src.common.math import q_diversity
 from src.inference.answer_parser import answer_segment, parse_answer
 from src.inference.backends import ModelBackend
 from src.inference.model_runner import ModelRunner
@@ -139,7 +140,7 @@ def _readout(runner: ModelRunner, rec: dict, thinking: bool, max_reasoning: int)
     return GreedyReadout(
         sample_idx=rec["sample_idx"], prompt_id=rec["prompt_id"], prompt_text=templated,
         response_text=generated, choice="invalid" if degenerate else choice, label=label,
-        label_logprob=float(ct.logprobs[pos]), vocab_entropy=float(shannon_entropy(dist)),
+        label_prob=math.exp(float(ct.logprobs[pos])), vocab_diversity=float(q_diversity(dist, 1.0)),
         degenerate=degenerate,
     )
 

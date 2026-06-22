@@ -34,25 +34,25 @@ def _marker_at(text: str, start: int, option_labels) -> tuple[str, int]:
 
 
 def find_committed_answer(response_text: str, option_labels, answer_cue: str) -> tuple[str, int]:
-    """Option marker after the LAST occurrence of `answer_cue` in the tail, as
-    (marker, char_offset). Falls back to a terse direct answer (a short tail that IS the
-    marker). ("", -1) when the model never committed to the expected format."""
+    """Option marker after the LAST occurrence of `answer_cue` in the ANSWER segment (after
+    any </think>), as (marker, char_offset). The answer may lead the response and be followed
+    by an explanation, so we search the whole answer segment — not just the tail. Mid-
+    reasoning mentions are already excluded by the </think> stripping (and the Qwen
+    force-close). Falls back to a terse direct answer; ("", -1) when nothing was committed."""
     seg = answer_segment(response_text)
     base = len(response_text) - len(seg)
-    tail = seg[-_TAIL_CHARS:]
-    tbase = base + len(seg) - len(tail)
 
-    idx = tail.lower().rfind(answer_cue.lower())
+    idx = seg.lower().rfind(answer_cue.lower())
     if idx != -1:
-        marker, off = _marker_at(tail, idx + len(answer_cue), option_labels)
+        marker, off = _marker_at(seg, idx + len(answer_cue), option_labels)
         if marker:
-            return marker, tbase + off
-    # Terse direct answer: a short tail whose marker is at the very start ("c)" / "c) …").
-    terse = tail.strip()
+            return marker, base + off
+    # Terse direct answer: a short segment whose marker is at the very start ("c)" / "c) …").
+    terse = seg.strip()
     if len(terse) <= 60:
         marker, off = _marker_at(terse, 0, option_labels)
         if marker and off <= 4:
-            return marker, tbase + tail.find(terse) + off
+            return marker, base + seg.find(terse) + off
     return "", -1
 
 
