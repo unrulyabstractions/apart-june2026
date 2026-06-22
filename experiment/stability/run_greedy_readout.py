@@ -119,7 +119,10 @@ def _readout(runner: ModelRunner, rec: dict, thinking: bool) -> GreedyReadout:
     # the answer token (full_logits[pos-1]) and that token's own logprob (logprobs[pos]).
     ct = runner.compute_trajectory(full_ids[: pos + 1])
     dist = torch.log_softmax(ct.full_logits[pos - 1], dim=-1)
-    degenerate = _is_degenerate(generated)
+    # A thinking run MUST close its scratch-pad with </think>. If it never did, the CoT
+    # ran past the token budget and committed NO answer — flag it, never guess one.
+    unclosed_think = thinking and "</think>" not in generated
+    degenerate = _is_degenerate(generated) or unclosed_think
     return GreedyReadout(
         sample_idx=rec["sample_idx"], prompt_id=rec["prompt_id"], prompt_text=templated,
         response_text=generated, choice="invalid" if degenerate else choice, label=label,
