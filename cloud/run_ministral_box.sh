@@ -41,10 +41,12 @@ INSTANCE="$IID" bash "$HERE/at_vast.sh" "bash cloud/at_setup.sh" || { echo "FATA
 
 # 4. Build the dataset on-box, then run BOTH Ministral modes on the HF backend.
 # Ministral's FP8 weights need the `kernels` package for the on-GPU fp8 matmul.
-RUN="cd $REMOTE_ROOT && .venv/bin/pip install -q -U kernels && HF_TOKEN='${HF_TOKEN:-}' .venv/bin/python -m experiment.generate.build_stability_datasets --out-dir data"
+# Ministral is UNGATED — no HF token needed (and never embed it in the command, which
+# at_vast echoes to the log). uv venvs have no pip, so install kernels via `uv pip`.
+RUN="cd $REMOTE_ROOT && uv pip install -q -U kernels && .venv/bin/python -m experiment.generate.build_stability_datasets --out-dir data"
 for spec in "mistralai/Ministral-3-3B-Instruct-2512:nonthinking" "mistralai/Ministral-3-3B-Reasoning-2512:thinking"; do
   m="${spec%:*}"; mode="${spec#*:}"
-  RUN="$RUN && HF_TOKEN='${HF_TOKEN:-}' .venv/bin/python -m experiment.stability.run_greedy_readout --model $m --mode $mode --dataset data/full_prompt_dataset.json --study stability --out-dir out --backend huggingface --limit $LIMIT"
+  RUN="$RUN && .venv/bin/python -m experiment.stability.run_greedy_readout --model $m --mode $mode --dataset data/full_prompt_dataset.json --study stability --out-dir out --backend huggingface --limit $LIMIT"
 done
 INSTANCE="$IID" bash "$HERE/at_vast.sh" "$RUN" || { echo "FATAL: on-box run"; exit 1; }
 
