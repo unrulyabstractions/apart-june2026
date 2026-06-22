@@ -89,6 +89,9 @@ if [[ -z "$INSTANCE_ID" ]]; then
   exit 1
 fi
 echo ">> Created instance ${INSTANCE_ID}. Waiting for it to come up (image pull can take a while)..."
+# CRASH-SAFE: record the id IMMEDIATELY (before polling), so a later failure here can
+# never orphan a billing box — a driver/trap can always find and destroy it.
+echo "$INSTANCE_ID" > "$HERE/.vast_instance_id"
 
 # ----------------------------- 3. POLL ----------------------------
 for i in $(seq 1 80); do
@@ -96,12 +99,13 @@ for i in $(seq 1 80); do
   STATUS="$(printf '%s' "$ST_JSON" | INSTANCE_ID="$INSTANCE_ID" python3 -c '
 import sys, json, os
 iid = int(os.environ["INSTANCE_ID"])
-for r in json.load(sys.stdin):
-    if r.get("id") == iid:
-        print(r.get("actual_status") or r.get("cur_state") or "unknown")
-        break
-else:
-    print("missing")
+d = json.load(sys.stdin)
+rows = d if isinstance(d, list) else d.get("instances", d.get("results", []))
+st = "missing"
+for r in rows:
+    if isinstance(r, dict) and r.get("id") == iid:
+        st = r.get("actual_status") or r.get("cur_state") or "unknown"; break
+print(st)
 ')"
   echo "   [$i] status: ${STATUS}"
   if [[ "$STATUS" == "running" ]]; then
