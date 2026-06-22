@@ -50,6 +50,8 @@ MODES="${MODES:-nonthinking}"
 SHARD_INDEX="${SHARD_INDEX:-0}"
 SHARD_COUNT="${SHARD_COUNT:-1}"
 LIMIT="${LIMIT:-}"   # cap prompts (validation / throughput sizing); empty = FULL dataset
+MAX_REASONING="${MAX_REASONING:-512}"  # thinking-token cap before force-closing the CoT;
+                                       # keep low so small reasoners don't spin to the cap
 MIN_RELIABILITY="${MIN_RELIABILITY:-0.985}"
 
 IID_FILE="$HERE/.stab_${TAG}.iid"
@@ -202,6 +204,7 @@ for MODE in $MODES; do
   run_on_box "export HF_TOKEN='${HF_TOKEN:-}'; time .venv/bin/python -m experiment.stability.run_greedy_readout \
       --model '$MODEL' --mode '$MODE' --backend huggingface \
       --dataset data/full_prompt_dataset.json --study stability --out-dir out \
+      --max-reasoning $MAX_REASONING \
       --shard-index ${SHARD_INDEX:-0} --shard-count ${SHARD_COUNT:-1} $LIMIT_ARG" \
     2>&1 | sed "s/^/[$TAG run:$MODE] /"
   [ "${PIPESTATUS[0]}" -eq 0 ] || { log "FATAL: readout failed (mode=$MODE)"; exit 8; }
