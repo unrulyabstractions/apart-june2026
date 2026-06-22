@@ -18,6 +18,9 @@ TIER="${1:-list}"
 
 # ── small: <=9B on a single RTX 4090 (24GB) ──────────────────────────────────────
 SMALL=(
+  "q08b|Qwen/Qwen3.5-0.8B|Qwen3.5-0.8B|nonthinking thinking|RTX_4090|1|0.80|60|no"
+  "l1b|meta-llama/Llama-3.2-1B-Instruct|Llama-3.2-1B-Instruct|nonthinking|RTX_4090|1|0.80|60|yes"
+  "gE2B|google/gemma-4-E2B-it|gemma-4-E2B-it|nonthinking|RTX_4090|1|0.80|60|no"
   "gE4B|google/gemma-4-E4B-it|gemma-4-E4B-it|nonthinking|RTX_4090|1|0.80|70|no"
   "q2b|Qwen/Qwen3.5-2B|Qwen3.5-2B|nonthinking thinking|RTX_4090|1|0.80|70|no"
   "q4b|Qwen/Qwen3.5-4B|Qwen3.5-4B|nonthinking thinking|RTX_4090|1|0.80|80|no"
