@@ -30,16 +30,19 @@ from src.datasets.sesgo import SesgoLabel, load_items
 _FORK_ORDERS = ((SesgoLabel.OTHER, SesgoLabel.TARGET), (SesgoLabel.TARGET, SesgoLabel.OTHER))
 
 
-def _instruction(language: str) -> str:
-    """The format instruction, built from the SINGLE-SOURCE answer cue (sesgo_answer_cue):
-    the model is told to end with that exact prefix, and each record stores the same cue
-    as `answer_cue` for the parser — so prompt and parser can never drift."""
+def _instruction(language: str, option_labels) -> str:
+    """The format instruction, built from the SINGLE-SOURCE answer cue (sesgo_answer_cue)
+    and the prompt's ACTUAL option letters (a/b/c, 1/2/3, x/y/z) — so the hint never lies
+    about which letters are valid, and the parser reads the same cue from `answer_cue`."""
     cue = sesgo_answer_cue(language)
+    letters = [m.rstrip(")") for m in option_labels]
     if language == "es":
+        opts = ", ".join(letters[:-1]) + " o " + letters[-1]
         return (f"En la última línea escribe EXACTAMENTE «{cue} X)», sustituyendo X por la "
-                f"letra de la opción elegida (a, b o c).")
+                f"letra de la opción elegida ({opts}).")
+    opts = ", ".join(letters[:-1]) + ", or " + letters[-1]
     return (f"On the last line write EXACTLY '{cue} X)', replacing X with the chosen "
-            f"option letter (a, b, or c).")
+            f"option letter ({opts}).")
 
 
 def _prompt_id(text: str) -> str:
@@ -48,9 +51,11 @@ def _prompt_id(text: str) -> str:
 
 
 def _with_instruction(text: str, prefix: str, instruction: str) -> str:
-    """Insert the response-format instruction on its own line right before the answer cue."""
+    """End the prompt with the response-format instruction. The trailing answer cue
+    (`prefix`, e.g. 'Respuesta: ') is DROPPED — it's redundant now that the model is told
+    to write the full «<cue> X)» line itself."""
     body = text[: -len(prefix)] if text.endswith(prefix) else text + "\n"
-    return f"{body}{instruction}\n{prefix}"
+    return f"{body}{instruction}"
 
 
 def _record(text, sample_idx, *, question_id, bias_category, question_polarity,
@@ -88,7 +93,7 @@ def build_full(items) -> list[dict]:
     dataset = SesgoPromptDatasetGenerator(cfg).generate(items, [])
     out = []
     for i, s in enumerate(dataset.samples):
-        instr = _instruction(s.language)
+        instr = _instruction(s.language, s.option_labels)
         text = _with_instruction(s.text, s.choice_prefix, instr)
         out.append(_record(
             text, i, question_id=s.question_id, bias_category=s.bias_category,
@@ -108,8 +113,9 @@ def build_forced_fork(items) -> list[dict]:
     for item in items:
         if item.context_condition != "ambig" or item.polarity == "neg":
             continue  # ambiguous AND non-negative only
-        prefix, instr = sesgo_choice_prefix(item.language), _instruction(item.language)
+        prefix = sesgo_choice_prefix(item.language)
         for roles, markers in product(_FORK_ORDERS, styles_2opt):
+            instr = _instruction(item.language, markers)  # letters depend on this fork's markers
             text = _with_instruction(_render(None, item, markers, roles, prefix), prefix, instr)
             out.append(_record(
                 text, idx, question_id=item.question_id, bias_category=item.category.value,

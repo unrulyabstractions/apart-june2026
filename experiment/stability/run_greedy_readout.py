@@ -107,10 +107,11 @@ def _readout(runner: ModelRunner, rec: dict, thinking: bool, max_reasoning: int)
     full_ids = runner.generate_trajectory(prompt_ids, max_new_tokens=budget, temperature=0.0).token_ids
     gen_ids = full_ids[len(prompt_ids):]
     ended_on_eos = bool(gen_ids) and gen_ids[-1] == runner.eos_token_id
-    # Force a stop-token + answer ONLY if the model is STILL mid-reasoning: it hit the cap
-    # without ever closing </think> AND without stopping on EOS. If it already answered and
-    # emitted EOS, leave it — appending </think> would make it ramble past its own answer.
-    if thinking and "</think>" not in runner.decode_ids(gen_ids) and not ended_on_eos:
+    # The force-</think> hack is a QWEN-specific workaround: Qwen reasoning models loop
+    # under greedy and never emit </think>. Other reasoners answer + EOS on their own, so
+    # we only apply it to Qwen, and only when it's still mid-reasoning (hit cap, no EOS).
+    is_qwen = "qwen" in runner.model_name.lower()
+    if thinking and is_qwen and "</think>" not in runner.decode_ids(gen_ids) and not ended_on_eos:
         full_ids = full_ids + runner.encode_ids("\n</think>\n\n", add_special_tokens=False)
         full_ids = runner.generate_trajectory(
             full_ids, max_new_tokens=_ANSWER_BUDGET, temperature=0.0).token_ids
