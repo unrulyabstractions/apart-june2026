@@ -33,6 +33,7 @@ from src.inference.answer_parser import answer_segment, parse_answer
 from src.inference.backends import ModelBackend
 from src.inference.model_runner import ModelRunner
 
+from experiment.stability.degenerate_check import is_degenerate
 from experiment.stability.greedy_readout_schema import GreedyReadout, GreedyReadoutDataset
 
 # "Unbounded" generation: a high cap that EOS almost always hits first, so the CoT
@@ -44,28 +45,6 @@ _CHECKPOINT_EVERY = 25
 
 def _bare(model: str) -> str:
     return model.rstrip("/").split("/")[-1]
-
-
-def _is_degenerate(text: str, min_len: int = 40) -> bool:
-    """True if the response is a short repetition loop / garbage (a backend silently
-    mis-generating, e.g. mlx_lm on an unsupported arch emitting 'ipiipi...'). Such a
-    response is NOT data — we flag it instead of letting a 0-entropy or invalid read
-    pass silently."""
-    t = text.strip()
-    if len(t) < min_len:
-        return False
-    if len(set(t)) <= 3:  # almost no unique characters
-        return True
-    for period in range(1, 11):  # a short cycle that explains >=85% of the text
-        unit = t[:period]
-        if unit and t.count(unit) * period >= 0.85 * len(t):
-            return True
-    # A long-block repetition loop (a CoT stuck re-deriving the same paragraph until the
-    # token cap): many non-empty lines but few DISTINCT ones.
-    lines = [ln.strip() for ln in t.splitlines() if ln.strip()]
-    if len(lines) >= 12 and len(set(lines)) < len(lines) * 0.5:
-        return True
-    return False
 
 
 def _out_dir(out_root: Path, study: str, model: str, mode: str, idx: int, count: int) -> Path:
@@ -142,7 +121,7 @@ def _readout(runner: ModelRunner, rec: dict, thinking: bool, max_reasoning: int)
     dist = torch.log_softmax(ct.full_logits[pos], dim=-1)
     # Degeneracy is judged on the ANSWER segment (after </think>): a force-closed reasoning
     # loop is expected; what matters is whether the committed answer itself is real.
-    degenerate = _is_degenerate(answer_segment(generated))
+    degenerate = is_degenerate(answer_segment(generated))
     return GreedyReadout(
         sample_idx=rec["sample_idx"], prompt_id=rec["prompt_id"], prompt_text=templated,
         response_text=generated, choice="invalid" if degenerate else choice, label=label,
