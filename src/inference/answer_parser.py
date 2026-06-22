@@ -3,23 +3,28 @@
 NOTHING about the prompt format is hardcoded here. The caller passes the EXPECTED answer
 prefix (`answer_cue` — exactly the final-answer prefix the prompt instructed the model to
 emit, carried on each dataset record) and the option markers. The committed answer is the
-option marker after
-the LAST occurrence of that cue, searched only in the response TAIL (the answer is the
-final line). A cue mentioned mid-reasoning, or a CoT cut off mid-thought, yields invalid.
+option marker after the LAST occurrence of that cue in the ANSWER segment (everything after
+the final </think>) — searched whole, since the model may state the answer first and then
+explain. A cue mentioned mid-reasoning is excluded because the </think> split drops the
+reasoning; a CoT cut off mid-thought (no answer segment / no cue) yields invalid.
 """
 
 from __future__ import annotations
 
 INVALID = "invalid"
-_THINK_CLOSE = "</think>"
-# The committed answer is on/near the final line, so only the tail is searched.
-_TAIL_CHARS = 240
+# Reasoning-scratch-pad close tokens across families: Qwen uses </think>, Mistral
+# (Ministral/Magistral) uses [/THINK]. The answer lives after the LAST of either.
+_THINK_CLOSE_MARKERS = ("</think>", "[/THINK]")
 
 
 def answer_segment(response_text: str) -> str:
     """The part of the response AFTER any reasoning block (where the answer lives)."""
-    i = response_text.rfind(_THINK_CLOSE)
-    return response_text[i + len(_THINK_CLOSE):] if i != -1 else response_text
+    best_end = -1
+    for marker in _THINK_CLOSE_MARKERS:
+        i = response_text.rfind(marker)
+        if i != -1:
+            best_end = max(best_end, i + len(marker))
+    return response_text[best_end:] if best_end != -1 else response_text
 
 
 def _marker_at(text: str, start: int, option_labels) -> tuple[str, int]:

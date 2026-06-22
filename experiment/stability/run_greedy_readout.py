@@ -3,8 +3,9 @@
 For each prompt in data/<dataset>.json (mapped by prompt_id) it: greedy-decodes a
 FULL, unbounded trajectory (let the CoT finish at natural EOS), parses the answer
 into (label, choice), then teacher-forces once to read the model's commitment at
-the answer position — `label_logprob` (logprob of the chosen label token) and
-`vocab_entropy` (Shannon entropy of the next-token distribution there).
+the answer position — `label_prob` (probability of the chosen label token = exp of
+its logprob) and `vocab_diversity` (effective number of next-token choices =
+exp of the Shannon entropy of the distribution there).
 
 A thinking model and a non-thinking model are SEPARATE runs (--mode), each writing
 its own response_samples.json. Resumable: skips prompt_ids already in the output.
@@ -108,12 +109,13 @@ def _readout(runner: ModelRunner, rec: dict, thinking: bool, max_reasoning: int)
     full_ids = runner.generate_trajectory(prompt_ids, max_new_tokens=budget, temperature=0.0).token_ids
     gen_ids = full_ids[len(prompt_ids):]
     ended_on_eos = bool(gen_ids) and gen_ids[-1] == runner.eos_token_id
-    # The force-</think> hack is a QWEN-specific workaround: Qwen reasoning models loop
-    # under greedy and never emit </think>. Other reasoners answer + EOS on their own, so
-    # we only apply it to Qwen, and only when it's still mid-reasoning (hit cap, no EOS).
-    is_qwen = "qwen" in runner.model_name.lower()
-    if thinking and is_qwen and "</think>" not in runner.decode_ids(gen_ids) and not ended_on_eos:
-        full_ids = full_ids + runner.encode_ids("\n</think>\n\n", add_special_tokens=False)
+    # Force-close a runaway reasoning loop: a reasoning model that hit the budget WITHOUT
+    # emitting its scratch-pad close token (and without EOS) would otherwise yield no
+    # committed answer. We append the model's OWN close token (</think> for Qwen, [/THINK]
+    # for Mistral) and let it commit a short answer — never silently truncating to invalid.
+    close = runner.reasoning_close_marker
+    if thinking and close and close not in runner.decode_ids(gen_ids) and not ended_on_eos:
+        full_ids = full_ids + runner.encode_ids(f"\n{close}\n\n", add_special_tokens=False)
         full_ids = runner.generate_trajectory(
             full_ids, max_new_tokens=_ANSWER_BUDGET, temperature=0.0).token_ids
     generated = runner.decode_ids(full_ids[len(prompt_ids):])

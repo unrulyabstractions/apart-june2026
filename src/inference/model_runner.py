@@ -1465,6 +1465,15 @@ class ModelRunner:
         ):
             return True
 
+        # A real (non-empty) chat template is the DEFINITIVE signal: every instruct/
+        # reasoning checkpoint ships one, base models do not. This catches families whose
+        # name lacks an 'instruct'/'chat' token — e.g. Mistral's '...-Reasoning' (which
+        # otherwise fell through to base-model handling, so its [THINK] system scaffold
+        # was never applied and it never reasoned).
+        tok = getattr(self, "_tokenizer", None)
+        if tok is not None and getattr(tok, "chat_template", None):
+            return True
+
         # Qwen3/Qwen3.5 models are instruct/reasoning by default (no base variant)
         if any(x in name for x in ["qwen3", "qwen-3", "qwen_3"]):
             return True
@@ -1497,10 +1506,15 @@ class ModelRunner:
                     if isinstance(chat_template, str)
                     else str(chat_template)
                 )
-                # Check for thinking-related tokens in template
+                # Check for thinking-related tokens in template. Mistral reasoning
+                # models (Ministral/Magistral) wrap their scratch-pad in [THINK]/[/THINK]
+                # (driven by a system-prompt scaffold baked into the template), so those
+                # markers must count too — not just Qwen's <think>.
                 thinking_indicators = [
                     "<think>",
                     "</think>",
+                    "[THINK]",
+                    "[/THINK]",
                     "enable_thinking",
                     "<|thinking|>",
                     "<reasoning>",
@@ -1509,7 +1523,8 @@ class ModelRunner:
                     return True
 
         # Name-based heuristics for known reasoning models
-        reasoning_models = ["qwen3", "qwen-3", "qwen_3", "deepseek-r1", "o1", "o3"]
+        reasoning_models = ["qwen3", "qwen-3", "qwen_3", "deepseek-r1",
+                            "reasoning", "magistral", "o1", "o3"]
         return any(model in name for model in reasoning_models)
 
     @property
@@ -1520,6 +1535,21 @@ class ModelRunner:
         if not hasattr(self, "_is_reasoning_model"):
             self._is_reasoning_model = self._detect_reasoning_model()
         return self._is_reasoning_model
+
+    @property
+    def reasoning_close_marker(self) -> str:
+        """The token that closes this model's reasoning scratch-pad, read straight from
+        the chat template: '[/THINK]' for Mistral reasoning models, '</think>' for Qwen.
+        Empty for non-reasoning models. Lets the answer-readout force-close a runaway CoT
+        (or split the answer segment) with the RIGHT token instead of hardcoding Qwen's."""
+        if not self.is_reasoning_model:
+            return ""
+        template_str = str(getattr(self._tokenizer, "chat_template", "") or "")
+        for close in ("[/THINK]", "</think>"):
+            if close in template_str:
+                return close
+        # Qwen 3.5 toggles thinking via enable_thinking and may omit the literal tag.
+        return "</think>"
 
     @property
     def _disables_thinking_via_template(self) -> bool:

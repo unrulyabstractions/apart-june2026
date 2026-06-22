@@ -2,10 +2,10 @@
 Ministral-3's finegrained-fp8 weights). vLLM loads FP8 natively.
 
 vLLM is generation-only, so the measurement uses its per-token top-k logprobs:
-  - label_logprob is EXACT (the chosen answer token's own logprob),
-  - vocab_entropy is an APPROXIMATION over the top-k logprobs at the answer position
-    (full-vocab entropy isn't exposed). The mode is suffixed '-vllm' so this is never
-    silently conflated with the HF-exact entropy.
+  - label_prob is EXACT (exp of the chosen answer token's own logprob),
+  - vocab_diversity is an APPROXIMATION (exp of entropy over the top-k logprobs at the
+    answer position; full-vocab entropy isn't exposed). The mode is suffixed '-vllm' so
+    this is never silently conflated with the HF-exact diversity.
 
 Same minimal schema + same answer parser as the HF runner; mapped by prompt_id.
 
