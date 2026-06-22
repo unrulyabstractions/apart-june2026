@@ -49,10 +49,14 @@ uv pip install --reinstall "torch==2.6.0" "torchvision==0.21.0" \
   --index-url https://download.pytorch.org/whl/cu124
 
 # FP8 checkpoints (Mistral Ministral-3 ship finegrained-fp8 weights) need the `kernels`
-# package to load their custom dequant kernel on the HF backend, or the forward dies with
-# "finegrained-fp8 kernel requires the `kernels` package". Harmless/idle for other models.
-echo "[at_setup] installing kernels (FP8 dequant support for Mistral FP8 checkpoints)"
-uv pip install -U kernels
+# package to dequant on the HF backend — BUT only for those boxes, and the version must
+# match transformers (a too-new `kernels` breaks `transformers.integrations.hub_kernels`
+# import entirely with "Either a revision or a version must be specified"). So it is opt-in
+# via INSTALL_KERNELS=1 and PINNED, never installed unconditionally.
+if [ "${INSTALL_KERNELS:-0}" = 1 ]; then
+  echo "[at_setup] installing pinned kernels (FP8 dequant for Mistral FP8 checkpoints)"
+  uv pip install "kernels==${KERNELS_VERSION:-0.4.4}"
+fi
 
 # CRITICAL: `uv run` ALWAYS re-syncs the venv to the lockfile first, which silently
 # reinstalls the cu130 wheel and undoes the pin above (confirmed in fleet logs:
