@@ -48,6 +48,12 @@ echo "[at_setup] pinning torch 2.6.0+cu124 (+ its nvidia-cu12 runtime libs)"
 uv pip install --reinstall "torch==2.6.0" "torchvision==0.21.0" \
   --index-url https://download.pytorch.org/whl/cu124
 
+# FP8 checkpoints (Mistral Ministral-3 ship finegrained-fp8 weights) need the `kernels`
+# package to load their custom dequant kernel on the HF backend, or the forward dies with
+# "finegrained-fp8 kernel requires the `kernels` package". Harmless/idle for other models.
+echo "[at_setup] installing kernels (FP8 dequant support for Mistral FP8 checkpoints)"
+uv pip install -U kernels
+
 # CRITICAL: `uv run` ALWAYS re-syncs the venv to the lockfile first, which silently
 # reinstalls the cu130 wheel and undoes the pin above (confirmed in fleet logs:
 # even with UV_NO_SYNC=1 exported, `uv run python ...` re-downloaded torch 2.11+cu130
