@@ -105,3 +105,29 @@ PREVENTION (enforce):
 - Token budget: Qwen3-0.6B needs >=384 (ideally 512) new tokens for thinking draws
   to close </think> and emit a parseable role; at 256 most draws land in the
   unparseable bucket and the "fork" is an artifact of truncation, not a real flip.
+
+## Reasoning/chat-model detection must read the chat TEMPLATE, not the name
+- A "Reasoning" checkpoint (Mistral Ministral-3-Reasoning) produced ZERO reasoning:
+  response was 7 tokens, "Respuesta final: c)". Root cause was NOT the model — it was
+  `_detect_chat_model`, which keyed off the NAME ("instruct"/"chat"/"-it"). "Reasoning"
+  matched none -> treated as a BASE model -> `apply_chat_template` returned the bare
+  prompt -> the `[SYSTEM_PROMPT]...[THINK]` reasoning scaffold baked into the template
+  was never applied -> the model just answered.
+- Fix: a non-empty `tokenizer.chat_template` IS the definitive chat signal (every
+  instruct/reasoning ckpt ships one; base models don't). Name heuristics are a fallback.
+- Reasoning families do NOT all use Qwen's `<think>`/`</think>`. Mistral uses
+  `[THINK]`/`[/THINK]` driven by a template system-prompt. Detection, answer-segment
+  splitting, and the runaway-CoT force-close must ALL use the model's OWN close token
+  (added `ModelRunner.reasoning_close_marker`, read from the template), never a hardcoded
+  `</think>`.
+- Verify reasoning models by INSPECTING the generated text for the think block, not by
+  trusting `is_reasoning_model` or the mode flag. "thinking mode" does nothing if the
+  template that triggers it never reaches the model.
+
+## Answer parser: search the whole answer segment, not just the tail
+- A correct answer ("Respuesta final: z) <300-char explanation>") was marked invalid
+  because the parser searched only the last 240 chars for the answer cue — the model
+  stated the answer FIRST then explained, so the cue fell outside the tail window.
+- Fix: search the WHOLE answer segment (everything after the last </think> / [/THINK])
+  for the cue. Mid-reasoning mentions are already excluded by the think-close split, so
+  the tail restriction bought nothing and broke answer-then-explain responses.
