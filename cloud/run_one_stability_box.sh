@@ -213,11 +213,17 @@ done
 log "launch detached on-box run (survives ssh drops)"
 launch_ok=0
 for attempt in 1 2 3 4 5; do
-  rep="$(run_on_box "cd $REMOTE_ROOT && MODEL='$MODEL' BARE_MODEL='$BARE_MODEL' MODES='$MODES' MAX_REASONING='$MAX_REASONING' SHARD_INDEX='${SHARD_INDEX:-0}' SHARD_COUNT='${SHARD_COUNT:-1}' LIMIT='${LIMIT:-}' HF_TOKEN='${HF_TOKEN:-}' setsid nohup bash cloud/on_box_stability_run.sh >out/stab_run.log 2>&1 </dev/null & echo LAUNCHED" 2>&1)"
-  printf '%s' "$rep" | grep -q LAUNCHED && { launch_ok=1; break; }
-  log "launch attempt $attempt failed; retry in 15s"; sleep 15
+  # `mkdir -p out` FIRST: sync_up excludes out/, so without this the >out/stab_run.log
+  # redirect fails and the on-box script never starts (a silent no-op). We then VERIFY it
+  # actually began writing (the script echoes a [on_box] start line) before trusting it —
+  # never rely on the bare `echo LAUNCHED`, which prints even when the bg job failed to start.
+  run_on_box "cd $REMOTE_ROOT && mkdir -p out && rm -f out/.STAB_DONE out/.STAB_FAILED && MODEL='$MODEL' BARE_MODEL='$BARE_MODEL' MODES='$MODES' MAX_REASONING='$MAX_REASONING' SHARD_INDEX='${SHARD_INDEX:-0}' SHARD_COUNT='${SHARD_COUNT:-1}' LIMIT='${LIMIT:-}' HF_TOKEN='${HF_TOKEN:-}' setsid nohup bash cloud/on_box_stability_run.sh >out/stab_run.log 2>&1 </dev/null & echo LAUNCHED" >/dev/null 2>&1
+  sleep 10
+  started="$(run_on_box "grep -q '\[on_box\]' out/stab_run.log 2>/dev/null && echo YES || echo NO" 2>/dev/null | tr -dc 'A-Z')"
+  [ "$started" = YES ] && { launch_ok=1; log "on-box run confirmed started"; break; }
+  log "launch attempt $attempt: on-box run did NOT start; retrying in 10s"; sleep 10
 done
-[ "$launch_ok" = 1 ] || { log "FATAL: could not launch on-box run"; exit 7; }
+[ "$launch_ok" = 1 ] || { log "FATAL: on-box run never started after 5 attempts"; exit 7; }
 
 # Poll for the terminal marker. An ssh blip during a poll yields empty state and is simply
 # ignored — the detached job keeps running and the next poll reconnects.
