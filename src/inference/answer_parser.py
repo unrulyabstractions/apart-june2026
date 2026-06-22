@@ -18,6 +18,9 @@ import re
 
 INVALID = "invalid"
 _THINK_CLOSE = "</think>"
+# The committed answer must be on/near the final line, so only the tail is searched —
+# a cue mentioned mid-reasoning (or a CoT cut off mid-thought) is not a commitment.
+_TAIL_CHARS = 240
 
 # Final-answer cues, strongest first. Matched case-insensitively. The marker (or bare
 # letter) immediately following the LAST occurrence is the committed answer.
@@ -50,26 +53,29 @@ def _marker_at(text: str, start: int, option_labels) -> tuple[str, int]:
 
 
 def find_committed_answer(response_text: str, option_labels) -> tuple[str, int]:
-    """The marker after the LAST final-answer cue, as (marker, char_offset). ("", -1) if
-    the model never committed (no cue, or a cue with no option marker after it)."""
+    """The marker after a final-answer cue ON/NEAR THE LAST LINE, as (marker, char_offset).
+    ("", -1) if the model never committed. We search only the TAIL of the response: the
+    instruction puts the answer on the last line, so a cue mentioned mid-reasoning — or a
+    CoT that ran out of tokens and was cut off mid-thought — is NOT a commitment."""
     seg = answer_segment(response_text)
     base = len(response_text) - len(seg)
-    # Try cues strongest-first; within a cue, use its LAST occurrence (the final word).
+    tail = seg[-_TAIL_CHARS:]
+    tbase = base + len(seg) - len(tail)
     for cue in _CUES:
         last = None
-        for mtch in re.finditer(cue, seg, flags=re.IGNORECASE):
+        for mtch in re.finditer(cue, tail, flags=re.IGNORECASE):
             last = mtch
         if last is not None:
-            marker, off = _marker_at(seg, last.end(), option_labels)
+            marker, off = _marker_at(tail, last.end(), option_labels)
             if marker:
-                return marker, base + off
-    # No cue at all: accept ONLY a terse direct answer — a short reply (no rambling CoT)
-    # whose marker sits at the very start, e.g. "c)" or "c) No hay…". Otherwise invalid.
-    terse = seg.strip()
+                return marker, tbase + off
+    # No cue near the end: accept ONLY a terse direct answer occupying the whole tail
+    # (a short reply whose marker sits at the very start, e.g. "c)" / "c) No hay…").
+    terse = tail.strip()
     if len(terse) <= 60:
         marker, off = _marker_at(terse, 0, option_labels)
         if marker and off <= 4:
-            return marker, base + seg.find(terse) + off
+            return marker, tbase + tail.find(terse) + off
     return "", -1
 
 

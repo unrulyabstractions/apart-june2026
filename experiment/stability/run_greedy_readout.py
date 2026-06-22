@@ -57,6 +57,11 @@ def _is_degenerate(text: str, min_len: int = 40) -> bool:
         unit = t[:period]
         if unit and t.count(unit) * period >= 0.85 * len(t):
             return True
+    # A long-block repetition loop (a CoT stuck re-deriving the same paragraph until the
+    # token cap): many non-empty lines but few DISTINCT ones.
+    lines = [ln.strip() for ln in t.splitlines() if ln.strip()]
+    if len(lines) >= 12 and len(set(lines)) < len(lines) * 0.5:
+        return True
     return False
 
 
