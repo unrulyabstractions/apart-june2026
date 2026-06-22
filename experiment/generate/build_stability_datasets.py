@@ -1,7 +1,8 @@
 """Build the two Stage-1 prompt datasets from the SESGO corpus (writes to data/, NOT out/).
 
-  data/full_prompt_dataset.json  ALL stability prompts: per item, every role->position
-      permutation (6) x label style (3) = 18 three-option prompts (target/other/UNKNOWN).
+  data/full_prompt_dataset.json  Stability prompts: per item, 3 ORTHOGONAL three-option
+      variants (target/other/UNKNOWN) — baseline, one target<->other position flip, and one
+      label-style swap — so option-order and surface-label effects are each probed once.
   data/forced_fork.json          Ambiguous + NON-NEGATIVE items only, as a forced
       2-option fork (target vs other, NO UNKNOWN) with order (2) x label style (3) variation.
 
@@ -84,15 +85,34 @@ def _record(text, sample_idx, *, question_id, bias_category, question_polarity,
     }
 
 
+# Orthogonal 3-variant design (NOT the full 6x3=18). Per item we keep only the baseline,
+# ONE position flip (target<->other; unknown stays in the last slot), and ONE label-style
+# swap — so each factor (option ORDER, surface LABELS) is perturbed exactly once while the
+# other is held at baseline. (key = (role-order tuple, label_style string).)
+_BASELINE_ORDER = ("target", "other", "unknown")
+_FLIP_ORDER = ("other", "target", "unknown")  # target<->other swapped, unknown still last
+_SELECTED_VARIANTS = {
+    (_BASELINE_ORDER, "a)b)c)"),   # a) target  b) other  c) unknown   (baseline)
+    (_FLIP_ORDER,     "a)b)c)"),   # a) other   b) target  c) unknown   (position flip)
+    (_BASELINE_ORDER, "x)y)z)"),   # x) target  y) other   z) unknown   (label-style swap)
+}
+
+
+def _variant_key(sample) -> tuple:
+    roles = tuple(r.value if hasattr(r, "value") else r for r in sample.position_labels)
+    return (roles, sample.label_style)
+
+
 def build_full(items) -> list[dict]:
-    """All 18-per-item three-option stability prompts (format variation, no scaffold)."""
+    """Three orthogonal surface variants per item (baseline + position flip + label swap)."""
     cfg = SesgoPromptConfig(
         name="stability", all_permutations=True,
         label_styles=get_sesgo_label_styles(), include_no_scaffold=True,
     )
     dataset = SesgoPromptDatasetGenerator(cfg).generate(items, [])
+    selected = [s for s in dataset.samples if _variant_key(s) in _SELECTED_VARIANTS]
     out = []
-    for i, s in enumerate(dataset.samples):
+    for i, s in enumerate(selected):
         instr = _instruction(s.language, s.option_labels)
         text = _with_instruction(s.text, s.choice_prefix, instr)
         out.append(_record(
