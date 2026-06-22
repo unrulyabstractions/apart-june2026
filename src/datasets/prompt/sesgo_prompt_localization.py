@@ -24,6 +24,13 @@ _CHOICE_PREFIXES = {
     "en": "Answer: ",
     "es": "Respuesta: ",
 }
+# The committed final-answer prefix the model is instructed to emit (and that the parser
+# reads back). One source of truth, here in the prompt layer — both the instruction text
+# and each record's `answer_cue` derive from this, so they can never drift.
+_ANSWER_CUES = {
+    "en": "Final answer:",
+    "es": "Respuesta final:",
+}
 
 
 def sesgo_markers(language: str) -> tuple[str, str, str]:
@@ -34,3 +41,9 @@ def sesgo_markers(language: str) -> tuple[str, str, str]:
 def sesgo_choice_prefix(language: str) -> str:
     """The trailing answer cue for `language` (teacher-forced by the querier)."""
     return _CHOICE_PREFIXES["es"] if language == "es" else _CHOICE_PREFIXES["en"]
+
+
+def sesgo_answer_cue(language: str) -> str:
+    """The committed final-answer prefix for `language` (the parser reads the marker
+    after this; carried on each prompt record as `answer_cue`)."""
+    return _ANSWER_CUES["es"] if language == "es" else _ANSWER_CUES["en"]

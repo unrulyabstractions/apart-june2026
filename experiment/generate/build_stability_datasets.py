@@ -23,31 +23,23 @@ from pathlib import Path
 from src.datasets.prompt.sesgo_label_style import get_sesgo_label_styles
 from src.datasets.prompt.sesgo_prompt_config import SesgoPromptConfig
 from src.datasets.prompt.sesgo_prompt_generator import SesgoPromptDatasetGenerator, _render
-from src.datasets.prompt.sesgo_prompt_localization import sesgo_choice_prefix
+from src.datasets.prompt.sesgo_prompt_localization import sesgo_answer_cue, sesgo_choice_prefix
 from src.datasets.sesgo import SesgoLabel, load_items
 
-# Response-format cue appended just before the answer prompt so the model emits a
-# parseable option marker (works for thinking models too: they reason, then answer).
-# The expected final-answer prefix the model is told to emit. Stored on every record as
-# `answer_cue` so the parser reads THIS exact prefix instead of hardcoding anything.
-_ANSWER_CUE = {"es": "Respuesta final:", "en": "Final answer:"}
-_FORMAT_INSTRUCTION = {
-    lang: f"En la última línea escribe EXACTAMENTE «{cue} X)», sustituyendo X por la letra "
-          f"de la opción elegida (a, b o c)." if lang == "es"
-          else f"On the last line write EXACTLY '{cue} X)', replacing X with the chosen "
-               f"option letter (a, b, or c)."
-    for lang, cue in _ANSWER_CUE.items()
-}
-
-
-def _answer_cue(language: str) -> str:
-    return _ANSWER_CUE.get(language, _ANSWER_CUE["en"])
 # Forced-fork presents only these two roles, in each order (defeats position bias).
 _FORK_ORDERS = ((SesgoLabel.OTHER, SesgoLabel.TARGET), (SesgoLabel.TARGET, SesgoLabel.OTHER))
 
 
 def _instruction(language: str) -> str:
-    return _FORMAT_INSTRUCTION.get(language, _FORMAT_INSTRUCTION["en"])
+    """The format instruction, built from the SINGLE-SOURCE answer cue (sesgo_answer_cue):
+    the model is told to end with that exact prefix, and each record stores the same cue
+    as `answer_cue` for the parser — so prompt and parser can never drift."""
+    cue = sesgo_answer_cue(language)
+    if language == "es":
+        return (f"En la última línea escribe EXACTAMENTE «{cue} X)», sustituyendo X por la "
+                f"letra de la opción elegida (a, b o c).")
+    return (f"On the last line write EXACTLY '{cue} X)', replacing X with the chosen "
+            f"option letter (a, b, or c).")
 
 
 def _prompt_id(text: str) -> str:
@@ -79,7 +71,7 @@ def _record(text, sample_idx, *, question_id, bias_category, question_polarity,
         "position_labels": [r.value for r in position_labels],
         "choice_prefix": choice_prefix,
         "response_formatting_instruction": instruction,
-        "answer_cue": _answer_cue(language),
+        "answer_cue": sesgo_answer_cue(language),
         "gold_label": gold_label.value if hasattr(gold_label, "value") else gold_label,
         "bbq": bbq,
         "target_identity": target_identity,
