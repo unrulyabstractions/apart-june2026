@@ -199,28 +199,33 @@ run_on_box ".venv/bin/python -m experiment.generate.build_stability_datasets --o
 
 SHARD_SUF=""; [ "${SHARD_COUNT:-1}" -gt 1 ] && SHARD_SUF="/shard_${SHARD_INDEX}_of_${SHARD_COUNT}"
 LIMIT_ARG=""; [ -n "$LIMIT" ] && LIMIT_ARG="--limit $LIMIT"
+# Run BOTH readout datasets per mode: the full stability set (study=stability, 6930) and
+# the small forced-fork set (study=forked, 385). The two deliverable figures need both.
 for MODE in $MODES; do
-  log "run_greedy_readout mode=$MODE shard=$SHARD_INDEX/$SHARD_COUNT limit='${LIMIT:-full}' (HF backend)"
-  run_on_box "export HF_TOKEN='${HF_TOKEN:-}'; time .venv/bin/python -m experiment.stability.run_greedy_readout \
-      --model '$MODEL' --mode '$MODE' --backend huggingface \
-      --dataset data/full_prompt_dataset.json --study stability --out-dir out \
-      --max-reasoning $MAX_REASONING \
-      --shard-index ${SHARD_INDEX:-0} --shard-count ${SHARD_COUNT:-1} $LIMIT_ARG" \
-    2>&1 | sed "s/^/[$TAG run:$MODE] /"
-  [ "${PIPESTATUS[0]}" -eq 0 ] || { log "FATAL: readout failed (mode=$MODE)"; exit 8; }
+  for SPEC in "full_prompt_dataset.json:stability" "forced_fork.json:forked"; do
+    DS="${SPEC%%:*}"; STUDY="${SPEC##*:}"
+    log "run_greedy_readout mode=$MODE study=$STUDY shard=$SHARD_INDEX/$SHARD_COUNT limit='${LIMIT:-full}' (HF)"
+    run_on_box "export HF_TOKEN='${HF_TOKEN:-}'; time .venv/bin/python -m experiment.stability.run_greedy_readout \
+        --model '$MODEL' --mode '$MODE' --backend huggingface \
+        --dataset data/$DS --study $STUDY --out-dir out \
+        --max-reasoning $MAX_REASONING \
+        --shard-index ${SHARD_INDEX:-0} --shard-count ${SHARD_COUNT:-1} $LIMIT_ARG" \
+      2>&1 | sed "s/^/[$TAG $STUDY:$MODE] /"
+    [ "${PIPESTATUS[0]}" -eq 0 ] || { log "FATAL: readout failed (study=$STUDY mode=$MODE)"; exit 8; }
 
-  # Verify the slice is non-empty BEFORE we destroy the box (new flat layout).
-  OUT="out/stability/${BARE_MODEL}-${MODE}${SHARD_SUF}/response_samples.json"
-  NS="$(run_on_box ".venv/bin/python -c \"import json; print(len(json.load(open('$OUT'))['samples']))\" 2>/dev/null || echo 0")"
-  NS="$(printf '%s' "$NS" | tr -dc '0-9')"
-  log "remote $OUT has ${NS:-0} samples"
-  [ "${NS:-0}" -ge 1 ] || { log "FATAL: empty/missing $OUT -- aborting (no sync, will destroy)"; exit 8; }
+    # Verify the slice is non-empty BEFORE we destroy the box (flat out/<study>/ layout).
+    OUT="out/$STUDY/${BARE_MODEL}-${MODE}${SHARD_SUF}/response_samples.json"
+    NS="$(run_on_box ".venv/bin/python -c \"import json; print(len(json.load(open('$OUT'))['samples']))\" 2>/dev/null || echo 0")"
+    NS="$(printf '%s' "$NS" | tr -dc '0-9')"
+    log "remote $OUT has ${NS:-0} samples"
+    [ "${NS:-0}" -ge 1 ] || { log "FATAL: empty/missing $OUT -- aborting (no sync, will destroy)"; exit 8; }
+  done
 done
 
 # ── 8. SYNC results BACK into the gitignored quarantine sync/<TAG>/ (--ignore-existing,
-#    no --delete; pulls the flat out/stability/ tree). ──
+#    no --delete; pulls the flat out/stability/ + out/forked/ trees). ──
 log "sync_back -> sync/$TAG/"
-SYNC_SUBDIR="$TAG" STUDIES="stability" INSTANCE="$INSTANCE" bash "$HERE/sync_back.sh" 2>&1 | sed "s/^/[$TAG back] /"
+SYNC_SUBDIR="$TAG" STUDIES="stability forked" INSTANCE="$INSTANCE" bash "$HERE/sync_back.sh" 2>&1 | sed "s/^/[$TAG back] /"
 [ "${PIPESTATUS[0]}" -eq 0 ] || { log "FATAL: sync_back failed (box will still be destroyed)"; exit 9; }
 
 log "SUCCESS: $BARE_MODEL modes='$MODES' shard=$SHARD_INDEX/$SHARD_COUNT on $GPU_NAME; quarantined under sync/$TAG/"

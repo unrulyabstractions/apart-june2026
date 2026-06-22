@@ -18,7 +18,6 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
-from itertools import product
 from pathlib import Path
 
 from src.datasets.prompt.sesgo_label_style import get_sesgo_label_styles
@@ -127,25 +126,29 @@ def build_full(items) -> list[dict]:
 
 
 def build_forced_fork(items) -> list[dict]:
-    """Ambiguous + non-negative items as forced 2-option (target vs other) forks."""
-    styles_2opt = [(a, b) for (a, b, _c) in get_sesgo_label_styles()]
+    """Ambiguous + non-negative items as a forced 2-option (target vs other) fork — ONE
+    canonical presentation per item: NO order flip and NO label-style variation. The
+    forced-fork metrics (output diversity / vocab entropy / label prob) are per-sample
+    next-token readouts, so surface variation would only add confounds, not signal."""
+    a_marker, b_marker, _c = get_sesgo_label_styles()[0]   # the single canonical style: a) b)
+    markers = (a_marker, b_marker)
+    roles = (SesgoLabel.TARGET, SesgoLabel.OTHER)          # single fixed order: target, other
     out, idx = [], 0
     for item in items:
         if item.context_condition != "ambig" or item.polarity == "neg":
             continue  # ambiguous AND non-negative only
         prefix = sesgo_choice_prefix(item.language)
-        for roles, markers in product(_FORK_ORDERS, styles_2opt):
-            instr = _instruction(item.language, markers)  # letters depend on this fork's markers
-            text = _with_instruction(_render(None, item, markers, roles, prefix), prefix, instr)
-            out.append(_record(
-                text, idx, question_id=item.question_id, bias_category=item.category.value,
-                question_polarity=item.polarity, context_condition=item.context_condition,
-                language=item.language, label_style="".join(markers), option_labels=markers,
-                position_labels=roles, choice_prefix=prefix, gold_label=SesgoLabel.UNKNOWN,
-                bbq=item.bbq, target_identity=item.target_text, other_identity=item.other_text,
-                instruction=instr,
-            ))
-            idx += 1
+        instr = _instruction(item.language, markers)
+        text = _with_instruction(_render(None, item, markers, roles, prefix), prefix, instr)
+        out.append(_record(
+            text, idx, question_id=item.question_id, bias_category=item.category.value,
+            question_polarity=item.polarity, context_condition=item.context_condition,
+            language=item.language, label_style="".join(markers), option_labels=markers,
+            position_labels=roles, choice_prefix=prefix, gold_label=SesgoLabel.UNKNOWN,
+            bbq=item.bbq, target_identity=item.target_text, other_identity=item.other_text,
+            instruction=instr,
+        ))
+        idx += 1
     return out
 
 
