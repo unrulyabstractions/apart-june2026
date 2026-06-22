@@ -131,3 +131,6 @@ cloud/.fleet*/
 
 # Stage-1 prompt datasets: regenerable via experiment/generate/build_stability_datasets.py
 /data/
+
+# cloud per-box driver logs / iids (may reference HF_TOKEN context)
+cloud/.stab_*
