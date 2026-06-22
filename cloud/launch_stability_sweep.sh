@@ -63,7 +63,9 @@ for row in "${ROWS[@]}"; do
   if [ "$gated" = yes ] && [ -z "${HF_TOKEN:-}" ]; then
     echo "  SKIP $tag ($model) — gated but HF_TOKEN not exported"; continue; fi
   tokenenv=""; [ "$gated" = yes ] && tokenenv="HF_TOKEN=$HF_TOKEN"
-  env $tokenenv MODEL="$model" BARE_MODEL="$bare" MODES="$modes" \
+  # Mistral Ministral-3 ships finegrained-fp8 weights -> needs the pinned kernels package.
+  kernelsenv=""; case "$model" in *[Mm]inistral*) kernelsenv="INSTALL_KERNELS=1";; esac
+  env $tokenenv $kernelsenv MODEL="$model" BARE_MODEL="$bare" MODES="$modes" \
       GPU_NAME="$gpu" NUM_GPUS="$ngpu" MAX_PRICE="$price" DISK="$disk" TAG="$tag" \
       nohup bash "$HERE/run_one_stability_box.sh" > "$HERE/.stab_${tag}.driver.log" 2>&1 &
   echo "  launched tag=$tag model=$model modes='$modes' gpu=${gpu}x${ngpu} pid=$!"

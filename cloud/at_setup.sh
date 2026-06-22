@@ -54,8 +54,11 @@ uv pip install --reinstall "torch==2.6.0" "torchvision==0.21.0" \
 # import entirely with "Either a revision or a version must be specified"). So it is opt-in
 # via INSTALL_KERNELS=1 and PINNED, never installed unconditionally.
 if [ "${INSTALL_KERNELS:-0}" = 1 ]; then
-  echo "[at_setup] installing pinned kernels (FP8 dequant for Mistral FP8 checkpoints)"
-  uv pip install "kernels==${KERNELS_VERSION:-0.4.4}"
+  # 0.12.3 is within transformers 5.9's required range (kernels>=0.12,<0.13) and was
+  # VERIFIED to import transformers.integrations.hub_kernels cleanly; a newer kernels
+  # (>=0.13) breaks that import and the whole run.
+  echo "[at_setup] installing pinned kernels==${KERNELS_VERSION:-0.12.3} (Mistral FP8 dequant)"
+  uv pip install "kernels==${KERNELS_VERSION:-0.12.3}"
 fi
 
 # CRITICAL: `uv run` ALWAYS re-syncs the venv to the lockfile first, which silently

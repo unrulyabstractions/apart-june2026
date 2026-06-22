@@ -198,7 +198,7 @@ done
 setup_ok=0
 for attempt in 1 2 3 4; do
   log "at_setup (attempt $attempt/4)"
-  run_on_box "bash cloud/at_setup.sh" 2>&1 | sed "s/^/[$TAG setup] /"
+  run_on_box "INSTALL_KERNELS='${INSTALL_KERNELS:-0}' KERNELS_VERSION='${KERNELS_VERSION:-0.12.3}' bash cloud/at_setup.sh" 2>&1 | sed "s/^/[$TAG setup] /"
   [ "${PIPESTATUS[0]}" -eq 0 ] && { setup_ok=1; break; }
   log "at_setup attempt $attempt FAILED; waiting 30s before retry"; sleep 30
 done
