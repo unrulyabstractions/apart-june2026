@@ -36,6 +36,7 @@ from experiment.stability.greedy_readout_schema import GreedyReadout, GreedyRead
 # "Unbounded" generation: a high cap that EOS almost always hits first, so the CoT
 # finishes naturally (per the spec — do not bound greedy thinking by max tokens).
 _UNBOUNDED = 8192
+_ANSWER_BUDGET = 512  # tokens to commit an answer after a forced </think> close
 _CHECKPOINT_EVERY = 25
 
 
@@ -94,22 +95,28 @@ def _templated_prompt(runner: ModelRunner, prompt: str, thinking: bool) -> str:
     return templated
 
 
-def _readout(runner: ModelRunner, rec: dict, thinking: bool, temperature: float) -> GreedyReadout:
-    """One prompt -> one GreedyReadout. Non-thinking decodes greedily (temp 0); thinking
-    runs SAMPLE at a low, near-greedy temperature, because greedy decoding traps small
-    reasoning models in repetition loops that never terminate."""
+def _readout(runner: ModelRunner, rec: dict, thinking: bool, max_reasoning: int) -> GreedyReadout:
+    """One prompt -> one GreedyReadout, GREEDY throughout. For a thinking run the reasoning
+    is capped at `max_reasoning` tokens; if the model never emitted </think> by then we
+    APPEND it and continue greedily, forcing a committed answer instead of an endless loop."""
     prompt = "\n".join(rec["text"])
     templated = _templated_prompt(runner, prompt, thinking)
     prompt_ids = runner.encode_ids(templated, add_special_tokens=True)
 
-    traj = runner.generate_trajectory(prompt_ids, max_new_tokens=_UNBOUNDED, temperature=temperature)
-    full_ids = traj.token_ids
+    budget = max_reasoning if thinking else _UNBOUNDED
+    full_ids = runner.generate_trajectory(prompt_ids, max_new_tokens=budget, temperature=0.0).token_ids
+    if thinking and "</think>" not in runner.decode_ids(full_ids[len(prompt_ids):]):
+        # Reasoning hit the cap without closing — force the stop-thinking token and let the
+        # model commit an answer (still greedy), instead of recording a non-answer loop.
+        full_ids = full_ids + runner.encode_ids("\n</think>\n\n", add_special_tokens=False)
+        full_ids = runner.generate_trajectory(
+            full_ids, max_new_tokens=_ANSWER_BUDGET, temperature=0.0).token_ids
     generated = runner.decode_ids(full_ids[len(prompt_ids):])
 
     label, choice, off = parse_answer(
         generated, rec["option_labels"], rec["position_labels"], rec.get("answer_cue", ""))
-    # Token index of the answer position: the parsed label, else the first
-    # post-thinking token (so invalid answers still get a defined readout).
+    # Token index of the answer position: the parsed label, else the first post-thinking
+    # token (so a no-answer case still gets a defined readout position).
     if off >= 0:
         prefix = generated[:off]
     else:
@@ -118,15 +125,13 @@ def _readout(runner: ModelRunner, rec: dict, thinking: bool, temperature: float)
     pos = len(prompt_ids) + len(runner.encode_ids(prefix, add_special_tokens=False))
     pos = min(max(pos, len(prompt_ids)), len(full_ids) - 1)
 
-    # One teacher-forced pass over prompt+answer; read the distribution that PRODUCED
-    # the answer token (full_logits[pos-1]) and that token's own logprob (logprobs[pos]).
+    # Teacher-forced pass: the distribution that PRODUCED the answer token (full_logits[pos-1])
+    # and that token's own logprob (logprobs[pos]).
     ct = runner.compute_trajectory(full_ids[: pos + 1])
     dist = torch.log_softmax(ct.full_logits[pos - 1], dim=-1)
-    # Cut-off CoT: a thinking run that never closed </think> AND committed no answer
-    # (it ran past the token budget mid-thought). A short, direct answer with no think
-    # block is fine — only flag the case with no parseable commitment, never guess one.
-    unclosed_think = thinking and "</think>" not in generated and choice == "invalid"
-    degenerate = _is_degenerate(generated) or unclosed_think
+    # Degeneracy is judged on the ANSWER segment (after </think>): a force-closed reasoning
+    # loop is expected; what matters is whether the committed answer itself is real.
+    degenerate = _is_degenerate(answer_segment(generated))
     return GreedyReadout(
         sample_idx=rec["sample_idx"], prompt_id=rec["prompt_id"], prompt_text=templated,
         response_text=generated, choice="invalid" if degenerate else choice, label=label,
@@ -165,9 +170,9 @@ def main():
     ap.add_argument("--shard-count", type=int, default=1)
     ap.add_argument("--backend", choices=["auto", "huggingface", "mlx", "vllm"], default="auto",
                     help="force a backend (e.g. huggingface for archs MLX can't load locally)")
-    ap.add_argument("--thinking-temp", type=float, default=0.6,
-                    help="sampling temperature for THINKING mode (low/near-greedy; breaks "
-                         "repetition loops). Non-thinking always decodes greedily (0.0).")
+    ap.add_argument("--max-reasoning", type=int, default=2048,
+                    help="THINKING token budget before forcing </think> + an answer (greedy "
+                         "throughout). Stops endless reasoning loops without sampling.")
     args = ap.parse_args()
 
     records = _load_records(Path(args.dataset), args.limit, args.shard_index, args.shard_count)
@@ -185,10 +190,9 @@ def main():
     runner = ModelRunner(args.model, backend=backend)
     ds = GreedyReadoutDataset(study=args.study, model=args.model, mode=args.mode, samples=samples)
 
-    temp = args.thinking_temp if thinking else 0.0
     todo = [r for r in records if r["prompt_id"] not in done]
     for i, rec in enumerate(todo, 1):
-        ds.samples.append(_readout(runner, rec, thinking, temp))
+        ds.samples.append(_readout(runner, rec, thinking, args.max_reasoning))
         if i % _CHECKPOINT_EVERY == 0 or i == len(todo):
             json.dump(ds.to_dict(), out_file.open("w"), ensure_ascii=False, indent=2)
             print(f"[greedy] {i}/{len(todo)} (+{len(done)} resumed) checkpointed")
