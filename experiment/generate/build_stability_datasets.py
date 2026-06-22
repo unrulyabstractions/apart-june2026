@@ -26,6 +26,10 @@ from src.datasets.prompt.sesgo_prompt_generator import SesgoPromptDatasetGenerat
 from src.datasets.prompt.sesgo_prompt_localization import sesgo_answer_cue, sesgo_choice_prefix
 from src.datasets.sesgo import SesgoLabel, load_items
 
+# Forced-fork presents the two roles in BOTH orders (a position flip that exposes position
+# bias) — but in a SINGLE label style (no surface-label variation).
+_FORK_ORDERS = ((SesgoLabel.TARGET, SesgoLabel.OTHER), (SesgoLabel.OTHER, SesgoLabel.TARGET))
+
 # Forced-fork presents only these two roles, in each order (defeats position bias).
 _FORK_ORDERS = ((SesgoLabel.OTHER, SesgoLabel.TARGET), (SesgoLabel.TARGET, SesgoLabel.OTHER))
 
@@ -126,29 +130,29 @@ def build_full(items) -> list[dict]:
 
 
 def build_forced_fork(items) -> list[dict]:
-    """Ambiguous + non-negative items as a forced 2-option (target vs other) fork — ONE
-    canonical presentation per item: NO order flip and NO label-style variation. The
-    forced-fork metrics (output diversity / vocab entropy / label prob) are per-sample
-    next-token readouts, so surface variation would only add confounds, not signal."""
-    a_marker, b_marker, _c = get_sesgo_label_styles()[0]   # the single canonical style: a) b)
+    """Ambiguous + non-negative items as a forced 2-option (target vs other) fork. Per item:
+    the two ORDER flips (target/other and other/target) in a SINGLE label style (a/b) — so
+    position bias shows up (output diversity across the flip) WITHOUT confounding label
+    variation."""
+    a_marker, b_marker, _c = get_sesgo_label_styles()[0]   # the single label style: a) b)
     markers = (a_marker, b_marker)
-    roles = (SesgoLabel.TARGET, SesgoLabel.OTHER)          # single fixed order: target, other
     out, idx = [], 0
     for item in items:
         if item.context_condition != "ambig" or item.polarity == "neg":
             continue  # ambiguous AND non-negative only
         prefix = sesgo_choice_prefix(item.language)
-        instr = _instruction(item.language, markers)
-        text = _with_instruction(_render(None, item, markers, roles, prefix), prefix, instr)
-        out.append(_record(
-            text, idx, question_id=item.question_id, bias_category=item.category.value,
-            question_polarity=item.polarity, context_condition=item.context_condition,
-            language=item.language, label_style="".join(markers), option_labels=markers,
-            position_labels=roles, choice_prefix=prefix, gold_label=SesgoLabel.UNKNOWN,
-            bbq=item.bbq, target_identity=item.target_text, other_identity=item.other_text,
-            instruction=instr,
-        ))
-        idx += 1
+        instr = _instruction(item.language, markers)       # depends only on the labels, not order
+        for roles in _FORK_ORDERS:
+            text = _with_instruction(_render(None, item, markers, roles, prefix), prefix, instr)
+            out.append(_record(
+                text, idx, question_id=item.question_id, bias_category=item.category.value,
+                question_polarity=item.polarity, context_condition=item.context_condition,
+                language=item.language, label_style="".join(markers), option_labels=markers,
+                position_labels=roles, choice_prefix=prefix, gold_label=SesgoLabel.UNKNOWN,
+                bbq=item.bbq, target_identity=item.target_text, other_identity=item.other_text,
+                instruction=instr,
+            ))
+            idx += 1
     return out
 
 
