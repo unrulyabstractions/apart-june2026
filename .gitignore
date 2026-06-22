@@ -128,3 +128,6 @@ cloud/.fleet*/
 
 # guard-hook auto-backups (local safety, never committed)
 .backups/
+
+# Stage-1 prompt datasets: regenerable via experiment/generate/build_stability_datasets.py
+/data/
