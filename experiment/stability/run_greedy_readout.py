@@ -43,6 +43,23 @@ def _bare(model: str) -> str:
     return model.rstrip("/").split("/")[-1]
 
 
+def _is_degenerate(text: str, min_len: int = 40) -> bool:
+    """True if the response is a short repetition loop / garbage (a backend silently
+    mis-generating, e.g. mlx_lm on an unsupported arch emitting 'ipiipi...'). Such a
+    response is NOT data — we flag it instead of letting a 0-entropy or invalid read
+    pass silently."""
+    t = text.strip()
+    if len(t) < min_len:
+        return False
+    if len(set(t)) <= 3:  # almost no unique characters
+        return True
+    for period in range(1, 11):  # a short cycle that explains >=85% of the text
+        unit = t[:period]
+        if unit and t.count(unit) * period >= 0.85 * len(t):
+            return True
+    return False
+
+
 def _out_dir(out_root: Path, study: str, model: str, mode: str, idx: int, count: int) -> Path:
     """out/<study>/<model>-<mode>[/shard_i_of_K]/  (post-flatten layout, mode-separated)."""
     d = out_root / study / f"{_bare(model)}-{mode}"
@@ -97,10 +114,12 @@ def _readout(runner: ModelRunner, rec: dict, thinking: bool) -> GreedyReadout:
     # the answer token (full_logits[pos-1]) and that token's own logprob (logprobs[pos]).
     ct = runner.compute_trajectory(full_ids[: pos + 1])
     dist = torch.log_softmax(ct.full_logits[pos - 1], dim=-1)
+    degenerate = _is_degenerate(generated)
     return GreedyReadout(
         sample_idx=rec["sample_idx"], prompt_id=rec["prompt_id"], prompt_text=templated,
-        response_text=generated, choice=choice, label=label,
+        response_text=generated, choice="invalid" if degenerate else choice, label=label,
         label_logprob=float(ct.logprobs[pos]), vocab_entropy=float(shannon_entropy(dist)),
+        degenerate=degenerate,
     )
 
 
@@ -157,7 +176,12 @@ def main():
         if i % _CHECKPOINT_EVERY == 0 or i == len(todo):
             json.dump(ds.to_dict(), out_file.open("w"), ensure_ascii=False)
             print(f"[greedy] {i}/{len(todo)} (+{len(done)} resumed) checkpointed")
+    n_degen = sum(1 for s in ds.samples if s.degenerate)
     print(f"[greedy] DONE {args.model} {args.mode}: {len(ds.samples)} samples -> {out_file}")
+    if n_degen:
+        print(f"[greedy] !! WARNING: {n_degen}/{len(ds.samples)} responses are DEGENERATE "
+              f"(repetition/garbage) — this backend mis-generates {args.model}; the data is NOT "
+              f"usable. Re-run on a backend that supports this arch (HF/vLLM on CUDA).")
 
 
 if __name__ == "__main__":
