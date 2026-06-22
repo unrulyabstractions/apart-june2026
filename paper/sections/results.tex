@@ -1,0 +1,60 @@
+\section{Results}
+\label{sec:results}
+
+\paragraph{Smaller models are more biased.}
+\textit{Evidence.} Across the cross-model sweep ($n{=}770$ per cell), abstention on
+ambiguous items rises with scale within every family, three-option abstention goes
+from $0.77$ to $0.89$ for Qwen ($0.6$\,B$\to$$4$\,B) and from $0.30$ to $0.89$ for
+Llama ($1$\,B$\to$$3$\,B), and disambiguated accuracy rises with scale as well. The
+smallest model, \texttt{Llama-3.2-1B}, abstains least ($0.30$, below the $1/3$ chance
+line) and most often names the stereotyped target on disambiguated items ($0.68$ vs.\
+$0.40$ for \texttt{Qwen3-0.6B}). In the bias-vs-accuracy view (\Cref{fig:results-bias}),
+small models are both less accurate and more biased, while larger models cluster near
+zero bias at high accuracy. All rates carry Wilson $95\%$ confidence intervals.\\
+\textit{Limitation.} The sweep mixes families and sizes, so we do not cleanly resolve
+size from family on every axis.\\
+\textit{Notes.} One run (\texttt{gemma-2-27b-it}) was degenerate and is shown honestly
+rather than dropped.
+
+\plotfig{../out/sesgo/baseline/cross_model/plots/bias_alignment_accuracy.png}{../out/sesgo/baseline/cross_model/plots/bias_alignment_accuracy.png}{0.98\linewidth}{\textbf{Bias alignment vs.\ accuracy} across the $12$-model sweep. Each model is a bar at its accuracy spanning its neutral-vs-negative wording bias ($x{<}0$ leans toward the Other group, $x{>}0$ toward the stereotyped Target). Left: ambiguous items (accuracy $=$ abstention); right: disambiguated. Small models are less accurate and more biased; large models cluster near zero bias at high accuracy.}{fig:results-bias}
+
+\paragraph{Scale lowers uncertainty.}
+\textit{Evidence.} We fork the chain of thought at every token and track the outcome
+distribution $O_t$ (\Cref{fig:results-forking}). The larger \texttt{Qwen3-14B} commits
+its answer \emph{decisively}: the change-point test finds a single significant
+commitment token (at $t{=}270$, Bayes factor ${\approx}10^{9}$), after which the answer
+snaps from abstention to a named group. The smaller \texttt{Qwen3-0.6B} instead
+accretes its answer gradually, with no single deciding token (Bayes factor $0.023$).
+The larger model resolves to a sharp, low-uncertainty commitment.\\
+\textit{Limitation.} A single-item case study per model.\\
+\textit{Notes.} The forking (red) token is the position where re-sampling a different
+token most diverts the final outcome.
+
+\begin{figure}[htbp]\centering
+  \begin{subfigure}{0.49\linewidth}\centering
+    \plotsub{../out/sesgo/forking/Qwen3-0.6B/plots/forking_commit_dynamics.png}{../out/sesgo/forking/Qwen3-0.6B/plots/forking_commit_dynamics.png}{\linewidth}
+    \caption{\texttt{Qwen3-0.6B}: the answer wanders, with no single commitment token.}
+  \end{subfigure}\hfill
+  \begin{subfigure}{0.49\linewidth}\centering
+    \plotsub{../out/figs/forking_ot_14b.png}{../out/figs/forking_ot_14b.png}{\linewidth}
+    \caption{\texttt{Qwen3-14B}: a single decisive commitment token ($t{=}270$, red).}
+  \end{subfigure}
+  \caption{\textbf{Scale lowers uncertainty.} Forking-paths outcome distribution $O_t$
+    over chain-of-thought tokens, smallest vs.\ larger model (target / other / unknown /
+    unparseable). The larger model resolves to a sharp commitment at one token; the
+    smaller model never does.}
+  \label{fig:results-forking}
+\end{figure}
+
+\paragraph{Smaller models do not answer consistently.}
+\textit{Evidence.} We render each item into $18$ cosmetic surface variants ($3$ label
+styles $\times$ $6$ option orders, with the gold answer fixed) and ask how often the
+answer never changes. Format-invariance is governed by scale, not family: within both
+Qwen (\texttt{Qwen3-0.6B} vs.\ \texttt{Qwen3-32B}) and Llama (\texttt{Llama-3.2-1B}
+vs.\ \texttt{Llama-3.1-70B}), the small model is $0\%$ format-invariant while the large
+model is $100\%$ (\Cref{fig:results-stability}). A purely cosmetic relabelling can flip
+a small model's answer.\\
+\textit{Limitation.} A small item pool ($n{=}8/16$ items per condition).\\
+\textit{Notes.} This implies the other studies should filter for unstable answers.
+
+\plotfig{../out/sesgo/stability/smallest_vs_biggest_format_invariance.png}{../out/sesgo/stability/smallest_vs_biggest_format_invariance.png}{0.92\linewidth}{\textbf{Smaller models do not answer consistently.} Share of items whose answer never changes across the $18$ cosmetic format variants, smallest vs.\ largest within each family, with Wilson $95\%$ CIs. The small model is $0\%$ format-invariant while the large model is $100\%$ in both Qwen and Llama, scale, not family or formatting, governs answer stability.}{fig:results-stability}

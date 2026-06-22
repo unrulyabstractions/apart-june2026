@@ -1,0 +1,42 @@
+\section{Selection: the debiasing scaffold}
+\label{app:selection}
+
+\paragraph{Methods.}
+The candidate scaffolds (\Cref{tab:scaffolds}) are scored and scaffold
+\emph{selection} picks
+\begin{equation}
+  s^\star \;=\; \argmax_s \; \mathrm{acc}(x \oplus s),
+  \label{eq:select}
+\end{equation}
+the scaffold maximizing abstention accuracy over the candidate set. The full-data
+run (\Cref{app:fulldata}) scores all four conditions on the same pool of $1347$
+ambiguous items each (gold $=$ unknown) under the three-option teacher-forced
+readout, so $s^\star$ rests on a real per-scaffold behavioral comparison. The full
+bilingual scaffold texts (English and Spanish) and the per-item prompt rendering
+are included in the released harness; \Cref{tab:scaffolds} gives the one-line
+mechanism for each.
+
+\paragraph{Results.}
+Per-scaffold three-option abstention on the $1347$ ambiguous items per condition,
+in descending order:
+\begin{itemize}[leftmargin=*,topsep=2pt,itemsep=1pt]
+  \item \texttt{interpretive\_direction}: $99.9\%$ ($1345/1347$, CI$[99,100]$)
+    ---near-total abstention; this is the selected $s^\star$.
+  \item \texttt{prior\_dominance\_warning}: $88.3\%$ ($1190/1347$, CI$[87,90]$).
+  \item \texttt{(none)} no-scaffold baseline: $85.6\%$ ($1153/1347$, CI$[84,87]$).
+  \item \texttt{intent\_and\_register\_respect}: $79.9\%$ ($1076/1347$,
+    CI$[78,82]$)---this scaffold \emph{underperforms the no-scaffold baseline}, so
+    not all scaffolds help; scaffold choice matters.
+  \item The selected $s^\star{=}$\texttt{interpretive\_direction} lifts abstention
+    $+14.3$ points over the no-scaffold baseline ($99.9\%$ vs.\ $85.6\%$); the two
+    intermediate scaffolds bracket the baseline (one above, one below). This backs
+    the central contribution behaviorally and corroborates the representational
+    finding (scaffold-vs-none silhouette $+0.48$, \Cref{app:geometry}) and the
+    causal steering (\Cref{app:steer}).
+\end{itemize}
+
+\plotfig{../out/sesgo/full_data/Qwen3-0.6B/plots/abstention_by_axis.png}{abstention_by_axis.png}{0.82\linewidth}{\textbf{Selection / full-data} on \texttt{Qwen3-0.6B} ($n{=}5388$ ambiguous items): three-option teacher-forced abstention (top row) by language, origin, and scaffold; $s^\star{=}$\texttt{interpretive\_direction} reaches $99.9\%$ while \texttt{intent\_and\_register\_respect} ($79.9\%$) falls below the no-scaffold baseline ($85.6\%$). Dashed line $=1/3$ chance.}{fig:selection}
+
+\plotfig{../out/sesgo/full_data/Qwen3-0.6B/plots/scaffold_abstention_delta.png}{scaffold_abstention_delta.png}{0.96\linewidth}{\textbf{How each scaffold changes the no-scaffold baseline} (\texttt{Qwen3-0.6B}, full-data ambiguous items): signed change in correct-abstention rate vs.\ running with no scaffold, faceted by readout (without/with thinking) $\times$ bias category, with Newcombe $95\%$ CIs. Bars to the right (green) mean the scaffold improves abstention; the gains are largest on the hardest categories (Racism, Xenophobia), and one scaffold (\texttt{intent\_and\_register\_respect}) can hurt---scaffold choice matters.}{fig:scaffold-delta}
+
+\plotfig{../out/sesgo/full_data/Qwen3-0.6B/plots/bias_alignment_accuracy.png}{../out/sesgo/full_data/Qwen3-0.6B/plots/bias_alignment_accuracy.png}{0.99\linewidth}{\textbf{Bias alignment vs.\ accuracy, by scaffold} (\texttt{Qwen3-0.6B}, full-data). The same view as the cross-model figure but per debiasing scaffold (no-scaffold baseline plus the three scaffolds): each scaffold is a bar at its accuracy spanning its neutral-vs-negative wording bias, with $x{<}0$ toward the OTHER group and $x{>}0$ toward the stereotyped TARGET. A scaffold that both raises accuracy/abstention and pulls the bias toward zero is debiasing on both axes at once.}{fig:bias-alignment-selection}

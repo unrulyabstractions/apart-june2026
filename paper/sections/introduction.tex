@@ -1,0 +1,50 @@
+\section{Introduction}
+\label{sec:intro}
+
+Large language models learn the social biases latent in their pretraining data, and in
+deployment they do not merely reproduce those biases, they amplify them. The cost is
+borne disproportionately by minoritized groups, who are turned into the default
+referent whenever a model fills an ambiguous gap with a stereotype. A growing toolkit
+of interventions aims to reduce this harm, from data curation and fine-tuning to
+mechanistic interpretability and representation engineering. A recurring lesson is that
+bias is not a single universal quantity: what counts as a harmful stereotype, and which
+intervention will undo it, depends on the social context. Interventions must therefore
+be \emph{context-aware}.
+
+We take a first step toward adapting such interventions to the Latin American (LATAM)
+context. Doing so was, until recently, blocked by a simpler problem: there was no
+Spanish-language data with which to even measure social bias in the region. The new
+\textsc{SESGO} benchmark~\citep{robles2025sesgo} closes that gap with
+Latin-American-grounded items, and we leverage it to characterize bias in
+Spanish-prompted LLMs through behavioral and distributional studies. Our
+goal is not a finished mitigation but a map: a preliminary, multi-view picture of where
+bias lives in these models that future LATAM-specific interventions can build on.
+
+A LATAM-specific consideration shapes what we measure: \textbf{model size}. Adaptation
+in the region happens predominantly through \emph{open-weight} models, both because such
+models are the substrate practitioners can actually fine-tune and because open weights
+are increasingly seen as a precondition for AI sovereignty~\citep{sovereignty}.
+Resource constraints push real-world adopters toward the smallest models, which, as we
+find, can also be the most biased, so we study how bias varies with scale across open
+Qwen, Llama, and Mistral families.
+
+\paragraph{Preliminary findings.} Across these studies we observe three things.
+\emph{Smaller models are more biased:} abstention accuracy on ambiguous items rises with
+scale while the error split toward the marginalized group narrows.
+\emph{Smaller models answer less consistently:} the small model in each family flips its
+answer under cosmetic reformatting while the large model does not. \emph{Scale lowers
+uncertainty:} forking the chain of thought, the larger model commits its answer at a
+single decisive token while the smaller model accretes it gradually. We stress that
+these are preliminary, mostly single-model results, offered as a foundation rather than
+a conclusion.
+
+\paragraph{Contributions.} Building on \textsc{SESGO}~\citep{robles2025sesgo}, our
+contributions are:
+\begin{itemize}[leftmargin=*,topsep=2pt,itemsep=1pt]
+  \item \textbf{An extension of \textsc{SESGO} to model-scale effects,} replicating the
+    benchmark across open-weight Qwen, Llama, and Mistral models to chart how
+    Spanish-prompted bias changes with model size.
+  \item \textbf{A stability analysis} of how consistently models answer across cosmetic reformatting.
+  \item \textbf{A chain-of-thought dynamical case study of bias commitment,} tracking
+    how and when an open-weight model's answer to an ambiguous item is decided.
+\end{itemize}

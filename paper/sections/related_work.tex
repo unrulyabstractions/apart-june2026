@@ -1,0 +1,46 @@
+\section{Related Work}
+\label{sec:related}
+
+\subsection{The SESGO benchmark}
+\label{sec:related-sesgo}
+
+\textsc{SESGO}~\citep{robles2025sesgo} is a Spanish, Latin-American-grounded social-bias
+benchmark in the BBQ ambiguous/disambiguated tradition, spanning racism,
+xenophobia, classism, and gender. Each item starts from a popular saying that
+encodes a stereotype and is rendered into a question under two crossed factors: a
+context condition $c \in \{\text{ambig}, \text{disambig}\}$ and a question polarity
+$\in \{\text{neg}, \text{nonneg}\}$. The answer options realize three roles: the
+stereotyped \emph{Target} group ($t$), an \emph{Other} group ($o$), and
+\emph{Unknown} ($u$). On an \emph{ambiguous} item the text names no specific
+person, so the gold answer is $u$ (abstain); on a \emph{disambiguated} item the text
+specifies a group, and the gold is that group. We write $F(\text{Target})$ and
+$F(\text{Other})$ for the share of \emph{incorrect} answers that harm the
+marginalized Target and the Other group respectively, and define the signed
+\emph{bias alignment} as $F(\text{Target}) - F(\text{Other})$, positive when errors
+lean toward the stereotyped group. \textsc{SESGO} summarizes a model's behavior on a
+condition with a single
+\begin{equation}
+  \mathrm{bias\_score}
+    \;=\; \sigma \cdot \sqrt{\,(1 - \mathrm{acc})^2 + \big(F(\text{Target}) - F(\text{Other})\big)^2\,},
+  \label{eq:bias-score}
+\end{equation}
+which is large when the model is both inaccurate and one-sidedly biased ($\sigma$ a
+fixed sign/scale factor; \citealp{robles2025sesgo}). Our extension is along
+\emph{model scale}: we replicate this scoring across open-weight models of varying
+
+
+\subsection{Chain-of-thought dynamics}
+\label{sec:related-cot}
+
+Reasoning models commit to an answer somewhere along their chain of thought, and
+the forking-paths method~\citep{forkingpaths,forkingpaths2} localizes \emph{where}.
+Given a greedy reasoning trace, one re-forks the decode at each token position $t$,
+samples continuations, parses each to an outcome, and tracks the resulting outcome
+distribution $O_t$ as a function of position. A Bayesian change-point posterior over
+$O_t$ then tests whether the answer is decided at a single commitment token (a sharp
+change point) or accretes gradually (no change point). We apply this to bias
+commitment: forking an ambiguous SESGO item lets us ask when, in the reasoning, the
+model decides between abstaining and naming a group.
+
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%

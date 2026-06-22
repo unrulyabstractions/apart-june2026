@@ -1,0 +1,32 @@
+\section{Cross-model size sweep}
+\label{app:cross-model}
+
+\paragraph{Methods.}
+The cross-model study repeats the baseline readouts across five instruction-tuned
+models---Qwen3 (0.6\,B, 4\,B), Llama-3.2 (1\,B, 3\,B), and
+Mistral-7B-Instruct-v0.3---and plots accuracy against log model size, with
+$n{=}770$ per metric cell per model. No scaffold and no surface variation are
+applied.
+
+\paragraph{Results.}
+\begin{itemize}[leftmargin=*,topsep=2pt,itemsep=1pt]
+  \item Three-option abstention rises with scale within each family: Qwen $0.774$
+    (0.6\,B) $\to 0.892$ (4\,B); Llama $0.299$ (1\,B) $\to 0.887$ (3\,B).
+  \item Greedy-thinking abstention rises likewise: Qwen $0.534 \to 0.718$; Llama
+    $0.275 \to 0.834$.
+  \item \texttt{Llama-3.2-1B} abstains least on the three-option readout ($0.299$,
+    below the $1/3$ chance line) and has the highest disambiguated-target rate
+    ($0.678$ vs.\ $0.395$ for \texttt{Qwen3-0.6B}).
+  \item Two-option disambiguated accuracy (abstention $0$ by construction),
+    sub-1.3\,B: Qwen-0.6B $0.596$, Llama-1B $0.587$.
+  \item Two-option disambiguated accuracy, 3--7\,B: Llama-3B $0.822$, Qwen-4B
+    $0.882$, Mistral-7B $0.835$.
+\end{itemize}
+
+\plotfig{../out/sesgo/baseline/cross_model/plots/baseline_size_sweep.png}{baseline_size_sweep.png}{0.80\linewidth}{\textbf{Cross-model size sweep} (5 models, $n{=}770$ per cell): accuracy vs.\ log model size, stacked over the three readouts (3-opt / 2-opt / greedy-thinking) with the abstention (ambiguous), disambiguated-target, and disambiguated-other metrics each plotted per family.}{fig:size-sweep}
+
+\plotfig{../out/sesgo/baseline/cross_model/plots/baseline_scaleup_outcome_mosaic.png}{baseline_scaleup_outcome_mosaic.png}{0.98\linewidth}{\textbf{Outcome mass vs.\ scale} (all 13 baseline models, ambiguous items): mean three-way answer mass [stereotyped / other / abstain] stacked (abstain on top) per family $\times$ bias category $\times$ model size, with neutral vs.\ negative wording side by side. Bigger models abstain more (taller green cap); Qwen and Gemma abstain heavily across sizes while Llama and Mistral guess a group at small sizes and shift toward abstention with scale; negative wording elicits slightly more guessing.}{fig:scaleup-mosaic}
+
+\plotfig{../out/sesgo/baseline/cross_model/plots/disambig_scaling_wording_gap.png}{disambig_scaling_wording_gap.png}{0.98\linewidth}{\textbf{Disambiguated accuracy and wording gap vs.\ scale} (13 models): on clear questions accuracy generally rises with model size across families (top, per bias category), yet every model is systematically \emph{more} accurate on negatively-worded than neutrally-worded items (bottom; gap mostly $>0$). \texttt{gemma-2-27b-it} is a degenerate run (accuracy $\approx0$) and is shown honestly rather than dropped.}{fig:disambig-gap}
+
+\plotfig{../out/sesgo/baseline/cross_model/plots/bias_alignment_accuracy.png}{../out/sesgo/baseline/cross_model/plots/bias_alignment_accuracy.png}{0.99\linewidth}{\textbf{Bias alignment vs.\ accuracy across the sweep} (13 baseline models). Each model is a horizontal bar at its accuracy; the bar spans its bias on neutral vs.\ negative wording, with $x{<}0$ leaning toward the OTHER group and $x{>}0$ toward the stereotyped TARGET (centre $=$ unbiased); the label gives the pooled signed bias and $n$. Left: ambiguous items (accuracy $=$ abstention). Right: disambiguated items (accuracy $=$ correctness). Wilson $95\%$ CIs. Small models are both less accurate and more biased; larger models cluster near zero bias at high accuracy.}{fig:bias-alignment-baseline}

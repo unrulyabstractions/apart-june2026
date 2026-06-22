@@ -1,0 +1,41 @@
+\section{Stability}
+\label{app:stability}
+
+This appendix measures answer stability over cosmetic surface variation (label
+style and option order), motivating the limitation that the other studies should
+filter unstable answers.
+
+\subsection*{B.1 Extended Methodology}
+
+Each item is rendered into $18$ cosmetic surface variants $\mathcal{V}_q$ ($3$
+label styles $\times\,6$ role permutations, gold fixed; single model, racismo,
+Spanish) and read under the three- and two-option readouts. With $\mathrm{mode}_q$
+the modal prediction, per-item consistency is
+\begin{equation}
+  C_q \;=\; \frac{1}{|\mathcal{V}_q|}\sum_{v\in\mathcal{V}_q}
+    \mathbf{1}[\, \hat{y}_v = \mathrm{mode}_q \,],
+  \label{eq:stability}
+\end{equation}
+complemented by per-axis format-sensitivity (the share of single-axis variations
+that change the prediction).
+
+\subsection*{B.2 Extended Results}
+
+\begin{itemize}[leftmargin=*,topsep=2pt,itemsep=1pt]
+  \item Three-option per-condition accuracy: ambiguous $44\%$ ($63/144$,
+    CI$[36,52]$); disambiguated $57\%$ ($163/288$, CI$[51,62]$).
+  \item Two-option disambiguated accuracy (N/A on ambiguous): $60\%$ ($174/288$,
+    CI$[55,66]$).
+  \item Three-option consistency $C_q$: ambiguous $51\%\pm4\%$ ($n{=}8$ items);
+    disambiguated $86\%\pm4\%$ ($n{=}16$).
+  \item Two-option consistency $C_q$: ambiguous $83\%\pm6\%$; disambiguated
+    $90\%\pm4\%$.
+  \item Format-invariance is governed by scale, not family or formatting: the small
+    model is $0\%$ format-invariant while the large model is $100\%$ in both Qwen
+    (\texttt{Qwen3-0.6B} vs.\ \texttt{Qwen3-32B}) and Llama (\texttt{Llama-3.2-1B}
+    vs.\ \texttt{Llama-3.1-70B}).
+\end{itemize}
+
+\plotfig{../out/sesgo/stability/Qwen3-0.6B/plots/consistency.png}{consistency.png}{0.62\linewidth}{\textbf{Stability} on \texttt{Qwen3-0.6B} ($n{=}24$ groups $\times\,18$ variants $=432$ samples): per-item consistency $C_q$ (\Cref{eq:stability}) by condition and readout (ambiguous three-option $51\%$, disambiguated $86\%$).}{fig:stability}
+
+\plotfig{../out/sesgo/stability/smallest_vs_biggest_format_invariance.png}{smallest_vs_biggest_format_invariance.png}{0.98\linewidth}{\textbf{Format-invariance, smallest vs.\ largest within each family} (\texttt{Qwen3-0.6B} vs.\ \texttt{Qwen3-32B}; \texttt{Llama-3.2-1B} vs.\ \texttt{Llama-3.1-70B}): share of items whose answer never changes across the $18$ cosmetic format variants, by context condition, with Wilson $95\%$ CIs. Isolating scale within each family, the small model is $0\%$ format-invariant while the large model is $100\%$ in both Qwen and Llama---model scale, not family or formatting, governs answer stability.}{fig:format-invariance}

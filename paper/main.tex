@@ -1,0 +1,84 @@
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%% The Global South AI Safety Hackathon (June 2026) -- submission template
+%% Single-column arXiv-style preprint. Build with: bash build.sh
+%%
+%% HOW TO WRITE IN THIS TEMPLATE
+%%   - Guidance text is wrapped in \guide{...} and renders gray+italic.
+%%     Replace each \guide{...} block with your own content, then remove it.
+%%   - The yellow info box and all \guide{...} text MUST be deleted before
+%%     submitting (see the box on page 1).
+%%   - Recommended length: 4 pages excluding references and appendix.
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+\documentclass[11pt]{article}
+
+\input{paperdefs-common}
+\begin{document}
+\thispagestyle{plain}
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%% TITLE BLOCK
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+\noindent\rule{\textwidth}{1.2pt}\par
+\vspace{0.8em}
+\begin{center}
+  {\LARGE\bfseries Scale Shapes Bias in Spanish-Prompted Open-Weight LLMs\par}
+\end{center}
+\vspace{0.6em}
+\noindent\rule{\textwidth}{0.4pt}\par
+\vspace{1.4em}
+
+%% Author
+\begin{center}
+  {\large\bfseries Ian Rios-Sialer%
+    \footnote{Research conducted at the \href{https://www.apartresearch.com/}{Global South AI Safety Hackathon} (Apart Research $\times$ Schmidt Sciences), June 19--21, 2026.}}\\[0.4em]
+  \textit{Independent Researcher} \;\textbar\;
+  \href{mailto:ian@unrulyabstractions.com}{ian@unrulyabstractions.com}\\[0.7em]
+  {\footnotesize Track 4: Open}
+\end{center}
+\vspace{1.2em}
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%% ABSTRACT
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+\begin{abstract}
+Large language models encode and amplify human social bias, and the harm falls
+hardest on minoritized groups. Mitigating that harm needs interventions tuned to
+each social context, yet until recently there was no Spanish-language data to even
+measure such bias. We characterize bias in Spanish-prompted, open-weight LLMs
+across model scale, combining behavioral, distributional studies on the new \textsc{SESGO} benchmark, where an item is
+\emph{ambiguous} when its text names no specific person (the correct answer is
+\emph{unknown}, abstain) and \emph{disambiguated} when it specifies a group. We report
+two preliminary findings. First, smaller models are more biased: across $12$ models
+abstention accuracy rises with scale and the error split toward the marginalized group
+narrows. Second, scale lowers uncertainty: forking the chain of thought, the larger
+\texttt{Qwen3-14B} commits its answer at a single decisive token while the smaller
+\texttt{Qwen3-0.6B} accretes it gradually. These preliminary results give future
+LATAM-context interventions, including the debiasing prompt scaffolds we leave to
+future work, a map of where bias lives, and we release the evaluation harness.
+\end{abstract}
+
+\bigskip
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+\input{sections/introduction}
+\input{sections/related_work}
+\input{sections/methods}
+\input{sections/results}
+\input{sections/discussion}
+\input{sections/conclusion}
+\input{sections/code_and_data}
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%% REFERENCES -- add entries to references.bib and cite with \citep{key}.
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+\bibliographystyle{plainnat}
+\bibliography{references}
+
+\section*{LLM Usage Statement}
+We used an LLM assistant to help draft and format this report and to formalize
+notation from the codebase. All design decisions, claims, and reported results
+are verified by the authors against the harness implementation and the raw
+\texttt{response\_samples.json} via the project's own slicing code.
+
+\end{document}

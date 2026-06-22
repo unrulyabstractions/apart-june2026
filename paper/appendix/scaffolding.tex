@@ -1,0 +1,126 @@
+\section{Scaffolding}
+\label{app:scaffold}
+
+This appendix establishes \textsc{Claim 3} (simple scaffolding could help de-bias
+models): a full-data cross-axis run on \texttt{Qwen3-0.6B} selects the best
+debiasing scaffold behaviorally, and a preliminary causal-steering note turns the
+scaffold direction into an additive intervention.
+
+\subsection*{C.1 Extended Methodology}
+
+\paragraph{Full-data cross-axis run.}%
+\label{app:fulldata}%
+The full-data run scores the \textsc{SESGO} grid on \texttt{Qwen3-0.6B} across all
+four scaffold conditions (\Cref{tab:scaffolds}: the no-scaffold baseline and the
+three debiasing scaffolds) and both languages, reading every item under the three
+readouts (3-opt, 2-opt, greedy-thinking). Coverage is
+$16{,}164/24{,}480$ prompts ($66\%$), balanced across every axis: $4041$ samples
+per scaffold, es $12{,}684$ / en $3480$, and original $10{,}320$ / bbq-adapted
+$5844$. We report the three-option teacher-forced abstention on the $5388$
+\emph{ambiguous} items (gold $=$ unknown), sliced by language, origin, and scaffold;
+rates carry Wilson $95\%$ CIs.
+
+\paragraph{Scaffold selection.}
+The candidate scaffolds (\Cref{tab:scaffolds}) are scored and scaffold
+\emph{selection} picks
+\begin{equation}
+  s^\star \;=\; \argmax_s \; \mathrm{acc}(x \oplus s),
+  \label{eq:select}
+\end{equation}
+the scaffold maximizing abstention accuracy over the candidate set. The full-data
+run scores all four conditions on the same pool of $1347$ ambiguous items each
+(gold $=$ unknown) under the three-option teacher-forced readout, so $s^\star$
+rests on a real per-scaffold behavioral comparison. The full bilingual scaffold
+texts (English and Spanish) and the per-item prompt rendering are included in the
+released harness; \Cref{tab:scaffolds} gives the one-line mechanism for each.
+
+\paragraph{Causal steering (preliminary).}%
+\label{app:steer}%
+As a \emph{preliminary} causal probe, we turn the scaffold geometry
+(\Cref{app:geometry}, where \emph{scaffold} is the most separable axis but only
+correlationally) into an additive intervention. From the geometry residuals we
+pair each item's scaffold and no-scaffold activation by question id and take the
+per-layer diff-of-means, $v^{(l)} = \overline{h^{(l)}_{\text{scaffold}}} -
+\overline{h^{(l)}_{\text{none}}}$, as a steering vector at the primary layer
+$l{=}14$ (depth $0.50$). We split the $231$ pairs by question id into a seeded
+$70/30$ train/test split (no item overlap) and fit nothing beyond the train-mean
+direction; all steering numbers below are on the held-out test items. At decode we
+add $\alpha\,v^{(14)}$ to the \texttt{resid\_post} stream of every token and
+re-read the teacher-forced three-option abstention on the $n{=}24$ ambiguous test
+items, sweeping $\alpha \in [-2, 4]$.
+
+\subsection*{C.2 Extended Results}
+
+\paragraph{Cross-axis full-data (\texttt{Qwen3-0.6B}, $n{=}5388$ ambiguous).}
+\begin{itemize}[leftmargin=*,topsep=2pt,itemsep=1pt]
+  \item \textbf{Language} (3-opt abstention): en $96.2\%$ ($1116/1160$,
+    CI$[95,97]$) vs.\ es $86.3\%$ ($3648/4228$, CI$[85,87]$)---the model abstains
+    markedly more on the matched English rendering.
+  \item \textbf{Origin}: bbq-adapted $96.1\%$ ($1872/1948$, CI$[95,97]$) vs.\
+    original \textsc{SESGO} $84.1\%$ ($2892/3440$, CI$[83,85]$)---the BBQ-derived
+    items elicit more abstention than the Latin-American-grounded original items.
+\end{itemize}
+
+\paragraph{Scaffold selection (per condition, $n{=}1347$ each).}
+In descending three-option abstention:
+\begin{itemize}[leftmargin=*,topsep=2pt,itemsep=1pt]
+  \item \texttt{interpretive\_direction}: $99.9\%$ ($1345/1347$, CI$[99,100]$)
+    ---near-total abstention; this is the selected $s^\star$.
+  \item \texttt{prior\_dominance\_warning}: $88.3\%$ ($1190/1347$, CI$[87,90]$).
+  \item \texttt{(none)} no-scaffold baseline: $85.6\%$ ($1153/1347$, CI$[84,87]$).
+  \item \texttt{intent\_and\_register\_respect}: $79.9\%$ ($1076/1347$,
+    CI$[78,82]$)---this scaffold \emph{underperforms the no-scaffold baseline}, so
+    not all scaffolds help; scaffold choice matters.
+  \item The selected $s^\star{=}$\texttt{interpretive\_direction} lifts abstention
+    $+14.3$ points over the no-scaffold baseline ($99.9\%$ vs.\ $85.6\%$); the two
+    intermediate scaffolds bracket the baseline (one above, one below). This backs
+    the central contribution behaviorally and corroborates the representational
+    finding (scaffold-vs-none silhouette $+0.48$, \Cref{app:geometry}).
+\end{itemize}
+
+\paragraph{Causal steering (preliminary; held-out $n{=}24$).}
+\begin{itemize}[leftmargin=*,topsep=2pt,itemsep=1pt]
+  \item Adding the scaffold axis \emph{causally raises abstention} on held-out
+    ambiguous items: test abstention climbs from $0.54$ at $\alpha{=}0$ to $0.71$
+    at $\alpha{=}{+}1$ and a peak $0.75$ at $\alpha{=}{+}2$ (unknown-mass
+    $0.49 \to 0.62$).
+  \item The negative direction \emph{suppresses} it: $\alpha{=}{-}2$ drops
+    abstention to $0.17$ (unknown-mass $0.18$), confirming a signed, monotone axis
+    rather than a generic noise perturbation.
+  \item The effect is bounded: over-steering at $\alpha{=}{+}4$ collapses back to
+    the $\alpha{=}0$ baseline ($0.54$). Reference ceiling: the actual scaffold
+    prompt reaches $1.00$ abstention ($0.99$ unknown-mass) on the same test items,
+    so a single mid-layer diff-of-means vector recovers a substantial fraction of
+    the scaffold's behavioral effect with no prompt change. This single-model
+    result is \emph{preliminary}.
+\end{itemize}
+
+\plotfig{../out/sesgo/full_data/Qwen3-0.6B/plots/abstention_by_axis.png}{abstention_by_axis.png}{0.82\linewidth}{\textbf{Selection / full-data} on \texttt{Qwen3-0.6B} ($n{=}5388$ ambiguous items): three-option teacher-forced abstention (top row) by language, origin, and scaffold; $s^\star{=}$\texttt{interpretive\_direction} reaches $99.9\%$ while \texttt{intent\_and\_register\_respect} ($79.9\%$) falls below the no-scaffold baseline ($85.6\%$). Dashed line $=1/3$ chance.}{fig:selection}
+
+\plotfig{../out/sesgo/full_data/Qwen3-0.6B/plots/scaffold_abstention_delta.png}{scaffold_abstention_delta.png}{0.96\linewidth}{\textbf{How each scaffold changes the no-scaffold baseline} (\texttt{Qwen3-0.6B}, full-data ambiguous items): signed change in correct-abstention rate vs.\ running with no scaffold, faceted by readout (without/with thinking) $\times$ bias category, with Newcombe $95\%$ CIs. Bars to the right (green) mean the scaffold improves abstention; the gains are largest on the hardest categories (Racism, Xenophobia), and one scaffold (\texttt{intent\_and\_register\_respect}) can hurt---scaffold choice matters.}{fig:scaffold-delta}
+
+\plotfig{../out/sesgo/full_data/Qwen3-0.6B/plots/abstention_breakdown.png}{abstention_breakdown.png}{0.98\linewidth}{\textbf{Ambiguous abstention breakdown} (\texttt{Qwen3-0.6B}, full-data, $n{=}5388$): how often the model correctly answers `unknown', by without/with thinking (rows) $\times$ bias category (columns), with scaffold on the $x$-axis and neutral vs.\ negative wording split. Higher is better; a scaffold should push bars up vs.\ ``No scaffold''. \texttt{interpretive\_direction} reaches near-total abstention without thinking, and every scaffold lifts the hardest categories; dashed line $=$ random guessing.}{fig:abstention-breakdown}
+
+\plotfig{../out/sesgo/full_data/Qwen3-0.6B/plots/bias_alignment_accuracy.png}{../out/sesgo/full_data/Qwen3-0.6B/plots/bias_alignment_accuracy.png}{0.99\linewidth}{\textbf{Bias alignment vs.\ accuracy, by scaffold} (\texttt{Qwen3-0.6B}, full-data). The same view as the cross-model figure but per debiasing scaffold (no-scaffold baseline plus the three scaffolds): each scaffold is a bar at its accuracy spanning its neutral-vs-negative wording bias, with $x{<}0$ toward the OTHER group and $x{>}0$ toward the stereotyped TARGET. A scaffold that both raises accuracy/abstention and pulls the bias toward zero is debiasing on both axes at once.}{fig:bias-alignment-selection}
+
+\begin{figure}[htbp]\centering
+  \begin{subfigure}{0.49\linewidth}\centering
+    \plotsub{../out/sesgo/steer/figures/abstention_vs_alpha.png}{abstention_vs_alpha.png}{\linewidth}
+    \caption{Held-out test abstention vs.\ steering strength $\alpha$: rises from
+      $0.54$ ($\alpha{=}0$) to a peak $0.75$ ($\alpha{=}{+}2$), suppressed to
+      $0.17$ at $\alpha{=}{-}2$.}
+    \label{fig:steer-abstain}
+  \end{subfigure}\hfill
+  \begin{subfigure}{0.49\linewidth}\centering
+    \plotsub{../out/sesgo/steer/figures/unknown_prob_vs_alpha.png}{unknown_prob_vs_alpha.png}{\linewidth}
+    \caption{Mean three-option unknown-mass vs.\ $\alpha$ on the same test items
+      ($0.49 \to 0.62$ peak; scaffold reference $0.99$).}
+    \label{fig:steer-unknown}
+  \end{subfigure}
+  \caption{\textbf{Causal steering (preliminary)} on \texttt{Qwen3-0.6B} (layer
+    $14$ diff-of-means, $231$ pairs $\to$ $70/30$ split, $n{=}24$ held-out
+    ambiguous test items): adding $+\alpha v$ on the scaffold axis causally raises
+    abstention; $-\alpha$ suppresses it. This makes the \Cref{app:geometry}
+    scaffold axis causal.}
+  \label{fig:steer}
+\end{figure}

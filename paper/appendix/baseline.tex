@@ -1,0 +1,53 @@
+\section{Baseline}
+\label{app:baseline}
+
+\paragraph{Methods.}
+The baseline is the full \textsc{SESGO} grid on \texttt{Qwen3-0.6B}
+($n{=}2310$ scored items: $1155$ question\,ids $\times\,2$ context conditions,
+four bias categories), with no scaffold and no surface variation. It reads every
+item under all three readouts (3-opt, 2-opt, greedy-thinking) and reports
+per-condition accuracy (\Cref{eq:acc}) and the three-option role distribution
+$(p^{\mathrm{nt}}_t, p^{\mathrm{nt}}_o, p^{\mathrm{nt}}_u)$, sliced by bias
+category. All numbers are run values, cross-checked against the raw
+\texttt{response\_samples.json}; rates carry Wilson $95\%$ CIs.
+
+\paragraph{Results.}
+\begin{itemize}[leftmargin=*,topsep=2pt,itemsep=1pt]
+  \item Ambiguous, three-option abstention accuracy: clasismo $87\%$ ($n{=}136$,
+    CI$[80,91]$); racismo $81\%$ ($n{=}240$, CI$[76,86]$); xenofobia $71\%$
+    ($n{=}388$, CI$[67,76]$); genero $100\%$ ($n{=}6$).
+  \item Disambiguated, three-option (target vs.\ other): clasismo $46\%$ vs.\
+    $35\%$ (both $n{=}136$); racismo $28\%$ vs.\ $43\%$ ($n{=}240$); xenofobia
+    $44\%$ vs.\ $40\%$ ($n{=}388$).
+  \item Disambiguated, two-option forced choice (chance $1/2$, target vs.\ other):
+    racismo $50\%$ vs.\ $64\%$ ($n{=}240$); xenofobia $58\%$ vs.\ $62\%$
+    ($n{=}388$).
+  \item Three-option role mass, unknown share: clasismo $0.536$; racismo $0.477$;
+    xenofobia $0.432$; genero $0.412$ (plurality in every category).
+  \item Named-role mass (target vs.\ other): racismo $0.202$ vs.\ $0.322$; genero
+    $0.226$ vs.\ $0.362$; clasismo $0.244$ vs.\ $0.220$; xenofobia $0.273$ vs.\
+    $0.295$ (tilts to \emph{other} in racismo/genero, near-symmetric otherwise).
+  \item Greedy-thinking abstention: racismo $49\%$; xenofobia $45\%$; clasismo
+    $85\%$.
+  \item genero category: $n{=}18$ total.
+\end{itemize}
+
+\begin{figure}[htbp]\centering
+  \begin{subfigure}{0.49\linewidth}\centering
+    \plotsub{../out/sesgo/baseline/Qwen3-0.6B/plots/accuracy.png}{accuracy.png}{\linewidth}
+    \caption{Per-condition accuracy by bias category, stacked over the three
+      readouts (3-opt / 2-opt / greedy-thinking); each readout shows the
+      abstention, target-gold, and other-gold slices.}
+    \label{fig:baseline-acc}
+  \end{subfigure}\hfill
+  \begin{subfigure}{0.49\linewidth}\centering
+    \plotsub{../out/sesgo/baseline/Qwen3-0.6B/plots/role_prob.png}{role_prob.png}{\linewidth}
+    \caption{Mean three-option role mass $(t,o,u)$ per category; unknown carries
+      the plurality everywhere and the named-role mass tilts toward \emph{other}.}
+    \label{fig:baseline-role}
+  \end{subfigure}
+  \caption{Full-grid \textbf{baseline} on \texttt{Qwen3-0.6B} ($n{=}2310$):
+    abstention on ambiguous items and disambiguated accuracy by readout and
+    bias category.}
+  \label{fig:baseline}
+\end{figure}

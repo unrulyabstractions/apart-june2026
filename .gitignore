@@ -1,0 +1,130 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[codz]
+*$py.class
+*.so
+
+# Distribution / packaging
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+share/python-wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# Installer logs
+pip-log.txt
+pip-delete-this-directory.txt
+
+# Unit test / coverage reports
+htmlcov/
+.tox/
+.nox/
+.coverage
+.coverage.*
+.cache
+nosetests.xml
+coverage.xml
+*.cover
+.hypothesis/
+.pytest_cache/
+cover/
+
+# Jupyter / IPython
+.ipynb_checkpoints/
+profile_default/
+ipython_config.py
+
+# Environments
+.env
+.envrc
+.venv/
+env/
+venv/
+ENV/
+env.bak/
+venv.bak/
+
+# Type checkers / linters
+.mypy_cache/
+.dmypy.json
+dmypy.json
+.pyre/
+.pytype/
+.ruff_cache/
+cython_debug/
+
+# Editor / OS
+.DS_Store
+*.DS_Store
+.idea/
+.vscode/
+*.swp
+.ropeproject
+.spyderproject
+.spyproject
+.cursorignore
+.cursorindexingignore
+
+# Note: uv.lock IS committed (kept in version control for reproducibility).
+
+# Datasets — vendored external corpora kept LOCAL only (not committed).
+# Root-anchored so it does NOT match the tracked Python package src/datasets/.
+# The provenance manifest (datasets/README.md) is kept tracked; re-download the
+# actual data per its instructions.
+/datasets/*
+!/datasets/README.md
+
+# Project artifacts (large or ephemeral)
+data/
+results/
+outputs/
+out/
+# cloud/ sync-back quarantine: results copied DOWN from a Vast.ai GPU box land
+# here first (via cloud/sync_back.sh --ignore-existing) and are never committed.
+sync/
+# cloud/ per-job quarantine (job_registry.sh): each job's output lands in
+# jobs/<job-id>/output/ and is promoted to out/ ONLY after the verifier passes
+# (cloud/promote_verified_jobs.sh). Never committed.
+jobs/
+# Vast.ai instance id recorded by cloud/vast_launch.sh
+cloud/.vast_instance_id
+generation_compare/
+tmp/
+temp/
+.tmp/
+webapp/out/
+*.pt
+*.pth
+*.safetensors
+*.npy
+*.npz
+wandb/
+mlruns/
+tensorboard/
+
+# Logs
+*.log
+
+# Manual git worktrees for do-in-workstream parallel side projects.
+worktree/
+
+# fleet runtime state (instance ids + per-box logs)
+cloud/.fleet/
+
+cloud/.fleet*/
+
+# guard-hook auto-backups (local safety, never committed)
+.backups/

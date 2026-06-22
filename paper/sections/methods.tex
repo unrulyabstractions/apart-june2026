@@ -1,0 +1,45 @@
+\section{Methods}
+\label{sec:methods}
+
+\subsection{Parallel studies}
+\label{sec:methods-studies}
+Our primary subject is \texttt{Qwen3-0.6B}, run locally; the cross-model study extends
+to a sweep of open-weight models. Each \textsc{SESGO} item is rendered into a prompt
+$x$ whose options realize the roles $y \in \{t\,(\text{target}),\, o\,(\text{other}),\,
+u\,(\text{unknown})\}$, with a per-condition gold $y^\star$: on \emph{ambiguous} items
+$y^\star{=}u$ (abstain), on \emph{disambiguated} items the labelled role. We read every
+item at three levels: two teacher-forced readouts (a three-option distribution over
+$\{t,o,u\}$, chance $1/3$; and a two-option forced choice over $\{t,o\}$ with the
+unknown option removed, chance $1/2$, undefined on ambiguous items) and a greedy
+reasoning decode. We score per-condition accuracy with Wilson $95\%$ CIs:
+\begin{equation}
+  p^{\mathrm{nt}}_y = \frac{\exp(\ell_y)}{\sum_{y'} \exp(\ell_{y'})},\quad y,y'\in\{t,o,u\};
+  \qquad
+  \mathrm{acc} = \frac{1}{|\mathcal{Q}|}\sum_{q\in\mathcal{Q}} \mathbf{1}[\,\hat{y}_q = y^\star_q\,].
+  \label{eq:acc}
+\end{equation}
+We run three parallel studies (\Cref{tab:studies}), moving all further technicality to
+the released harness.
+
+\begin{table}[t]
+  \centering
+  \caption{The parallel studies.}
+  \label{tab:studies}
+  \small
+  \begin{tabular}{@{}llll@{}}
+    \toprule
+    \textbf{Study} & \textbf{Models} & \textbf{Purpose} & \textbf{Method / reference} \\
+    \midrule
+    Model Scale & 12 open-weight (Qwen/Llama/Mistral/Gemma) & does bias change with size? & SESGO readouts \citep{robles2025sesgo} \\
+    Stability & Qwen 0.6B/32B, Llama 1B/70B & are answers stable to format? & $18$ label/order variants \\
+    Dynamics & Qwen3-14B (vs.\ 0.6B) & where does a commitment form? & forking-paths \citep{forkingpaths,forkingpaths2} \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+\subsection{Reproducibility}
+\label{sec:methods-repro}
+We release the full evaluation harness (the three- and two-option choice runners, the
+greedy- and sampled-thinking readouts, and the forking-paths analysis)
+together with the \textsc{SESGO}-derived prompt data and per-model outputs on
+HuggingFace (\texttt{unrulyabstractions/apart\_global\_south}).
