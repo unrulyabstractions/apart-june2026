@@ -1334,12 +1334,26 @@ class ModelRunner:
             f"{device_map or self.device} (HuggingFace"
             f"{', device_map=' + device_map if device_map else ''})..."
         )
-        model = AutoModelForCausalLM.from_pretrained(
-            self.model_name,
-            torch_dtype=self.dtype,
-            trust_remote_code=True,
-            device_map=device_map,
-        )
+        try:
+            model = AutoModelForCausalLM.from_pretrained(
+                self.model_name,
+                torch_dtype=self.dtype,
+                trust_remote_code=True,
+                device_map=device_map,
+            )
+        except (ValueError, KeyError):
+            # Multimodal conditional-generation archs (e.g. Mistral3 / some Gemma4
+            # checkpoints) aren't registered for AutoModelForCausalLM; load them via
+            # the image-text-to-text auto class — the text path still works for our
+            # text-only prompts and the backend reads the language_model submodule.
+            from transformers import AutoModelForImageTextToText
+
+            model = AutoModelForImageTextToText.from_pretrained(
+                self.model_name,
+                torch_dtype=self.dtype,
+                trust_remote_code=True,
+                device_map=device_map,
+            )
         # Only pin to a single device when NOT sharding across GPUs.
         self._model = model if device_map else model.to(self.device)
         self._model.eval()
