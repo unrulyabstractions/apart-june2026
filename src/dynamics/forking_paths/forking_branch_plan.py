@@ -10,15 +10,18 @@ suspected change point (the highest-entropy base token) per the paper.
 
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass
 
 import torch
 
-from src.common.math import shannon_entropy, probs_to_logprobs, normalize
+from src.common import BaseSchema
+from src.common.math import shannon_entropy, probs_to_logprobs, normalize, q_diversity
 from src.datasets.prompt import SesgoPromptSample
+from src.datasets.prompt.sesgo_prompt_localization import sesgo_answer_cue
 from src.inference import ModelRunner
+from src.inference.answer_parser import answer_segment, parse_answer
 
-from .forking_outcome_mapping import rollout_to_outcome_label
 from .forking_top_k_tokens import AltToken, alternates_at_position
 
 # Reasonable default cap on a forked continuation's reasoning before it must commit (keeps a
@@ -156,30 +159,61 @@ def _enumerate_branches(
     )
 
 
+@dataclass
+class ImmediateCommit(BaseSchema):
+    """What the model would commit to if it STOPPED reasoning at base position ``position``."""
+
+    position: int
+    label: str            # option marker, e.g. "c)" ("" if none parsed)
+    choice: str           # target / other / unknown / invalid
+    label_prob: float     # probability of the committed answer token | the force-closed context
+    vocab_diversity: float  # effective number of next-token choices there (exp Shannon entropy)
+
+
 def immediate_commits_from_text(
     runner: ModelRunner,
     templated_prompt: str,
     base_path_text: str,
     sample: SesgoPromptSample,
     max_answer_tokens: int = 64,
-) -> list[str]:
+) -> list[ImmediateCommit]:
     """At EVERY base-path position t, force-close the reasoning and greedily read what the model
-    would commit to IMMEDIATELY if it stopped thinking right there. Returns one outcome label per
-    position (target/other/unknown/...) — the deterministic "answer-so-far" curve that complements
-    the sampled O_t distribution: it shows how the committed answer firms up as reasoning unfolds,
-    without any sampling. One batched greedy decode over all P force-closed prefixes (each only
-    needs a short answer, so it is cheap).
-
-    `templated_prompt` + `base_path_text` are the readout's stored prompt_text + response_text.
-    """
-    close = runner.reasoning_close_marker or "</think>"
+    would commit to IMMEDIATELY if it stopped thinking right there — WITH the same measurements
+    the readout reports (label_prob, vocab_diversity), so each per-position commit is directly
+    comparable to the model's final answer. The deterministic "answer-so-far" curve that
+    complements the sampled O_t: it shows how the committed answer AND its confidence firm up as
+    reasoning unfolds. `templated_prompt` + `base_path_text` are the readout's prompt_text +
+    response_text. One batched greedy decode for all positions, then a per-position teacher-forced
+    read at the committed answer token (identical to run_greedy_readout's measurement, incl. the
+    full_logits[pos] alignment)."""
+    close_ids = runner.encode_ids(
+        "\n" + (runner.reasoning_close_marker or "</think>") + "\n\n", add_special_tokens=False)
     prefill_ids = runner.encode_ids(templated_prompt, add_special_tokens=True)
     base_ids = runner.encode_ids(base_path_text, add_special_tokens=False)
-    prefixes = [
-        runner.decode_ids(list(prefill_ids) + list(base_ids[:t])) + "\n" + close + "\n\n"
-        for t in range(len(base_ids))
-    ]
-    rollouts = runner.continue_from_text_batch(
-        prefixes, max_new_tokens=max_answer_tokens, temperature=0.0
+    cue = sesgo_answer_cue(sample.language)
+    roles = [r.value if hasattr(r, "value") else r for r in sample.position_labels]
+
+    prompt_ids_per_t = [list(prefill_ids) + list(base_ids[:t]) + list(close_ids)
+                        for t in range(len(base_ids))]
+    answers = runner.continue_from_text_batch(
+        [runner.decode_ids(p) for p in prompt_ids_per_t],
+        max_new_tokens=max_answer_tokens, temperature=0.0,
     )
-    return [rollout_to_outcome_label(r, sample) for r in rollouts]
+
+    commits: list[ImmediateCommit] = []
+    for t, (pids, ans) in enumerate(zip(prompt_ids_per_t, answers)):
+        label, choice, off = parse_answer(ans, sample.option_labels, roles, cue)
+        ans_ids = runner.encode_ids(ans, add_special_tokens=False)
+        full_ids = list(pids) + list(ans_ids)
+        # answer-token position: parsed offset, else the first post-think token
+        prefix = ans[:off] if off >= 0 else ans[: len(ans) - len(answer_segment(ans))]
+        pos = len(pids) + len(runner.encode_ids(prefix, add_special_tokens=False))
+        pos = min(max(pos, len(pids)), len(full_ids) - 1)
+        ct = runner.compute_trajectory(full_ids[: pos + 1])
+        dist = torch.log_softmax(ct.full_logits[pos], dim=-1)
+        commits.append(ImmediateCommit(
+            position=t, label=label, choice=choice,
+            label_prob=math.exp(float(ct.logprobs[pos])),
+            vocab_diversity=float(q_diversity(dist, 1.0)),
+        ))
+    return commits
