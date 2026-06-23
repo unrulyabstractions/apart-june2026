@@ -16,7 +16,7 @@ size from family on every axis.\\
 \textit{Notes.} One run (\texttt{gemma-2-27b-it}) was degenerate and is shown honestly
 rather than dropped.
 
-\plotfig{../out/sesgo/baseline/cross_model/plots/bias_alignment_accuracy.png}{../out/sesgo/baseline/cross_model/plots/bias_alignment_accuracy.png}{0.98\linewidth}{\textbf{Bias alignment vs.\ accuracy} across the $12$-model sweep. Each model is a bar at its accuracy spanning its neutral-vs-negative wording bias ($x{<}0$ leans toward the Other group, $x{>}0$ toward the stereotyped Target). Left: ambiguous items (accuracy $=$ abstention); right: disambiguated. Small models are less accurate and more biased; large models cluster near zero bias at high accuracy.}{fig:results-bias}
+\plotfig{figures/baseline_bias_alignment_old_new.png}{baseline_bias_alignment_old_new.png}{0.98\linewidth}{\textbf{Bias alignment vs.\ accuracy} across both the old baseline models and the new sweep ($29$ models / $58$ segments, count-based $F(\text{Target})/F(\text{Other})$). Each model is a segment at its accuracy spanning its neutral-vs-negative wording bias ($x{<}0$ leans toward the Other group, $x{>}0$ toward the stereotyped Target). Left: ambiguous items (accuracy $=$ abstention); right: disambiguated. Small models are less accurate and more biased; large models cluster near zero bias at high accuracy.}{fig:results-bias}
 
 \paragraph{Scale lowers uncertainty.}
 \textit{Evidence.} We fork the chain of thought at every token and track the outcome
@@ -36,7 +36,7 @@ token most diverts the final outcome.
     \caption{\texttt{Qwen3-0.6B}: the answer wanders, with no single commitment token.}
   \end{subfigure}\hfill
   \begin{subfigure}{0.49\linewidth}\centering
-    \plotsub{../out/figs/forking_ot_14b.png}{../out/figs/forking_ot_14b.png}{\linewidth}
+    \plotsub{figures/forking_ot_14b.png}{forking_ot_14b.png}{\linewidth}
     \caption{\texttt{Qwen3-14B}: a single decisive commitment token ($t{=}270$, red).}
   \end{subfigure}
   \caption{\textbf{Scale lowers uncertainty.} Forking-paths outcome distribution $O_t$
@@ -47,14 +47,14 @@ token most diverts the final outcome.
 \end{figure}
 
 \paragraph{Smaller models do not answer consistently.}
-\textit{Evidence.} We render each item into $18$ cosmetic surface variants ($3$ label
-styles $\times$ $6$ option orders, with the gold answer fixed) and ask how often the
-answer never changes. Format-invariance is governed by scale, not family: within both
-Qwen (\texttt{Qwen3-0.6B} vs.\ \texttt{Qwen3-32B}) and Llama (\texttt{Llama-3.2-1B}
-vs.\ \texttt{Llama-3.1-70B}), the small model is $0\%$ format-invariant while the large
-model is $100\%$ (\Cref{fig:results-stability}). A purely cosmetic relabelling can flip
-a small model's answer.\\
-\textit{Limitation.} A small item pool ($n{=}8/16$ items per condition).\\
+\textit{Evidence.} We render each item into three orthogonal variants --- a
+target/other position flip and a label-style swap, gold answer fixed --- and ask how
+often the committed answer never changes, now across the \emph{full model sweep} rather
+than a single smallest-vs-largest pair. Format-invariance rises steeply with scale
+within every family: \texttt{Llama} from $0.23$ at $1$B to $0.60$ at $8$B and
+\texttt{Qwen3.5} from $0.54$ at $0.8$B to $0.97$ at $27$B (\Cref{fig:results-stability}).
+A purely cosmetic relabelling flips the small models far more often than the large.\\
+\textit{Limitation.} Coverage is partial on the largest slices (small $n$, annotated).\\
 \textit{Notes.} This implies the other studies should filter for unstable answers.
 
-\plotfig{../out/sesgo/stability/smallest_vs_biggest_format_invariance.png}{../out/sesgo/stability/smallest_vs_biggest_format_invariance.png}{0.92\linewidth}{\textbf{Smaller models do not answer consistently.} Share of items whose answer never changes across the $18$ cosmetic format variants, smallest vs.\ largest within each family, with Wilson $95\%$ CIs. The small model is $0\%$ format-invariant while the large model is $100\%$ in both Qwen and Llama, scale, not family or formatting, governs answer stability.}{fig:results-stability}
+\plotfig{figures/new_stability_format_invariance.png}{new_stability_format_invariance.png}{0.95\linewidth}{\textbf{Smaller models do not answer consistently.} Fraction of items whose committed role is identical across all three orthogonal format variants, across the full model sweep (Wilson $95\%$ CIs, $n$ items annotated; filled triangles thinking, open circles non-thinking; faint markers are order-only and label-only agreement). Format-invariance rises sharply with scale within every family --- scale, not family or formatting, governs answer stability.}{fig:results-stability}

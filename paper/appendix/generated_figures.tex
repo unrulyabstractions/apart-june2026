@@ -30,6 +30,17 @@ places each model in the count-based bias-alignment plane of \citet{robles2025se
   $F(\text{other})\!\leftrightarrow\!F(\text{target})$ axis; whiskers are Wilson $95\%$
   CIs. Larger models sit higher (more accurate) and narrower (less wording bias).}{fig:bias-alignment}
 
+\plotfig{figures/new_baseline_accuracy_vs_size.png}{new_baseline_accuracy_vs_size.png}{0.99\linewidth}{%
+  \textbf{Baseline accuracy across the full new sweep} --- the committed greedy-readout
+  choice (not the raw-logit probability method of \Cref{fig:old-baseline}), $17$
+  model/mode slices, Wilson $95\%$ CIs, $n$ annotated per point; filled triangles are
+  thinking modes, open circles non-thinking. \emph{Left}: ambiguous accuracy (abstain
+  rate) climbs steeply with scale within every family --- \texttt{Qwen3.5} rises from
+  $0$ at $0.8$B to $1.0$ at $27$B. \emph{Right}: disambiguated accuracy (pick the gold
+  group) is now recovered in the $0.2$--$0.93$ range rather than collapsing, because the
+  greedy-readout choice is free of the positional-slot artifact. Several slices are
+  partial where the sweep was incomplete.}{fig:new-baseline}
+
 \section{Format invariance}
 \label{app:format-invariance}
 
@@ -44,7 +55,9 @@ non-thinking choice is invariant to these surface rewordings.
   \emph{Position}-invariance (hatched) --- identical option \emph{slot} across orderings
   --- rises with scale ($0.08$ at $0.6$B to $0.33$ at $32$/$70$B). The choice follows
   the option \emph{slot}, not the content: a positional-slot bias that strengthens with
-  scale and explains the disambiguated-accuracy collapse in \Cref{fig:old-baseline}.}{fig:format-invariance}
+  scale and explains the disambiguated-accuracy collapse in \Cref{fig:old-baseline}.
+  The full new-sweep format-invariance result (many models, greedy-readout choice) is
+  \Cref{fig:results-stability} in the main text.}{fig:format-invariance}
 
 \section{Forced forking}
 \label{app:forced-forking}
