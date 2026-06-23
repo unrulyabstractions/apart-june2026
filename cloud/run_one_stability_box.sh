@@ -204,6 +204,27 @@ for attempt in 1 2 3 4; do
 done
 [ "$setup_ok" = 1 ] || { log "FATAL: at_setup failed after 4 attempts"; exit 6; }
 
+# ── 6.5 RESUME FROM A SAVED PARTIAL (keep progress when sharding/restarting) ──
+# If RESUME_FROM points at a local dir holding a previous partial (out/<study>/<bare>-<mode>/
+# response_samples.json), push it up to THIS box's matching slice paths (incl. the shard
+# subdir). The resumable readout then skips every prompt_id already done and only runs the
+# remainder — so re-launching as shards never re-does finished work.
+RESUME_SUF=""; [ "${SHARD_COUNT:-1}" -gt 1 ] && RESUME_SUF="/shard_${SHARD_INDEX}_of_${SHARD_COUNT}"
+if [ -n "${RESUME_FROM:-}" ] && [ -d "$RESUME_FROM" ]; then
+  . "$HERE/_ssh_target.sh"; INSTANCE="$INSTANCE" _resolve_ssh_target 2>/dev/null
+  for MODE in $MODES; do
+    for STUDY in stability forked; do
+      src="$RESUME_FROM/$STUDY/${BARE_MODEL}-${MODE}/response_samples.json"
+      [ -f "$src" ] || continue
+      dst="/root/apart/out/$STUDY/${BARE_MODEL}-${MODE}${RESUME_SUF}"
+      run_on_box "mkdir -p $dst" >/dev/null 2>&1
+      rsync -a -e "ssh $SSH_EPHEMERAL_OPTS -i ${SSH_KEY} -p $SSH_PORT" \
+        "$src" "$SSH_USER@$SSH_HOST:$dst/response_samples.json" 2>/dev/null \
+        && log "seeded resume: $STUDY:$MODE <- $(uv run python -c "import json;print(len(json.load(open('$src'))['samples']))" 2>/dev/null) samples"
+    done
+  done
+fi
+
 # ── 7. RUN the readout DETACHED on the box, then POLL for completion ──
 # The whole build+readout pipeline runs on the box under `setsid nohup`
 # (cloud/on_box_stability_run.sh), writing a terminal marker (out/.STAB_DONE | .STAB_FAILED).
