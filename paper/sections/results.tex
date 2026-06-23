@@ -32,7 +32,7 @@ token most diverts the final outcome.
 
 \begin{figure}[htbp]\centering
   \begin{subfigure}{0.49\linewidth}\centering
-    \plotsub{../out/sesgo/forking/Qwen3-0.6B/plots/forking_commit_dynamics.png}{../out/sesgo/forking/Qwen3-0.6B/plots/forking_commit_dynamics.png}{\linewidth}
+    \plotsub{figures/forking_ot_06b.png}{forking_ot_06b.png}{\linewidth}
     \caption{\texttt{Qwen3-0.6B}: the answer wanders, with no single commitment token.}
   \end{subfigure}\hfill
   \begin{subfigure}{0.49\linewidth}\centering
@@ -57,4 +57,4 @@ A purely cosmetic relabelling flips the small models far more often than the lar
 \textit{Limitation.} Coverage is partial on the largest slices (small $n$, annotated).\\
 \textit{Notes.} This implies the other studies should filter for unstable answers.
 
-\plotfig{figures/new_stability_format_invariance.png}{new_stability_format_invariance.png}{0.95\linewidth}{\textbf{Smaller models do not answer consistently.} Fraction of items whose committed role is identical across all three orthogonal format variants, across the full model sweep (Wilson $95\%$ CIs, $n$ items annotated; filled triangles thinking, open circles non-thinking; faint markers are order-only and label-only agreement). Format-invariance rises sharply with scale within every family --- scale, not family or formatting, governs answer stability.}{fig:results-stability}
+\plotfig{figures/combined_invariance_old_new.png}{combined_invariance_old_new.png}{0.92\linewidth}{\textbf{Smaller models do not answer consistently.} Fraction of items whose committed role is identical across all three orthogonal format variants (baseline, target/other position-flip, label-style swap), plotted vs.\ model size for BOTH the old stability models (filled squares, parser-free probability readout) and the new sweep (open circles non-thinking, filled triangles thinking; greedy-readout choice), Wilson $95\%$ CIs, $n$ items annotated. Format-invariance rises sharply with scale across both data generations --- scale, not family or formatting, governs answer stability.}{fig:results-stability}

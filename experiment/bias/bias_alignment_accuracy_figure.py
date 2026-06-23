@@ -61,7 +61,7 @@ def _draw_label(ax, seg: BiasSegment, colour: str, name: str, y_label: float,
     end_x, ha = (right, "left") if to_right else (left, "right")
     ax.plot([end_x, col_x], [seg.accuracy, y_label], color=colour, lw=0.6,
             alpha=0.55, zorder=3, solid_capstyle="round", clip_on=False)
-    label = f"{name} ({seg.align_pooled:+.2f})  n={seg.total}"
+    label = f"{name} ({seg.bias_score:+.2f})  n={seg.total}"
     ax.text(col_x, y_label, label, color=colour, fontsize=8.0, va="center", ha=ha,
             fontweight="bold", zorder=6, clip_on=False)
 
