@@ -6,9 +6,9 @@
 \label{app:baselines}
 
 We read each model's answer on the SESGO item set with the parser-free
-\emph{non-thinking} probability method: the committed choice is the option whose
-answer-token carries the highest probability, mapped through the option ordering to a
-role (target / other / unknown). This signal never passes through the free-text answer
+\emph{non-thinking} probability method: the committed choice is the role (target /
+other / unknown) whose stored option probability is highest, read directly from the
+role-ordered probability vector. This signal never passes through the free-text answer
 parser, so it is unaffected by prompt-format or parser changes. \Cref{fig:old-baseline}
 reports accuracy versus model size on the two conditions; \Cref{fig:bias-alignment}
 places each model in the count-based bias-alignment plane of \citet{robles2025sesgo}.
@@ -55,7 +55,8 @@ perfectly role-invariant.
 
 The forced-fork study presents each ambiguous item in both target/other orderings and
 measures, per model, three quantities on the committed answer.
-\Cref{fig:forced-fork} plots them against model size, one row per family.
+\Cref{fig:forced-fork} plots all models against model size in three metric panels,
+coloured by family.
 
 \plotfig{figures/forced_fork_size_sweep.png}{forced_fork_size_sweep.png}{0.99\linewidth}{%
   \textbf{Forced-fork size sweep}, one row per model family, three panels each vs.\ model
