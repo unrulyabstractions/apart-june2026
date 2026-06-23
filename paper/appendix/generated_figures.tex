@@ -1,0 +1,86 @@
+%% Appendix: generated figures (baselines, format invariance, forced forking, dynamics).
+%% All figures are produced by the harness and live in paper/figures/ (committed, so
+%% the build never depends on the gitignored out/ tree).
+
+\section{Baselines: accuracy and bias alignment across scale}
+\label{app:baselines}
+
+We read each model's answer on the SESGO item set with the parser-free
+\emph{non-thinking} probability method: the committed choice is the option whose
+answer-token carries the highest probability, mapped through the option ordering to a
+role (target / other / unknown). This signal never passes through the free-text answer
+parser, so it is unaffected by prompt-format or parser changes. \Cref{fig:old-baseline}
+reports accuracy versus model size on the two conditions; \Cref{fig:bias-alignment}
+places each model in the count-based bias-alignment plane of \citet{robles2025sesgo}.
+
+\plotfig{figures/old_baseline_accuracy_vs_size.png}{old_baseline_accuracy_vs_size.png}{0.96\linewidth}{%
+  \textbf{Baseline accuracy vs.\ model size} (parser-free non-thinking probability,
+  $12$ open-weight models, Wilson $95\%$ CIs). \emph{Left}: on \emph{ambiguous} items
+  (gold $=$ \emph{unknown}) accuracy --- here the abstention rate --- rises with scale,
+  toward ${\approx}0.95$ for the largest models. \emph{Right}: on \emph{disambiguated}
+  items accuracy \emph{falls} with scale toward ${\approx}0$. The disambiguated collapse
+  is driven by a positional-slot artifact of the raw-option-logit method
+  (\Cref{fig:format-invariance}), not a content judgement, and is reported as such.}{fig:old-baseline}
+
+\plotfig{figures/fig3_bias_alignment_accuracy.png}{fig3_bias_alignment_accuracy.png}{0.99\linewidth}{%
+  \textbf{Bias alignment vs.\ accuracy}, count-based $F(\text{Target})/F(\text{Other})$
+  per \citet{robles2025sesgo}, across $17$ model/mode slices of the stability sweep.
+  Each segment sits at the model's accuracy (abstention on ambiguous items, left;
+  correctness on clear items, right) and spans its wording-bias range on the
+  $F(\text{other})\!\leftrightarrow\!F(\text{target})$ axis; whiskers are Wilson $95\%$
+  CIs. Larger models sit higher (more accurate) and narrower (less wording bias).}{fig:bias-alignment}
+
+\section{Format invariance}
+\label{app:format-invariance}
+
+Each stability question is rendered under $36$ format variants ($3$ label styles
+$\times$ $12$ option orderings). \Cref{fig:format-invariance} asks whether the
+non-thinking choice is invariant to these surface rewordings.
+
+\plotfig{figures/old_stability_format_invariance.png}{old_stability_format_invariance.png}{0.92\linewidth}{%
+  \textbf{Format invariance} across $36$ variants per question, four Qwen/Llama models.
+  \emph{Role}-invariance (solid) --- the fraction of questions whose committed
+  \emph{role} is identical across all variants --- is ${\approx}0$ for every model.
+  \emph{Position}-invariance (hatched) --- identical option \emph{slot} across orderings
+  --- rises with scale ($0.08$ at $0.6$B to $0.33$ at $32$/$70$B). The choice follows
+  the option \emph{slot}, not the content: a positional-slot bias that strengthens with
+  scale and explains the disambiguated-accuracy collapse in \Cref{fig:old-baseline}.}{fig:format-invariance}
+
+\section{Forced forking}
+\label{app:forced-forking}
+
+The forced-fork study presents each ambiguous item in both target/other orderings and
+measures, per model, three quantities on the committed answer.
+\Cref{fig:forced-fork} plots them against model size, one row per family.
+
+\plotfig{figures/forced_fork_size_sweep.png}{forced_fork_size_sweep.png}{0.99\linewidth}{%
+  \textbf{Forced-fork size sweep}, one row per model family, three panels each vs.\ model
+  size (log $x$). \emph{Left}: output diversity, the effective number of distinct
+  committed choices an item takes across its two order-flips ($\exp$ of the choice
+  entropy, $1$ $=$ identical, $2$ $=$ flips on every item). \emph{Middle}: mean
+  next-token (vocabulary) entropy of the committed answer. \emph{Right}: mean probability
+  of the committed answer. Mistral shows non-thinking (solid) and thinking (dashed)
+  separately. Slices are partial where the sweep was incomplete.}{fig:forced-fork}
+
+\section{Dynamics: forking paths}
+\label{app:dynamics}
+
+Following the forking-paths method, we fork the greedy reasoning trajectory of a single
+ambiguous item at each token, resample the next token, and track how the outcome
+distribution $O_t$ evolves along the chain of thought.
+\Cref{fig:dynamics} shows the full per-token dynamics for \texttt{Qwen3-0.6B} and
+\Cref{fig:branching-tree} the corresponding branching tree.
+
+\plotfig{figures/dynamics_forking_qwen06b.png}{dynamics_forking_qwen06b.png}{0.9\linewidth}{%
+  \textbf{Forking-paths dynamics} on \texttt{Qwen3-0.6B}. \emph{Top}: the outcome
+  distribution $O_t$ over token position --- abstention-dominated (yellow) through the
+  reasoning, with a sharp swing toward the named roles as the chain of thought settles;
+  the token strip red-boxes the forking tokens where $O_t$ moves most. \emph{Middle}: the
+  dynamic states (pull / drift / potential) and the answer diversity $H(O_t)$.
+  \emph{Bottom}: the survival curve and change-point posterior, which spikes at the
+  position where the committed answer firms up.}{fig:dynamics}
+
+\plotfig{figures/dynamics_branching_tree_qwen06b.png}{dynamics_branching_tree_qwen06b.png}{0.66\linewidth}{%
+  \textbf{Branching tree} (\texttt{Qwen3-0.6B}): root $\to$ trunk $\to$ named / abstain
+  branches at the forking token, each node carrying its outcome distribution. The small
+  model accretes its answer gradually rather than committing at one decisive token.}{fig:branching-tree}
