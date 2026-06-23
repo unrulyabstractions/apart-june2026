@@ -108,45 +108,9 @@ run_on_box() {  # run a command on this box via direct ssh (fresh endpoint each 
 # NOTE: the vastai CLI rejects 'reliability2' as a QUERY filter field (warns and
 # drops it), so we enforce MIN_RELIABILITY in Python on the returned reliability2.
 QUERY="gpu_name=${GPU_NAME} num_gpus>=${NUM_GPUS} verified=true rentable=true direct_port_count>=1 disk_space>=${DISK} dph_total<=${MAX_PRICE}"
-log "search offers: $QUERY (rel2 floor $MIN_RELIABILITY enforced post-hoc)"
-OFFERS_JSON="$(vastai search offers "$QUERY" -o 'dph_total+' --raw 2>/dev/null)"
-OFFER_ID="$(printf '%s' "$OFFERS_JSON" | MIN_REL="$MIN_RELIABILITY" python3 -c '
-import sys, json, os
-floor=float(os.environ["MIN_REL"])
-o=json.load(sys.stdin)
-flt=[r for r in o if r.get("reliability2",0)>=floor]
-print(flt[0]["id"] if flt else "")')"
-if [ -z "$OFFER_ID" ]; then
-  log "FATAL: no matching offers for $GPU_NAME (reliability2>=$MIN_RELIABILITY, <=\$$MAX_PRICE/hr)"
-  exit 2
-fi
-printf '%s' "$OFFERS_JSON" | OFFER_ID="$OFFER_ID" python3 -c '
-import sys, json, os
-oid=int(os.environ["OFFER_ID"])
-o=next(r for r in json.load(sys.stdin) if r["id"]==oid)
-print("[offer] id=%s %sx %s vram=%sMB $%.3f/hr reliability2=%.4f disk=%sGB net=%sMbps" % (
-    o.get("id"), o.get("num_gpus"), o.get("gpu_name"),
-    o.get("gpu_total_ram", o.get("gpu_ram",0)), o.get("dph_total",0.0),
-    o.get("reliability2",0.0), o.get("disk_space"), o.get("inet_down")))'
 
-# ── 2. CREATE the instance (PyTorch image, SSH, direct) ──
-PORTAL_ENV='-p 1111:1111 -e OPEN_BUTTON_PORT="1111" -e OPEN_BUTTON_TOKEN="1" -e JUPYTER_DIR="/" -e DATA_DIRECTORY="/workspace/"'
-CREATE_JSON="$(vastai create instance "$OFFER_ID" \
-  --image 'vastai/pytorch:@vastai-automatic-tag' \
-  --env "$PORTAL_ENV" --onstart-cmd 'entrypoint.sh' \
-  --disk "$DISK" --ssh --direct --raw)"
-INSTANCE="$(printf '%s' "$CREATE_JSON" | python3 -c 'import sys,json; print(json.load(sys.stdin).get("new_contract",""))')"
-if [ -z "$INSTANCE" ]; then
-  log "FATAL: create failed: $CREATE_JSON"
-  exit 3
-fi
-echo "$INSTANCE" > "$IID_FILE"
-log "created instance $INSTANCE; waiting for 'running'"
-
-# ── 3. POLL until running ──
-# instances-v1 --raw returns a PAGINATED dict ({instances:[...], next_token}), and
-# our box may be on a later page, so walk every page (subprocess per page) to find
-# this instance's status. Returns the status string or 'missing'.
+# Status of $INSTANCE by walking the paginated instances-v1 listing (the box may be on a
+# later page). Returns the status string or 'missing'.
 instance_status() {
   INSTANCE_ID="$INSTANCE" python3 -c '
 import json, os, subprocess, sys
@@ -164,45 +128,90 @@ for _ in range(40):
     if not token or not rows: break
 print("missing")'
 }
-for i in $(seq 1 100); do
-  ST="$(instance_status)"
-  log "  [$i] status: $ST"
-  [ "$ST" = "running" ] && break
-  sleep 15
-done
-[ "$ST" = "running" ] || { log "FATAL: instance never reached running"; exit 4; }
 
-# ── 4. Wait for sshd to actually accept connections ──
-log "waiting for sshd"
-for i in $(seq 1 40); do
-  if run_on_box "echo ssh_ok" 2>/dev/null | grep -q ssh_ok; then log "sshd up"; break; fi
-  sleep 10
-done
+# ── SECURE A GOOD HOST (steps 1-6 in a FRESH-HOST retry loop) ──
+# A box must NEVER die because of a bad host. If provisioning OR setup fails on the chosen
+# offer (never reaches running / no sshd / sync_up exhausts retries / at_setup exhausts
+# retries = a persistently bad network or corrupt host), we DESTROY that instance and try a
+# DIFFERENT offer — only the readout proceeds once a host is fully set up. Idempotent steps
+# (sync_up/at_setup) still retry in-place first; only a host that fails ALL retries is abandoned.
+MAX_HOST_TRIES="${MAX_HOST_TRIES:-8}"
+host_ok=0
+for host_try in $(seq 1 "$MAX_HOST_TRIES"); do
+  log "===== host attempt $host_try/$MAX_HOST_TRIES ====="
+  # Tear down any instance left over from a previous (bad) attempt before trying a fresh one.
+  if [ -n "$INSTANCE" ]; then
+    log "abandoning bad-host instance $INSTANCE"
+    INSTANCE="$INSTANCE" bash "$HERE/vast_destroy.sh" --yes-i-am-really-sure >/dev/null 2>&1
+    INSTANCE=""; rm -f "$IID_FILE"
+  fi
 
-# Steps that talk to the box over the (flaky) vast network are RETRIED before we give up and
-# destroy the box — a single transient drop must NEVER kill an otherwise-good run. sync_up
-# (rsync) and at_setup (uv sync / pip) are idempotent, so re-running is always safe.
+  # 1. search a verified offer above the reliability floor
+  OFFERS_JSON="$(vastai search offers "$QUERY" -o 'dph_total+' --raw 2>/dev/null)"
+  OFFER_ID="$(printf '%s' "$OFFERS_JSON" | MIN_REL="$MIN_RELIABILITY" TRY="$host_try" python3 -c '
+import sys, json, os
+floor=float(os.environ["MIN_REL"])
+flt=[r for r in json.load(sys.stdin) if r.get("reliability2",0)>=floor]
+# walk down the price-sorted list across attempts so a bad host is not re-picked
+print(flt[(int(os.environ["TRY"])-1) % len(flt)]["id"] if flt else "")')"
+  [ -z "$OFFER_ID" ] && { log "no matching offers; wait 30s + retry"; sleep 30; continue; }
+  printf '%s' "$OFFERS_JSON" | OFFER_ID="$OFFER_ID" python3 -c '
+import sys, json, os
+oid=int(os.environ["OFFER_ID"])
+o=next(r for r in json.load(sys.stdin) if r["id"]==oid)
+print("[offer] id=%s %sx %s vram=%sMB $%.3f/hr reliability2=%.4f net=%sMbps" % (
+    o.get("id"), o.get("num_gpus"), o.get("gpu_name"), o.get("gpu_total_ram", o.get("gpu_ram",0)),
+    o.get("dph_total",0.0), o.get("reliability2",0.0), o.get("inet_down")))' | sed "s/^/[$TAG] /"
 
-# ── 5. SYNC code + SESGO prompt sources UP (retried) ──
-sync_up_ok=0
-for attempt in 1 2 3 4 5; do
-  log "sync_up (attempt $attempt/5)"
-  INSTANCE="$INSTANCE" bash "$HERE/sync_up.sh" 2>&1 | sed "s/^/[$TAG up] /"
-  [ "${PIPESTATUS[0]}" -eq 0 ] && { sync_up_ok=1; break; }
-  log "sync_up attempt $attempt FAILED; waiting 25s before retry"; sleep 25
-done
-[ "$sync_up_ok" = 1 ] || { log "FATAL: sync_up failed after 5 attempts"; exit 5; }
+  # 2. create the instance
+  PORTAL_ENV='-p 1111:1111 -e OPEN_BUTTON_PORT="1111" -e OPEN_BUTTON_TOKEN="1" -e JUPYTER_DIR="/" -e DATA_DIRECTORY="/workspace/"'
+  CREATE_JSON="$(vastai create instance "$OFFER_ID" \
+    --image 'vastai/pytorch:@vastai-automatic-tag' \
+    --env "$PORTAL_ENV" --onstart-cmd 'entrypoint.sh' \
+    --disk "$DISK" --ssh --direct --raw)"
+  INSTANCE="$(printf '%s' "$CREATE_JSON" | python3 -c 'import sys,json; print(json.load(sys.stdin).get("new_contract",""))')"
+  [ -z "$INSTANCE" ] && { log "create failed; retry fresh offer"; INSTANCE=""; sleep 10; continue; }
+  echo "$INSTANCE" > "$IID_FILE"
+  log "created instance $INSTANCE; waiting for 'running'"
 
-# ── 6. uv sync + cu124 torch pin + device check (retried; re-running also HEALS a
-#    half-finished / corrupted torch install, e.g. a missing libtorch_global_deps.so) ──
-setup_ok=0
-for attempt in 1 2 3 4; do
-  log "at_setup (attempt $attempt/4)"
-  run_on_box "INSTALL_KERNELS='${INSTALL_KERNELS:-0}' KERNELS_VERSION='${KERNELS_VERSION:-0.12.3}' TORCH_PKGS='${TORCH_PKGS:-}' TORCH_INDEX='${TORCH_INDEX:-}' bash cloud/at_setup.sh" 2>&1 | sed "s/^/[$TAG setup] /"
-  [ "${PIPESTATUS[0]}" -eq 0 ] && { setup_ok=1; break; }
-  log "at_setup attempt $attempt FAILED; waiting 30s before retry"; sleep 30
+  # 3. poll until running (give up on THIS host after ~12min, try a fresh one)
+  ST=""; for i in $(seq 1 50); do
+    ST="$(instance_status)"; log "  [$i] status: $ST"
+    [ "$ST" = "running" ] && break; sleep 15
+  done
+  [ "$ST" = "running" ] || { log "never reached running on this host; trying a fresh one"; continue; }
+
+  # 4. wait for sshd
+  sshd_ok=0
+  for i in $(seq 1 40); do
+    run_on_box "echo ssh_ok" 2>/dev/null | grep -q ssh_ok && { sshd_ok=1; log "sshd up"; break; }
+    sleep 10
+  done
+  [ "$sshd_ok" = 1 ] || { log "sshd never came up; trying a fresh host"; continue; }
+
+  # 5. sync_up (retried in-place; a host that fails ALL retries is BAD -> fresh host)
+  sync_up_ok=0
+  for attempt in 1 2 3 4 5; do
+    log "sync_up (attempt $attempt/5)"
+    INSTANCE="$INSTANCE" bash "$HERE/sync_up.sh" 2>&1 | sed "s/^/[$TAG up] /"
+    [ "${PIPESTATUS[0]}" -eq 0 ] && { sync_up_ok=1; break; }
+    log "sync_up attempt $attempt FAILED; waiting 25s"; sleep 25
+  done
+  [ "$sync_up_ok" = 1 ] || { log "sync_up exhausted retries -> BAD HOST, trying a fresh one"; continue; }
+
+  # 6. at_setup (retried in-place; failing ALL retries = corrupt/bad host -> fresh host)
+  setup_ok=0
+  for attempt in 1 2 3 4; do
+    log "at_setup (attempt $attempt/4)"
+    run_on_box "INSTALL_KERNELS='${INSTALL_KERNELS:-0}' KERNELS_VERSION='${KERNELS_VERSION:-0.12.3}' TORCH_PKGS='${TORCH_PKGS:-}' TORCH_INDEX='${TORCH_INDEX:-}' bash cloud/at_setup.sh" 2>&1 | sed "s/^/[$TAG setup] /"
+    [ "${PIPESTATUS[0]}" -eq 0 ] && { setup_ok=1; break; }
+    log "at_setup attempt $attempt FAILED; waiting 30s"; sleep 30
+  done
+  [ "$setup_ok" = 1 ] || { log "at_setup exhausted retries -> BAD HOST, trying a fresh one"; continue; }
+
+  host_ok=1; break   # fully provisioned + set up on a good host
 done
-[ "$setup_ok" = 1 ] || { log "FATAL: at_setup failed after 4 attempts"; exit 6; }
+[ "$host_ok" = 1 ] || { log "FATAL: could not secure a good host after $MAX_HOST_TRIES tries"; exit 6; }
 
 # ── 6.5 RESUME FROM A SAVED PARTIAL (keep progress when sharding/restarting) ──
 # If RESUME_FROM points at a local dir holding a previous partial (out/<study>/<bare>-<mode>/
