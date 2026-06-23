@@ -17,6 +17,7 @@ MAX_REASONING="${MAX_REASONING:-512}"
 SHARD_INDEX="${SHARD_INDEX:-0}"; SHARD_COUNT="${SHARD_COUNT:-1}"
 LIMIT_ARG=""; [ -n "${LIMIT:-}" ] && LIMIT_ARG="--limit ${LIMIT}"
 export HF_TOKEN="${HF_TOKEN:-}"
+export PYTORCH_CUDA_ALLOC_CONF="${PYTORCH_CUDA_ALLOC_CONF:-expandable_segments:True}"  # cut fragmentation OOM
 SHARD_SUF=""; [ "${SHARD_COUNT}" -gt 1 ] && SHARD_SUF="/shard_${SHARD_INDEX}_of_${SHARD_COUNT}"
 
 mkdir -p out
