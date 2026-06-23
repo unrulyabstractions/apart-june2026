@@ -18,7 +18,12 @@ from src.common.math import shannon_entropy, probs_to_logprobs, normalize
 from src.datasets.prompt import SesgoPromptSample
 from src.inference import ModelRunner
 
+from .forking_outcome_mapping import rollout_to_outcome_label
 from .forking_top_k_tokens import AltToken, alternates_at_position
+
+# Reasonable default cap on a forked continuation's reasoning before it must commit (keeps a
+# resampled thought from running away; the base path itself comes pre-capped from the readout).
+DEFAULT_FORK_MAX_NEW_TOKENS = 512
 
 
 @dataclass
@@ -149,3 +154,32 @@ def _enumerate_branches(
         prompt_token_count=prefill_len,
         rows_per_position=rows_per_position,
     )
+
+
+def immediate_commits_from_text(
+    runner: ModelRunner,
+    templated_prompt: str,
+    base_path_text: str,
+    sample: SesgoPromptSample,
+    max_answer_tokens: int = 64,
+) -> list[str]:
+    """At EVERY base-path position t, force-close the reasoning and greedily read what the model
+    would commit to IMMEDIATELY if it stopped thinking right there. Returns one outcome label per
+    position (target/other/unknown/...) — the deterministic "answer-so-far" curve that complements
+    the sampled O_t distribution: it shows how the committed answer firms up as reasoning unfolds,
+    without any sampling. One batched greedy decode over all P force-closed prefixes (each only
+    needs a short answer, so it is cheap).
+
+    `templated_prompt` + `base_path_text` are the readout's stored prompt_text + response_text.
+    """
+    close = runner.reasoning_close_marker or "</think>"
+    prefill_ids = runner.encode_ids(templated_prompt, add_special_tokens=True)
+    base_ids = runner.encode_ids(base_path_text, add_special_tokens=False)
+    prefixes = [
+        runner.decode_ids(list(prefill_ids) + list(base_ids[:t])) + "\n" + close + "\n\n"
+        for t in range(len(base_ids))
+    ]
+    rollouts = runner.continue_from_text_batch(
+        prefixes, max_new_tokens=max_answer_tokens, temperature=0.0
+    )
+    return [rollout_to_outcome_label(r, sample) for r in rollouts]
