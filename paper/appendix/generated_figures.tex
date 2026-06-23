@@ -5,21 +5,23 @@
 \section{Baselines: accuracy and bias alignment across scale}
 \label{app:baselines}
 
-We read each model's answer on the SESGO item set with the parser-free
-\emph{non-thinking} probability method: the committed choice is the role (target /
-other / unknown) whose stored option probability is highest, read directly from the
-role-ordered probability vector. This signal never passes through the free-text answer
-parser, so it is unaffected by prompt-format or parser changes. \Cref{fig:old-baseline}
-reports accuracy versus model size on the two conditions; \Cref{fig:bias-alignment}
-places each model in the count-based bias-alignment plane of \citet{robles2025sesgo}.
+For the earlier models we read each answer with the \emph{non-thinking} probability
+method: the committed choice is the role (target, other, or unknown) whose option
+probability is highest, read directly from the role-ordered probability vector rather
+than mapped through option position. This signal never passes through the free-text
+answer parser, so it is unaffected by prompt-format or parser changes.
+\Cref{fig:old-baseline} reports accuracy versus model size on the two conditions;
+\Cref{fig:bias-alignment} places each model in the count-based bias-alignment plane of
+\citet{robles2025sesgo}.
 
 \plotfig{figures/old_baseline_accuracy_vs_size.png}{old_baseline_accuracy_vs_size.png}{0.96\linewidth}{%
-  \textbf{Baseline accuracy vs.\ model size} (parser-free non-thinking probability,
-  $12$ open-weight models, Wilson $95\%$ CIs; the committed role is read directly from
-  the role-ordered option probabilities). \emph{Left}: on \emph{ambiguous} items
-  (gold $=$ \emph{unknown}) accuracy --- the abstention rate --- rises with scale toward
-  ${\approx}0.95$ for the largest models. \emph{Right}: on \emph{disambiguated} items
-  accuracy sits in the $0.4$--$0.75$ band and rises modestly with scale.}{fig:old-baseline}
+  \textbf{Baseline accuracy vs.\ model size} (non-thinking probability readout,
+  $12$ open-weight models, Wilson $95\%$ CIs; the committed choice is read from the
+  role-ordered option probabilities for target, other, and unknown, not mapped through
+  option position). \emph{Left}: on \emph{ambiguous} items (gold $=$ \emph{unknown}) the
+  abstention rate rises with scale toward ${\approx}0.95$ for the largest models.
+  \emph{Right}: on \emph{disambiguated} items accuracy sits in the $0.4$--$0.75$ band and
+  rises modestly with scale.}{fig:old-baseline}
 
 \plotfig{figures/fig3_bias_alignment_accuracy.png}{fig3_bias_alignment_accuracy.png}{0.99\linewidth}{%
   \textbf{Bias alignment vs.\ accuracy}, count-based $F(\text{Target})/F(\text{Other})$
@@ -30,25 +32,26 @@ places each model in the count-based bias-alignment plane of \citet{robles2025se
   CIs. Larger models sit higher (more accurate) and narrower (less wording bias).}{fig:bias-alignment}
 
 \plotfig{figures/new_baseline_accuracy_vs_size.png}{new_baseline_accuracy_vs_size.png}{0.99\linewidth}{%
-  \textbf{Baseline accuracy across the full new sweep} --- the committed greedy-readout
-  choice (not the raw-logit probability method of \Cref{fig:old-baseline}), $17$
-  model/mode slices, Wilson $95\%$ CIs, $n$ annotated per point; filled triangles are
-  thinking modes, open circles non-thinking. \emph{Left}: ambiguous accuracy (abstain
-  rate) climbs steeply with scale within every family --- \texttt{Qwen3.5} rises from
-  $0$ at $0.8$B to $1.0$ at $27$B. \emph{Right}: disambiguated accuracy (pick the gold
-  group) sits in the $0.2$--$0.93$ range. Several slices are partial where the sweep was
+  \textbf{Baseline accuracy across the full new sweep}: the committed greedy-readout
+  choice (not the probability method of \Cref{fig:old-baseline}), $17$ model/mode
+  slices, Wilson $95\%$ CIs, $n$ annotated per point; filled triangles are thinking
+  modes, open circles non-thinking. \emph{Left}: ambiguous accuracy (abstain rate)
+  climbs steeply with scale within every family, with \texttt{Qwen3.5} rising from $0$ at
+  $0.8$B to $1.0$ at $27$B. \emph{Right}: disambiguated accuracy (pick the gold group)
+  sits in the $0.2$--$0.93$ range. Several slices are partial where the sweep was
   incomplete.}{fig:new-baseline}
 
 \section{Format invariance}
 \label{app:format-invariance}
 
-Format invariance is reported in the main text. \Cref{fig:results-stability} plots, for
-both the old stability models and the new sweep, the fraction of items whose committed
-role is identical across the three orthogonal format variants (baseline, target/other
-position-flip, label-style swap). Invariance rises sharply with scale across both data
-generations: the smallest models change their answer on a large share of cosmetic
-relabelings, while the largest (\texttt{Qwen3-32B}, \texttt{Llama-3.1-70B}) are
-perfectly role-invariant.
+Format invariance is reported in the main text along two separable axes.
+\Cref{fig:results-stability} plots, for both the earlier stability models and the new
+sweep, the fraction of items whose committed answer is unchanged when the option
+\emph{positions} are swapped (order stability) and when the \texttt{a)b)c)}
+\emph{labels} are swapped (label stability). Both axes rise with scale across families:
+the smallest models change their answer on a large share of cosmetic edits, while the
+largest (\texttt{Qwen3-32B}, \texttt{Llama-3.1-70B}) reach ${\approx}1.0$ on both. For
+several mid-size models a label swap is more disruptive than a position swap.
 
 \section{Forced forking}
 \label{app:forced-forking}
@@ -79,7 +82,7 @@ distribution $O_t$ evolves along the chain of thought.
 
 \plotfig{figures/dynamics_forking_qwen06b.png}{dynamics_forking_qwen06b.png}{0.9\linewidth}{%
   \textbf{Forking-paths dynamics} on \texttt{Qwen3-0.6B}. \emph{Top}: the outcome
-  distribution $O_t$ over token position --- abstention-dominated (yellow) through the
+  distribution $O_t$ over token position, abstention-dominated (yellow) through the
   reasoning, with a sharp swing toward the named roles as the chain of thought settles;
   the token strip red-boxes the forking tokens where $O_t$ moves most. \emph{Middle}: the
   dynamic states (pull / drift / potential) and the answer diversity $H(O_t)$.

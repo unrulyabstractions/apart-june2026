@@ -4,9 +4,10 @@
 \subsection{Limitations}
 \begin{itemize}[leftmargin=*,topsep=2pt,itemsep=1pt]
   \item The stability study indicates that the other studies should filter for unstable
-    answers: across the full sweep, format-invariance rises sharply with scale within
-    every family (e.g.\ Llama $0.23$ at $1$B to $0.60$ at $8$B, Qwen3.5 $0.54$ at $0.8$B
-    to $0.97$ at $27$B), so cosmetic format alone can flip a small model's answer.
+    answers: both order and label stability rise with scale within every family, but for
+    several mid-size models a label swap is far more disruptive than a position swap
+    (e.g.\ Mistral 8B, order $0.85$ vs.\ label $0.27$), so cosmetic format alone can flip
+    a small model's answer.
   \item We do not have clean resolution between the small and large model on every axis;
     the sweep mixes families and sizes.
   \item The dynamics study is a case study of a single sample, not a population.

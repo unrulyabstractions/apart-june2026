@@ -47,14 +47,16 @@ token most diverts the final outcome.
 \end{figure}
 
 \paragraph{Smaller models do not answer consistently.}
-\textit{Evidence.} We render each item into three orthogonal variants --- a
-target/other position flip and a label-style swap, gold answer fixed --- and ask how
-often the committed answer never changes, now across the \emph{full model sweep} rather
-than a single smallest-vs-largest pair. Format-invariance rises steeply with scale
-within every family: \texttt{Llama} from $0.23$ at $1$B to $0.60$ at $8$B and
-\texttt{Qwen3.5} from $0.54$ at $0.8$B to $0.97$ at $27$B (\Cref{fig:results-stability}).
-A purely cosmetic relabelling flips the small models far more often than the large.\\
+\textit{Evidence.} We measure consistency along two separable axes, holding the gold
+answer fixed: \emph{order} stability (the answer is unchanged when the target and other
+options swap positions) and \emph{label} stability (the answer is unchanged when the
+\texttt{a)b)c)} labels become \texttt{x)y)z)}). Both rise with scale across every
+family, and the largest models (\texttt{Qwen3-32B}, \texttt{Llama-3.1-70B}) reach
+${\approx}1.0$ (\Cref{fig:results-stability}). The two axes can diverge: for several
+mid-size models a label swap is far more disruptive than a position swap (e.g.\
+\texttt{Mistral 8B}, order $0.85$ vs.\ label $0.27$), so cosmetic relabelling alone can
+flip a model's answer.\\
 \textit{Limitation.} Coverage is partial on the largest slices (small $n$, annotated).\\
 \textit{Notes.} This implies the other studies should filter for unstable answers.
 
-\plotfig{figures/combined_invariance_old_new.png}{combined_invariance_old_new.png}{0.92\linewidth}{\textbf{Smaller models do not answer consistently.} Fraction of items whose committed role is identical across all three orthogonal format variants (baseline, target/other position-flip, label-style swap), plotted vs.\ model size for BOTH the old stability models (filled squares, parser-free probability readout) and the new sweep (open circles non-thinking, filled triangles thinking; greedy-readout choice), Wilson $95\%$ CIs, $n$ items annotated. Format-invariance rises sharply with scale across both data generations --- scale, not family or formatting, governs answer stability.}{fig:results-stability}
+\plotfig{figures/combined_invariance_old_new.png}{combined_invariance_old_new.png}{0.92\linewidth}{\textbf{Smaller models do not answer consistently.} Fraction of items whose committed answer is unchanged when the option \emph{positions} are swapped (left, order stability) and when the \texttt{a)b)c)} \emph{labels} are swapped (right, label stability), plotted vs.\ model size for both the earlier stability models (filled squares, probability readout) and the new sweep (open circles non-thinking, filled triangles thinking; greedy-readout choice), Wilson $95\%$ CIs, $n$ items annotated. Both axes rise with scale across families and the largest models reach ${\approx}1.0$. For several mid-size models a label swap is far more disruptive than a position swap.}{fig:results-stability}

@@ -45,17 +45,17 @@
 Large language models encode and amplify human social bias, and the harm falls
 hardest on minoritized groups. Mitigating that harm needs interventions tuned to
 each social context, yet until recently there was no Spanish-language data to even
-measure such bias. We characterize bias in Spanish-prompted, open-weight LLMs
-across model scale, combining behavioral, distributional studies on the new \textsc{SESGO} benchmark, where an item is
-\emph{ambiguous} when its text names no specific person (the correct answer is
-\emph{unknown}, abstain) and \emph{disambiguated} when it specifies a group. We report
-two preliminary findings. First, smaller models are more biased: across $12$ models
-abstention accuracy rises with scale and the error split toward the marginalized group
-narrows. Second, scale lowers uncertainty: forking the chain of thought, the larger
-\texttt{Qwen3-14B} commits its answer at a single decisive token while the smaller
-\texttt{Qwen3-0.6B} accretes it gradually. These preliminary results give future
-LATAM-context interventions, including the debiasing prompt scaffolds we leave to
-future work, a map of where bias lives, and we release the evaluation harness.
+measure such bias. We characterize bias in Spanish-prompted, open-weight LLMs across
+model scale, using behavioral and distributional studies on the new \textsc{SESGO}
+benchmark, where an item is \emph{ambiguous} when its text names no specific person (the
+correct answer is \emph{unknown}, abstain) and \emph{disambiguated} when it specifies a
+group. We report two preliminary findings. First, smaller models are more biased: across
+$12$ models, abstention accuracy rises with scale and the error split toward the
+marginalized group narrows. Second, scale lowers uncertainty: forking the chain of
+thought, the larger \texttt{Qwen3-14B} commits its answer at a single decisive token
+while the smaller \texttt{Qwen3-0.6B} accretes it gradually. These results give future
+LATAM-context interventions, including the debiasing prompt scaffolds we leave to future
+work, a map of where bias lives, and we release the evaluation harness.
 \end{abstract}
 
 \bigskip
