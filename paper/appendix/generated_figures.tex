@@ -59,13 +59,14 @@ measures, per model, three quantities on the committed answer.
 coloured by family.
 
 \plotfig{figures/forced_fork_size_sweep.png}{forced_fork_size_sweep.png}{0.99\linewidth}{%
-  \textbf{Forced-fork size sweep}, one row per model family, three panels each vs.\ model
-  size (log $x$). \emph{Left}: output diversity, the effective number of distinct
-  committed choices an item takes across its two order-flips ($\exp$ of the choice
-  entropy, $1$ $=$ identical, $2$ $=$ flips on every item). \emph{Middle}: mean
-  next-token (vocabulary) entropy of the committed answer. \emph{Right}: mean probability
-  of the committed answer. Mistral shows non-thinking (solid) and thinking (dashed)
-  separately. Slices are partial where the sweep was incomplete.}{fig:forced-fork}
+  \textbf{Forced-fork size sweep}: three metric panels, all model slices overlaid vs.\
+  model size (log $x$), coloured by family, lines joining same-family points; open
+  circles non-thinking, filled triangles thinking, each point labelled. \emph{Left}:
+  output diversity, the effective number of distinct committed choices an item takes
+  across its two order-flips ($\exp$ of the choice entropy, $1$ $=$ identical, $2$ $=$
+  flips on every item). \emph{Middle}: mean next-token (vocabulary) entropy of the
+  committed answer. \emph{Right}: mean probability of the committed answer. Slices are
+  partial where the sweep was incomplete.}{fig:forced-fork}
 
 \section{Dynamics: forking paths}
 \label{app:dynamics}
