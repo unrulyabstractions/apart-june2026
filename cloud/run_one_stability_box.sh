@@ -52,7 +52,8 @@ SHARD_COUNT="${SHARD_COUNT:-1}"
 LIMIT="${LIMIT:-}"   # cap prompts (validation / throughput sizing); empty = FULL dataset
 MAX_REASONING="${MAX_REASONING:-512}"  # thinking-token cap before force-closing the CoT;
                                        # keep low so small reasoners don't spin to the cap
-MIN_RELIABILITY="${MIN_RELIABILITY:-0.985}"
+MIN_RELIABILITY="${MIN_RELIABILITY:-0.99}"   # reliability2 floor — pick RELIABLE, not cheapest
+MIN_VRAM="${MIN_VRAM:-23}"                    # min GPU GB when GPU_NAME=ANY (broadens the pool)
 
 IID_FILE="$HERE/.stab_${TAG}.iid"
 INSTANCE=""
@@ -107,7 +108,12 @@ run_on_box() {  # run a command on this box via direct ssh (fresh endpoint each 
 # ── 1. SEARCH for a matching verified offer (reliability floor enforced) ──
 # NOTE: the vastai CLI rejects 'reliability2' as a QUERY filter field (warns and
 # drops it), so we enforce MIN_RELIABILITY in Python on the returned reliability2.
-QUERY="gpu_name=${GPU_NAME} num_gpus>=${NUM_GPUS} verified=true rentable=true direct_port_count>=1 disk_space>=${DISK} dph_total<=${MAX_PRICE}"
+# GPU_NAME=ANY broadens the search to EVERY GPU type with >= MIN_VRAM GB (3090/4090/5090/
+# RTX-6000/A10/A40/Titan-RTX/...) — a far bigger, more reliable, often CHEAPER pool than 4090
+# alone, so a fleet of many sharded boxes never drains the offers. A specific GPU_NAME (e.g.
+# A100_SXM4 for the big tier) is honored as-is.
+if [ "${GPU_NAME}" = "ANY" ]; then GPU_SEL="gpu_ram>=${MIN_VRAM}"; else GPU_SEL="gpu_name=${GPU_NAME}"; fi
+QUERY="${GPU_SEL} num_gpus>=${NUM_GPUS} verified=true rentable=true direct_port_count>=1 disk_space>=${DISK} dph_total<=${MAX_PRICE}"
 
 # Status of $INSTANCE by walking the paginated instances-v1 listing (the box may be on a
 # later page). Returns the status string or 'missing'.
@@ -152,7 +158,9 @@ for host_try in $(seq 1 "$MAX_HOST_TRIES"); do
 import sys, json, os
 floor=float(os.environ["MIN_REL"])
 flt=[r for r in json.load(sys.stdin) if r.get("reliability2",0)>=floor]
-# walk down the price-sorted list across attempts so a bad host is not re-picked
+# RELIABLE-OPTIMAL: most reliable first (price only as a tiebreak). Walk down across host
+# attempts so a host that failed to boot is not re-picked on the next try.
+flt.sort(key=lambda r: (-r.get("reliability2",0.0), r.get("dph_total",1e9)))
 print(flt[(int(os.environ["TRY"])-1) % len(flt)]["id"] if flt else "")')"
   [ -z "$OFFER_ID" ] && { log "no matching offers; wait 30s + retry"; sleep 30; continue; }
   printf '%s' "$OFFERS_JSON" | OFFER_ID="$OFFER_ID" python3 -c '
