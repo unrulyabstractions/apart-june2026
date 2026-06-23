@@ -44,9 +44,15 @@ uv sync
 # A --no-deps install left those out and torch import died with
 # "libcudart.so.11.0: cannot open shared object file". Installing WITH deps pulls
 # the matching nvidia-*-cu12 libs from the same pytorch index, so CUDA initializes.
-echo "[at_setup] pinning torch 2.6.0+cu124 (+ its nvidia-cu12 runtime libs)"
-uv pip install --reinstall "torch==2.6.0" "torchvision==0.21.0" \
-  --index-url https://download.pytorch.org/whl/cu124
+# Default torch 2.6.0+cu124 (runs on every cuda-12/cuda-13 host). OVERRIDABLE: the Mistral
+# FP8 *batched* MoE kernel registers a triton_op with a builtin `list[int]` param that torch
+# 2.6's infer_schema rejects (only typing.List[int] is accepted) — fixed in torch 2.7+, whose
+# CUDA wheels are cu126 (no 2.7 cu124 exists). So Ministral-Instruct boxes set TORCH_PKGS/
+# TORCH_INDEX to a 2.7.x+cu126 build; the device check below aborts if cu126 won't init.
+TORCH_PKGS="${TORCH_PKGS:-torch==2.6.0 torchvision==0.21.0}"
+TORCH_INDEX="${TORCH_INDEX:-https://download.pytorch.org/whl/cu124}"
+echo "[at_setup] pinning $TORCH_PKGS via $TORCH_INDEX (+ its nvidia cuda runtime libs)"
+uv pip install --reinstall $TORCH_PKGS --index-url "$TORCH_INDEX"
 
 # FP8 checkpoints (Mistral Ministral-3 ship finegrained-fp8 weights) need the `kernels`
 # package to dequant on the HF backend — BUT only for those boxes, and the version must
