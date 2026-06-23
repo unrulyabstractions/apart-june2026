@@ -43,6 +43,24 @@ def option_labels_from_style(label_style: str) -> list[str]:
     return [label_style[i : i + 2] for i in range(0, 6, 2)]
 
 
+# The OLD pipeline stored `non_thinking.prob` ALREADY mapped to roles, in the fixed
+# order [target, other, unknown] — NOT in option-letter order. So argmax indexes the
+# role directly; mapping it through option positions (position_labels_from_prompt)
+# wrongly SWAPS target<->other whenever the option order is flipped. Verified against
+# `non_thinking_2opt.picked` (role-order agrees 66-67%, position-map only 27-33%).
+_OLD_PROB_ROLE_ORDER = ("target", "other", "unknown")
+
+
+def old_nonthinking_role(sample: dict) -> str | None:
+    """OLD non-thinking committed role = argmax of the role-ordered prob. Returns
+    None when no prob is stored. Do NOT remap via option positions (that is the bug
+    that collapsed old disambiguated accuracy to ~0 and flipped the bias sign)."""
+    prob = (sample.get("non_thinking") or {}).get("prob")
+    if not prob:
+        return None
+    return _OLD_PROB_ROLE_ORDER[max(range(len(prob)), key=lambda i: prob[i])]
+
+
 def position_labels_from_prompt(sample: dict, option_labels: list[str]) -> list[str]:
     """The role (target/other/unknown) at each of the 3 option positions, IN ORDER.
 

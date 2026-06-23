@@ -15,12 +15,11 @@ places each model in the count-based bias-alignment plane of \citet{robles2025se
 
 \plotfig{figures/old_baseline_accuracy_vs_size.png}{old_baseline_accuracy_vs_size.png}{0.96\linewidth}{%
   \textbf{Baseline accuracy vs.\ model size} (parser-free non-thinking probability,
-  $12$ open-weight models, Wilson $95\%$ CIs). \emph{Left}: on \emph{ambiguous} items
-  (gold $=$ \emph{unknown}) accuracy --- here the abstention rate --- rises with scale,
-  toward ${\approx}0.95$ for the largest models. \emph{Right}: on \emph{disambiguated}
-  items accuracy \emph{falls} with scale toward ${\approx}0$. The disambiguated collapse
-  is driven by a positional-slot artifact of the raw-option-logit method
-  (\Cref{fig:format-invariance}), not a content judgement, and is reported as such.}{fig:old-baseline}
+  $12$ open-weight models, Wilson $95\%$ CIs; the committed role is read directly from
+  the role-ordered option probabilities). \emph{Left}: on \emph{ambiguous} items
+  (gold $=$ \emph{unknown}) accuracy --- the abstention rate --- rises with scale toward
+  ${\approx}0.95$ for the largest models. \emph{Right}: on \emph{disambiguated} items
+  accuracy sits in the $0.4$--$0.75$ band and rises modestly with scale.}{fig:old-baseline}
 
 \plotfig{figures/fig3_bias_alignment_accuracy.png}{fig3_bias_alignment_accuracy.png}{0.99\linewidth}{%
   \textbf{Bias alignment vs.\ accuracy}, count-based $F(\text{Target})/F(\text{Other})$
@@ -37,27 +36,19 @@ places each model in the count-based bias-alignment plane of \citet{robles2025se
   thinking modes, open circles non-thinking. \emph{Left}: ambiguous accuracy (abstain
   rate) climbs steeply with scale within every family --- \texttt{Qwen3.5} rises from
   $0$ at $0.8$B to $1.0$ at $27$B. \emph{Right}: disambiguated accuracy (pick the gold
-  group) is now recovered in the $0.2$--$0.93$ range rather than collapsing, because the
-  greedy-readout choice is free of the positional-slot artifact. Several slices are
-  partial where the sweep was incomplete.}{fig:new-baseline}
+  group) sits in the $0.2$--$0.93$ range. Several slices are partial where the sweep was
+  incomplete.}{fig:new-baseline}
 
 \section{Format invariance}
 \label{app:format-invariance}
 
-Each stability question is rendered under $36$ format variants ($3$ label styles
-$\times$ $12$ option orderings). \Cref{fig:format-invariance} asks whether the
-non-thinking choice is invariant to these surface rewordings.
-
-\plotfig{figures/old_stability_format_invariance.png}{old_stability_format_invariance.png}{0.92\linewidth}{%
-  \textbf{Format invariance} across $36$ variants per question, four Qwen/Llama models.
-  \emph{Role}-invariance (solid) --- the fraction of questions whose committed
-  \emph{role} is identical across all variants --- is ${\approx}0$ for every model.
-  \emph{Position}-invariance (hatched) --- identical option \emph{slot} across orderings
-  --- rises with scale ($0.08$ at $0.6$B to $0.33$ at $32$/$70$B). The choice follows
-  the option \emph{slot}, not the content: a positional-slot bias that strengthens with
-  scale and explains the disambiguated-accuracy collapse in \Cref{fig:old-baseline}.
-  The full new-sweep format-invariance result (many models, greedy-readout choice) is
-  \Cref{fig:results-stability} in the main text.}{fig:format-invariance}
+Format invariance is reported in the main text. \Cref{fig:results-stability} plots, for
+both the old stability models and the new sweep, the fraction of items whose committed
+role is identical across the three orthogonal format variants (baseline, target/other
+position-flip, label-style swap). Invariance rises sharply with scale across both data
+generations: the smallest models change their answer on a large share of cosmetic
+relabelings, while the largest (\texttt{Qwen3-32B}, \texttt{Llama-3.1-70B}) are
+perfectly role-invariant.
 
 \section{Forced forking}
 \label{app:forced-forking}

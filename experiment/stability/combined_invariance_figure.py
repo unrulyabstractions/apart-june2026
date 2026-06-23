@@ -24,6 +24,7 @@ import matplotlib.pyplot as plt
 
 from experiment.baseline.old_data_parser_free_figures import model_meta
 from experiment.baseline.reparse_old_thinking_labels import (
+    old_nonthinking_role,
     option_labels_from_style,
     position_labels_from_prompt,
 )
@@ -37,11 +38,15 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 
 
 def _old_choice(s: dict) -> tuple[str, tuple]:
-    """Parser-free committed role + the (role-at-each-position) tuple for an OLD sample."""
+    """Parser-free committed role + the (role-at-each-position) tuple for an OLD sample.
+
+    The CHOICE is the OLD non_thinking committed role (argmax of the ROLE-ORDERED prob, via
+    `old_nonthinking_role`); mapping through option positions would wrongly swap target<->other.
+    The `tuple(roles)` from `position_labels_from_prompt` is kept ONLY to type the format VARIANT
+    (baseline / position-flip / label-swap), never for the choice."""
     labels = option_labels_from_style(s["label_style"])
     roles = position_labels_from_prompt(s, labels)
-    prob = s["non_thinking"]["prob"]
-    return roles[max(range(len(prob)), key=lambda i: prob[i])], tuple(roles)
+    return old_nonthinking_role(s), tuple(roles)
 
 
 def old_invariance(model_dir: Path) -> dict:
@@ -75,8 +80,10 @@ def _legend_marker(**kw):
 
 def _plot_point(ax, size, succ, n, color, marker, ms):
     p, lo, hi = wilson_interval(succ, n)
+    # Clamp tiny floating-point negatives: at p==1.0 (perfect invariance) the Wilson upper
+    # bound can land at 0.999...9, making `hi - p` a ~-1e-16 that matplotlib rejects.
     mfc = "white" if marker == "o" else color
-    ax.errorbar(size, p, yerr=[[p - lo], [hi - p]], fmt=marker, color=color, mfc=mfc,
+    ax.errorbar(size, p, yerr=[[max(p - lo, 0.0)], [max(hi - p, 0.0)]], fmt=marker, color=color, mfc=mfc,
                 mec=color, ms=ms, capsize=3, mew=1.6, zorder=3)
     return p
 

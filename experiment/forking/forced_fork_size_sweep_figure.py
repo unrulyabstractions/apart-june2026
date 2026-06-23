@@ -1,18 +1,14 @@
-"""Forced-fork size sweep: rows per model FAMILY, 3 panels each, X = model SIZE (log).
+"""Forced-fork size sweep: ONE ROW of 3 metric panels, ALL model slices overlaid, X = SIZE (log).
 
-For every `out/forked/<bare>-<mode>/response_samples.json` slice we group the 2 order-flip
-forks of each base item (consecutive `sample_idx` pairs, idx//2 = item key) and report, per
-model:
-  (a) avg output diversity  = mean over items of exp(H) of the item's CHOICE distribution
-                              (`q_diversity(..., q=1)` = effective # of distinct fork outcomes),
-  (b) avg vocab entropy     = mean per-prompt `vocab_diversity`,
-  (c) avg label prob        = mean per-prompt `label_prob`.
-One line per family across the three panels; thinking / non-thinking are distinct series.
-Models are discovered from disk (no hardcoded lists) and parsed via the shared sweep parser.
+Per `out/forked/<bare>-<mode>/response_samples.json` slice we group the 2 order-flip forks of
+each base item (idx//2 = item key) and report, per model: (a) avg output diversity = mean exp(H)
+of an item's CHOICE distribution (`q_diversity(q=1)` = effective # fork outcomes), (b) avg vocab
+entropy = mean `vocab_diversity`, (c) avg label prob = mean `label_prob`. Each panel overlays
+every model: colour = FAMILY, marker = non-thinking (open circle) vs thinking (filled triangle);
+a thin line connects same-family+mode points (a lone point is just a marker — not broken). Every
+point is labelled with its short name, de-collided in y via `spread_labels` with a thin leader.
 
-Usage:
-  uv run python -m experiment.forking.forced_fork_size_sweep_figure \
-    --forked-dir out/forked --out-dir paper/figures
+  uv run python -m experiment.forking.forced_fork_size_sweep_figure --forked-dir out/forked --out-dir paper/figures
 """
 
 from __future__ import annotations
@@ -25,9 +21,11 @@ from dataclasses import dataclass
 from pathlib import Path
 
 import matplotlib.pyplot as plt
+from matplotlib.lines import Line2D
 
+from experiment.bias.segment_label_layout import spread_labels
 from experiment.common.sweep_models import FAMILY_COLOR, FAMILY_ORDER, parse_model
-from experiment.forking.forking_plot_styles import save_fig
+from experiment.forking.forking_plot_styles import REF, save_fig
 from src.common import BaseSchema
 from src.common.math import q_diversity
 
@@ -99,35 +97,65 @@ def _series(points: list[ModelSweepPoint]) -> dict[tuple[str, str], list[ModelSw
     return series
 
 
+def _marker(mode: str) -> str:
+    return "^" if mode == "thinking" else "o"
+
+
+def _draw_panel(ax, points, series, attr, ylabel) -> None:
+    """Overlay every model on one metric panel: family colour, mode marker, trend line + labels."""
+    for (fam, mode), pts in series.items():
+        ys = [getattr(p, attr) for p in pts]
+        color, mk = FAMILY_COLOR[fam], _marker(mode)
+        ax.plot([p.size_b for p in pts], ys, "-", color=color, lw=0.9, alpha=0.55, zorder=1)
+        ax.scatter([p.size_b for p in pts], ys, marker=mk, s=42, zorder=3,
+                   facecolors=color if mode == "thinking" else "none", edgecolors=color, linewidths=1.4)
+    lo, hi = ax.get_ylim()
+    pad = (hi - lo) * 0.08 or 0.02
+    ax.set_ylim(lo - pad, hi + pad)
+    ax.set_xscale("log")
+    sizes = [p.size_b for p in points]
+    ax.set_xlim(min(sizes) * 0.7, max(sizes) * 1.9)  # headroom so offset labels aren't clipped
+    _label_points(ax, points, attr)
+    ax.set_xlabel("model size (B params)")
+    ax.set_ylabel(ylabel)
+    ax.grid(True, alpha=0.25)
+
+
+def _label_points(ax, points, attr) -> None:
+    """Place every model's short name next to its point, spread in y so none collide."""
+    ys = [getattr(p, attr) for p in points]
+    lo, hi = ax.get_ylim()
+    gap = (hi - lo) * 0.052
+    for slot in spread_labels(ys, min_gap=gap, hi=hi):
+        p = points[slot.index]
+        ax.annotate(p.name, xy=(p.size_b, slot.y_natural),
+                    xytext=(p.size_b * 1.1, slot.y_label), fontsize=6.2, va="center",
+                    color=REF, arrowprops=dict(arrowstyle="-", lw=0.4, color=REF, alpha=0.7))
+
+
+def _legend(fig, points) -> None:
+    """Family-colour + thinking/non-thinking-marker key."""
+    fams = [f for f in FAMILY_ORDER if any(p.family == f for p in points)]
+    handles = [Line2D([], [], marker="s", ls="", mfc=FAMILY_COLOR[f], mec=FAMILY_COLOR[f], label=f)
+               for f in fams]
+    handles += [
+        Line2D([], [], marker="o", ls="", mfc="none", mec=REF, label="non-thinking"),
+        Line2D([], [], marker="^", ls="", mfc=REF, mec=REF, label="thinking"),
+    ]
+    fig.legend(handles=handles, loc="lower center", ncol=len(handles), fontsize=8,
+               frameon=False, bbox_to_anchor=(0.5, -0.02))
+
+
 def plot(points: list[ModelSweepPoint], out_path: Path) -> Path:
-    """Rows = families present; columns = the 3 metrics; X = size (log), one line per mode."""
-    families = [f for f in FAMILY_ORDER if any(p.family == f for p in points)]
+    """One row of 3 metric panels, all models overlaid, labelled; X = size (log)."""
     series = _series(points)
-    fig, axes = plt.subplots(len(families), 3, figsize=(13, 3.1 * len(families)), squeeze=False)
-    for row, fam in enumerate(families):
-        for col, (ylabel, attr) in enumerate(_PANELS):
-            ax = axes[row][col]
-            for (sfam, mode), pts in series.items():
-                if sfam != fam:
-                    continue
-                style = "--" if mode == "thinking" else "-"
-                ax.plot([p.size_b for p in pts], [getattr(p, attr) for p in pts],
-                        style, marker="o", color=FAMILY_COLOR[fam],
-                        label="thinking" if mode == "thinking" else "non-thinking")
-            ax.set_xscale("log")
-            ax.set_xlabel("model size (B params)")
-            if col == 0:
-                ax.set_ylabel(f"{fam}\n{ylabel}", fontweight="bold")
-            else:
-                ax.set_ylabel(ylabel)
-            if row == 0:
-                ax.set_title(ylabel.split("\n")[0], fontsize=11, fontweight="bold")
-            ax.grid(True, alpha=0.3)
-            handles, _ = ax.get_legend_handles_labels()
-            if len(set(h.get_linestyle() for h in handles)) > 1:
-                ax.legend(fontsize=7)
-    fig.suptitle("Forced-fork size sweep (per model family)", fontsize=13, fontweight="bold")
-    fig.tight_layout(rect=(0, 0, 1, 0.98))
+    fig, axes = plt.subplots(1, 3, figsize=(15, 4.6))
+    for ax, (ylabel, attr) in zip(axes, _PANELS):
+        _draw_panel(ax, points, series, attr, ylabel)
+        ax.set_title(ylabel.split("\n")[0], fontsize=11, fontweight="bold")
+    _legend(fig, points)
+    fig.suptitle("Forced-fork size sweep (all models)", fontsize=13, fontweight="bold")
+    fig.tight_layout(rect=(0, 0.05, 1, 0.97))
     return save_fig(fig, out_path)
 
 

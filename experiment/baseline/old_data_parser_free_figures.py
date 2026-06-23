@@ -19,10 +19,7 @@ from pathlib import Path
 
 import matplotlib.pyplot as plt
 
-from experiment.baseline.reparse_old_thinking_labels import (
-    option_labels_from_style,
-    position_labels_from_prompt,
-)
+from experiment.baseline.reparse_old_thinking_labels import old_nonthinking_role
 from experiment.common.sweep_models import FAMILY_COLOR, parse_model
 from src.common.file_io import load_json
 from src.common.logging import log, log_header
@@ -53,11 +50,11 @@ def model_meta(name: str) -> tuple[str, float]:
 
 
 def choice_of(sample: dict) -> str:
-    """Parser-free choice: role at argmax of the 3-option non_thinking probability vector."""
-    labels = option_labels_from_style(sample["label_style"])
-    roles = position_labels_from_prompt(sample, labels)
-    prob = sample["non_thinking"]["prob"]
-    return roles[max(range(len(prob)), key=lambda i: prob[i])]
+    """Parser-free choice: the OLD non_thinking committed role. The OLD `non_thinking.prob`
+    is stored in ROLE order [target, other, unknown], so argmax indexes the role directly
+    (see `old_nonthinking_role`). Mapping through option positions would wrongly swap
+    target<->other and collapsed old disambiguated accuracy to ~0."""
+    return old_nonthinking_role(sample)
 
 
 def baseline_counts(name: str) -> dict[str, tuple[int, int]]:

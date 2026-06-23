@@ -28,8 +28,7 @@ from pathlib import Path
 
 from experiment.baseline.old_data_parser_free_figures import choice_of, model_meta
 from experiment.baseline.reparse_old_thinking_labels import (
-    option_labels_from_style,
-    position_labels_from_prompt,
+    old_nonthinking_role,
     prob_readout,
 )
 from experiment.bias.bias_alignment_accuracy_figure import plot_bias_alignment
@@ -43,19 +42,17 @@ from src.common.file_io import load_json
 def _old_enriched(name: str, samples: list[dict]) -> list[EnrichedResponse]:
     """Build EnrichedResponse rows for one OLD model from its inline metadata.
 
-    `role` is the PARSER-FREE committed choice (argmax of non_thinking prob, mapped to the
-    role at that option position). All scoring fields come straight off the OLD sample, so no
-    join to the prompt dataset is required.
+    `role` is the PARSER-FREE committed choice: the OLD non_thinking committed role, i.e.
+    argmax of the ROLE-ORDERED prob (see `old_nonthinking_role`). All scoring fields come
+    straight off the OLD sample, so no join to the prompt dataset is required.
     """
     rows: list[EnrichedResponse] = []
     for s in samples:
-        labels = option_labels_from_style(s["label_style"])
-        roles = position_labels_from_prompt(s, labels)
         prob = s["non_thinking"]["prob"]
-        argmax, label_prob, vocab_diversity = prob_readout(prob)
+        _, label_prob, vocab_diversity = prob_readout(prob)
         rows.append(EnrichedResponse(
             group_key=name, prompt_id=f"{s['question_id']}_{s['sample_idx']}",
-            question_id=s["question_id"], role=roles[argmax], gold=s["gold_label"],
+            question_id=s["question_id"], role=old_nonthinking_role(s), gold=s["gold_label"],
             polarity=s["question_polarity"], context=s["context_condition"],
             bias_category=s["bias_category"], label_prob=label_prob,
             vocab_diversity=vocab_diversity,
