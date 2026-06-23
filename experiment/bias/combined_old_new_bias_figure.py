@@ -4,7 +4,7 @@ NEW model-sweep models on the same two panels.
 The NEW segments come from the existing `plot_bias_alignment_figure.build` (out/stability +
 data/full_prompt_dataset.json). The OLD segments are computed directly from the inline
 metadata in `data/hf_old/sesgo/baseline/<model>/response_samples.json` using the PARSER-FREE
-choice (role at argmax of the non_thinking probability vector, via the reparse helpers) — no
+choice (role at argmax of the non_thinking probability vector, via the reparse helpers), no
 dataset join is needed because every OLD sample already carries its own polarity / context /
 gold / target+other identities. Each OLD sample becomes an `EnrichedResponse`, then
 `segments_for_group` reduces a model to its two `BiasSegment`s exactly like the NEW path.
@@ -104,7 +104,8 @@ def main() -> None:
 
     # OLD: parser-free segments straight from the inline-metadata baseline samples.
     old_segs, old_metas = build_old(Path(args.old_root))
-    old_names = {k: k for k in old_metas}  # OLD checkpoint names are already display-ready
+    # Clean lay names from (family, size) so labels read "Gemma 9B (earlier)", not raw HF ids.
+    old_names = {k: f"{fam} {size:g}B (earlier)" for k, (fam, size) in old_metas.items()}
 
     # Merge segments + tables; re-shade old+new together so family colours stay coherent.
     segments = new_segs + old_segs
@@ -121,8 +122,7 @@ def main() -> None:
     out_path.parent.mkdir(parents=True, exist_ok=True)
     plot_bias_alignment(
         segments, colors, names, order,
-        "SESGO bias alignment vs accuracy - OLD baselines + NEW model sweep "
-        "(count-based F(Target)/F(Other))", out_path)
+        "Accuracy versus which group the model leans toward", out_path)
     print(f"[combined] wrote {out_path}")
     print(f"[combined] OLD models={len(old_metas)}  OLD segments={len(old_segs)}")
     print(f"[combined] NEW models={len(new_names)}  NEW segments={len(new_segs)}")

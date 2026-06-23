@@ -5,7 +5,7 @@ each base item (idx//2 = item key) and report, per model: (a) avg output diversi
 of an item's CHOICE distribution (`q_diversity(q=1)` = effective # fork outcomes), (b) avg vocab
 entropy = mean `vocab_diversity`, (c) avg label prob = mean `label_prob`. Each panel overlays
 every model: colour = FAMILY, marker = non-thinking (open circle) vs thinking (filled triangle);
-a thin line connects same-family+mode points (a lone point is just a marker — not broken). Every
+a thin line connects same-family+mode points (a lone point is just a marker, not broken). Every
 point is labelled with its short name, de-collided in y via `spread_labels` with a thin leader.
 
   uv run python -m experiment.forking.forced_fork_size_sweep_figure --forked-dir out/forked --out-dir paper/figures
@@ -30,9 +30,9 @@ from src.common import BaseSchema
 from src.common.math import q_diversity
 
 _PANELS = (
-    ("avg output diversity\n(effective # fork outcomes)", "output_diversity"),
-    ("avg vocab entropy", "vocab_entropy"),
-    ("avg label prob", "label_prob"),
+    ("Answer variety\n(effective number of distinct answers)", "output_diversity"),
+    ("Word-choice variety", "vocab_entropy"),
+    ("Answer confidence", "label_prob"),
 )
 
 
@@ -116,7 +116,7 @@ def _draw_panel(ax, points, series, attr, ylabel) -> None:
     sizes = [p.size_b for p in points]
     ax.set_xlim(min(sizes) * 0.7, max(sizes) * 1.9)  # headroom so offset labels aren't clipped
     _label_points(ax, points, attr)
-    ax.set_xlabel("model size (B params)")
+    ax.set_xlabel("Model size (billion parameters)")
     ax.set_ylabel(ylabel)
     ax.grid(True, alpha=0.25)
 
@@ -139,8 +139,8 @@ def _legend(fig, points) -> None:
     handles = [Line2D([], [], marker="s", ls="", mfc=FAMILY_COLOR[f], mec=FAMILY_COLOR[f], label=f)
                for f in fams]
     handles += [
-        Line2D([], [], marker="o", ls="", mfc="none", mec=REF, label="non-thinking"),
-        Line2D([], [], marker="^", ls="", mfc=REF, mec=REF, label="thinking"),
+        Line2D([], [], marker="o", ls="", mfc="none", mec=REF, label="Standard"),
+        Line2D([], [], marker="^", ls="", mfc=REF, mec=REF, label="Reasoning"),
     ]
     fig.legend(handles=handles, loc="lower center", ncol=len(handles), fontsize=8,
                frameon=False, bbox_to_anchor=(0.5, -0.02))
@@ -154,7 +154,7 @@ def plot(points: list[ModelSweepPoint], out_path: Path) -> Path:
         _draw_panel(ax, points, series, attr, ylabel)
         ax.set_title(ylabel.split("\n")[0], fontsize=11, fontweight="bold")
     _legend(fig, points)
-    fig.suptitle("Forced-fork size sweep (all models)", fontsize=13, fontweight="bold")
+    fig.suptitle("Answer variety and confidence by model size", fontsize=13, fontweight="bold")
     fig.tight_layout(rect=(0, 0.05, 1, 0.97))
     return save_fig(fig, out_path)
 

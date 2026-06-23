@@ -40,7 +40,7 @@ OLD_SIZE = {
 
 
 def model_meta(name: str) -> tuple[str, float]:
-    """(family, size_b) — parse_model for Llama, local map for older checkpoints."""
+    """(family, size_b): parse_model for Llama, local map for older checkpoints."""
     if name in OLD_SIZE:
         return OLD_SIZE[name]
     m = parse_model(name)
@@ -78,7 +78,7 @@ def invariance_rate(name: str) -> tuple[int, int, int]:
 
     role-invariant: the role chosen (target/other/unknown) is identical across all 36 variants.
     position-invariant: the chosen OPTION POSITION (argmax index) is identical across all variants
-    — exposing whether the model answers by content (role) or by slot (position).
+    (exposing whether the model answers by content (role) or by slot (position)).
     """
     samples = load_json(OLD / "stability" / name / "response_samples.json")["samples"]
     roles: dict = defaultdict(set)
@@ -96,7 +96,8 @@ def fig1(models: list[str], out: Path) -> None:
     metas = {m: model_meta(m) for m in models}
     counts = {m: baseline_counts(m) for m in models}
     fig, axes = plt.subplots(1, 2, figsize=(11, 5), sharey=True)
-    for ax, panel, title in zip(axes, ("ambig", "disambig"), ("Ambiguous (gold=unknown)", "Disambiguated")):
+    for ax, panel, title in zip(axes, ("ambig", "disambig"),
+                                ("Ambiguous questions (correct = abstains)", "Clear questions (correct = picks right group)")):
         for m in models:
             fam, size = metas[m]
             succ, tot = counts[m][panel]
@@ -104,11 +105,11 @@ def fig1(models: list[str], out: Path) -> None:
             ax.errorbar(size, p, yerr=[[p - lo], [hi - p]], fmt="o", ms=7,
                         color=FAMILY_COLOR.get(fam, "gray"), capsize=3,
                         label=fam if fam not in ax.get_legend_handles_labels()[1] else None)
-        ax.set_xscale("log"); ax.set_xlabel("Model size (B params, log)")
+        ax.set_xscale("log"); ax.set_xlabel("Model size (billion parameters)")
         ax.set_title(title); ax.set_ylim(0, 1); ax.grid(alpha=0.3)
-    axes[0].set_ylabel("Accuracy (parser-free non_thinking)")
+    axes[0].set_ylabel("Accuracy")
     axes[1].legend(title="Family", fontsize=8)
-    fig.suptitle("OLD baseline accuracy vs model size — parser-free probability method")
+    fig.suptitle("Accuracy by model size (earlier models)")
     fig.tight_layout(); fig.savefig(out, dpi=150); plt.close(fig)
     return counts, metas
 
@@ -122,16 +123,16 @@ def fig2(models: list[str], out: Path) -> dict:
         fam, _ = model_meta(m)
         role_inv, pos_inv, tot = rates[m]
         ax.bar(i - w / 2, role_inv / tot, w, color=FAMILY_COLOR.get(fam, "gray"),
-               label="role-invariant" if i == 0 else None)
+               label="Same group chosen" if i == 0 else None)
         ax.bar(i + w / 2, pos_inv / tot, w, color=FAMILY_COLOR.get(fam, "gray"), alpha=0.45, hatch="//",
-               label="position-invariant" if i == 0 else None)
+               label="Same position chosen" if i == 0 else None)
         ax.text(i, 1.0, f"n={tot}", ha="center", fontsize=8)
     ax.set_xticks(range(len(order)))
     ax.set_xticklabels([f"{m}\n({model_meta(m)[1]:g}B)" for m in order], rotation=30, ha="right", fontsize=8)
-    ax.set_ylabel("Format-invariance rate (parser-free)"); ax.set_ylim(0, 1.08); ax.grid(axis="y", alpha=0.3)
+    ax.set_ylabel("Stability rate"); ax.set_ylim(0, 1.08); ax.grid(axis="y", alpha=0.3)
     ax.legend(fontsize=8, loc="upper right")
-    ax.set_title("OLD stability: invariance across 36 format variants per question\n"
-                 "(role-invariance ~0: choices follow the OPTION SLOT, not the content)")
+    ax.set_title("Answer stability across wording changes\n"
+                 "(group stability near zero: models follow answer position, not meaning)")
     fig.tight_layout(); fig.savefig(out, dpi=150); plt.close(fig)
     return rates
 

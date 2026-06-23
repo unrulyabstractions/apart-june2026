@@ -68,7 +68,7 @@ def main():
     out_path = out_dir / "fig3_bias_alignment_accuracy.png"
     plot_bias_alignment(
         segments, colors, names, order,
-        "SESGO bias alignment vs accuracy (count-based F(Target)/F(Other))", out_path)
+        "Accuracy versus which group the model leans toward", out_path)
     print(f"[bias] wrote {out_path}  ({len(order)} models, {len(segments)} segments)")
 
 

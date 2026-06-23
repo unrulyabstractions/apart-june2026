@@ -24,13 +24,13 @@ from experiment.bias.segment_label_layout import spread_labels  # noqa: E402
 
 # Plain-sentence panel headings (what the accuracy means in each context).
 _PANEL_TITLE: dict[str, str] = {
-    "ambig": "Ambiguous questions  -  accuracy = correctly answers 'unknown'",
-    "disambig": "Clear questions  -  accuracy = picks the stated correct group",
+    "ambig": "Ambiguous questions (correct = abstains)",
+    "disambig": "Clear questions (correct = picks right group)",
 }
 _PANEL_ORDER: tuple[str, ...] = ("ambig", "disambig")
 _LABEL_GREY = "#444444"
 _MIN_LABEL_GAP = 0.05
-_LABEL_TOP = 1.0
+_LABEL_TOP = 0.99
 # Each panel's labels live ONLY in its OUTER margin (left panel -> far left, right
 # panel -> far right) so the centre gutter between the two panels stays clean. Two
 # staggered sub-columns per side spread the dense high-accuracy band.
@@ -66,7 +66,7 @@ def _draw_label(ax, seg: BiasSegment, colour: str, name: str, y_label: float,
     end_x, ha = (right, "left") if to_right else (left, "right")
     ax.plot([end_x, col_x], [seg.accuracy, y_label], color=colour, lw=0.5,
             alpha=0.4, zorder=3, solid_capstyle="round", clip_on=False)
-    label = f"{_short(name)} ({seg.bias_score:+.2f})  n={seg.total}"
+    label = f"{_short(name)} ({seg.bias_score:+.2f})"
     ax.text(col_x, y_label, label, color=colour, fontsize=8.0, va="center", ha=ha,
             fontweight="bold", zorder=6, clip_on=False)
 
@@ -101,13 +101,13 @@ def _style_panel(ax, panel: str) -> None:
     ax.set_xlim(-1.18, 1.18)
     ax.set_ylim(-0.04, 1.06)
     ax.set_xticks([-1, -0.5, 0, 0.5, 1])
-    ax.set_xlabel("Bias Alignment", fontsize=11)
-    ax.set_title(_PANEL_TITLE[panel], fontsize=11.5, fontweight="bold", loc="left", pad=12)
+    ax.set_xlabel("Which group the model leans toward", fontsize=11)
+    ax.set_title(_PANEL_TITLE[panel], fontsize=12, fontweight="bold", loc="center", pad=18)
     ax.grid(True, axis="y", ls=":", alpha=0.35)
-    # End-anchored "F(other)" / "F(target)" descriptors under the x-extremes.
-    ax.text(-1.0, -0.105, "-1\nF(other)", transform=ax.get_xaxis_transform(),
+    # End-anchored descriptors under the x-extremes.
+    ax.text(-1.0, -0.105, "-1\nother group", transform=ax.get_xaxis_transform(),
             ha="center", va="top", fontsize=9, color="#0072B2", fontweight="bold")
-    ax.text(1.0, -0.105, "+1\nF(target)", transform=ax.get_xaxis_transform(),
+    ax.text(1.0, -0.105, "+1\ntarget group", transform=ax.get_xaxis_transform(),
             ha="center", va="top", fontsize=9, color="#D55E00", fontweight="bold")
     ax.text(0.0, 1.012, "unbiased", transform=ax.get_xaxis_transform(),
             ha="center", va="bottom", fontsize=8.5, color=_LABEL_GREY)
@@ -122,7 +122,7 @@ def plot_bias_alignment(
     # All labels sit in the OUTER margins (left panel -> far left, right panel -> far
     # right), so the centre gutter stays clean (small wspace) and the outer margins
     # carry the staggered label columns.
-    fig.subplots_adjust(left=0.19, right=0.81, wspace=0.13, top=0.93, bottom=0.07)
+    fig.subplots_adjust(left=0.19, right=0.81, wspace=0.13, top=0.90, bottom=0.10)
     rank = {key: i for i, key in enumerate(order)}
     panel_cols = {"ambig": (_LEFT_COLS, False), "disambig": (_RIGHT_COLS, True)}
     for ax, panel in zip(axes, _PANEL_ORDER):
@@ -134,6 +134,6 @@ def plot_bias_alignment(
         _draw_panel(ax, panel_segs, colors, names, cols, to_right)
         _style_panel(ax, panel)
     axes[0].set_ylabel("Accuracy", fontsize=11, labelpad=8)
-    fig.suptitle(suptitle, fontsize=13, fontweight="bold")
+    fig.suptitle(suptitle, fontsize=14, fontweight="bold", y=0.965)
     fig.savefig(out_path, dpi=150, bbox_inches="tight")
     plt.close(fig)

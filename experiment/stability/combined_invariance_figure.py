@@ -10,7 +10,7 @@ orthogonal axes, each its own panel:
 
 Both panels: y = agreement rate (Wilson 95% CI), x = model size (log), family-coloured, OLD =
 filled SQUARE / NEW = open circle (non-thinking) / filled triangle (thinking). OLD choices are
-parser-free (argmax of `non_thinking.prob`, via `old_nonthinking_role` — NEVER mapped through
+parser-free (argmax of `non_thinking.prob`, via `old_nonthinking_role`, NEVER mapped through
 option positions, which would wrongly swap target<->other); NEW choices are the committed greedy
 `choice`. EVERY point carries an explicit model label (name + n), de-collided by `spread_labels`.
 """
@@ -58,7 +58,7 @@ def old_invariance(model_dir: Path) -> dict:
     (qid, ordering, style) combo so every item gets exactly one baseline/flip/swap choice.
 
     Returns ORDER stability (baseline==flip over items having both) and LABEL stability
-    (baseline==swap over items having both), each with its own n — matching the NEW
+    (baseline==swap over items having both), each with its own n, matching the NEW
     `_invariance` order/label semantics but on a per-axis denominator."""
     samples = json.load((model_dir / "response_samples.json").open())["samples"]
     seen: dict = defaultdict(int)
@@ -143,7 +143,7 @@ def _label_points(ax, pts: list[tuple]) -> None:
     """
     clusters: list[list[tuple]] = []
     for p in sorted(pts, key=lambda g: g[0]):
-        if clusters and math.log10(p[0]) - math.log10(clusters[-1][-1][0]) <= 0.18:
+        if clusters and math.log10(p[0]) - math.log10(clusters[-1][-1][0]) <= 0.42:
             clusters[-1].append(p)
         else:
             clusters.append([p])
@@ -167,7 +167,7 @@ def _collect(new_dir: Path, old_root: Path, meta: dict) -> list[dict]:
                        if (d / "response_samples.json").is_file()):
         fam, size = model_meta(name)
         iv = old_invariance(old_root / name)
-        rows.append({"gen": "OLD", "name": f"{fam} {size:g}B-old", "family": fam, "size": size,
+        rows.append({"gen": "OLD", "name": f"{fam} {size:g}B (earlier)", "family": fam, "size": size,
                      "marker": "s", "ms": 10, "color": FAMILY_COLOR.get(fam, "gray"), **iv})
     for name in sorted(p.name for p in new_dir.iterdir()
                        if (p / "response_samples.json").exists()):
@@ -196,7 +196,7 @@ def _draw_panel(ax, rows: list[dict], axis: str, title: str) -> None:
     ax.set_xscale("log"); ax.set_ylim(-0.02, 1.02); ax.grid(True, which="both", alpha=0.25)
     xs = [l[0] for l in labels]
     ax.set_xlim(min(xs) * 0.28, max(xs) * 3.0)  # headroom so offset labels aren't clipped
-    ax.set_xlabel("Model size (B params, log scale)")
+    ax.set_xlabel("Model size (billion parameters)")
     ax.set_title(title)
 
 
@@ -205,22 +205,22 @@ def build(new_dir: Path, dataset: Path, old_root: Path, out: Path) -> None:
     rows = _collect(new_dir, old_root, meta)
 
     fig, (ax_order, ax_label) = plt.subplots(1, 2, figsize=(16, 7), sharey=True)
-    _draw_panel(ax_order, rows, "order", "Order stability (target/other position-flip)")
-    _draw_panel(ax_label, rows, "label", "Label stability (label-style swap)")
-    ax_order.set_ylabel("Agreement rate (Wilson 95% CI)")
+    _draw_panel(ax_order, rows, "order", "Stability when answer positions are swapped")
+    _draw_panel(ax_label, rows, "label", "Stability when answer labels are swapped")
+    ax_order.set_ylabel("Agreement rate (95% CI)")
 
     fams = sorted({r["family"] for r in rows},
                   key=lambda f: list(FAMILY_COLOR).index(f) if f in FAMILY_COLOR else 9)
     handles = [_legend_marker(marker="o", color=FAMILY_COLOR[f], label=f) for f in fams]
     handles += [
         _legend_marker(marker="s", mfc="gray", mec="gray", color="gray",
-                       label="Older models (Qwen3 / Gemma-2 / Mistral / Llama-3)"),
-        _legend_marker(marker="o", mfc="white", mec="k", label="New sweep — non-thinking"),
-        _legend_marker(marker="^", color="k", label="New sweep — thinking"),
+                       label="Earlier models"),
+        _legend_marker(marker="o", mfc="white", mec="k", label="Standard"),
+        _legend_marker(marker="^", color="k", label="Reasoning"),
     ]
     fig.legend(handles=handles, fontsize=9, loc="lower center", ncol=len(fams) + 3,
                bbox_to_anchor=(0.5, -0.02), frameon=True)
-    fig.suptitle("Order vs label stability across scale (both data generations)", fontsize=14)
+    fig.suptitle("Answer stability by model size", fontsize=14)
     fig.tight_layout(rect=(0, 0.05, 1, 0.97))
     out.parent.mkdir(parents=True, exist_ok=True)
     fig.savefig(out, dpi=150, bbox_inches="tight")

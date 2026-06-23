@@ -1,8 +1,8 @@
 """Two Stage-1 figures from the NEW greedy-readout stability sweep (`out/stability/`):
-  1. new_baseline_accuracy_vs_size.png  — baseline accuracy vs model size (ambig | disambig)
+  1. new_baseline_accuracy_vs_size.png: baseline accuracy vs model size (ambig | disambig)
      using the count-based convention of `bias_segments` (ambig acc = fraction 'unknown',
      disambig acc = fraction == gold), one point/model-slice, Wilson 95% CIs.
-  2. new_stability_format_invariance.png — fraction of base items whose committed ROLE is
+  2. new_stability_format_invariance.png: fraction of base items whose committed ROLE is
      identical across all 3 orthogonal variants (baseline / position-flip / label-swap),
      requiring all 3 present per item; thin order- and label-sensitivity series.
 
@@ -109,23 +109,23 @@ def build(stability_dir: Path, dataset: Path, out_dir: Path) -> None:
             _scatter(ax2, sm.size_b, iv["label"], iv["n"], color, marker, alpha=0.3, ms=5)
             inv_tbl.append((sm.name, iv["n"], iv["inv"] / iv["n"], iv["order"] / iv["n"], iv["label"] / iv["n"]))
 
-    for j, panel in enumerate(("Ambiguous (acc = abstain rate)", "Disambiguated (acc = gold)")):
-        ax1[j].set_xscale("log"); ax1[j].set_title(panel); ax1[j].set_xlabel("Model size (B params, log)")
+    for j, panel in enumerate(("Ambiguous questions (correct = abstains)", "Clear questions (correct = picks right group)")):
+        ax1[j].set_xscale("log"); ax1[j].set_title(panel); ax1[j].set_xlabel("Model size (billion parameters)")
         ax1[j].grid(True, which="both", alpha=0.25); ax1[j].set_ylim(-0.02, 1.02)
     ax1[0].set_ylabel("Accuracy")
     fams = {parse_model(n).family for n in slices if parse_model(n)}
     handles = [plt.Line2D([], [], marker="s", ls="", color=FAMILY_COLOR[f], label=f) for f in sorted(fams)]
-    handles += [plt.Line2D([], [], marker="o", ls="", mfc="white", mec="k", label="non-thinking"),
-                plt.Line2D([], [], marker="^", ls="", color="k", label="thinking")]
+    handles += [plt.Line2D([], [], marker="o", ls="", mfc="white", mec="k", label="Standard"),
+                plt.Line2D([], [], marker="^", ls="", color="k", label="Reasoning")]
     ax1[1].legend(handles=handles, fontsize=8, loc="best")
-    fig1.suptitle("NEW sweep: baseline accuracy vs size (greedy READOUT choice, not the old probability method)", fontsize=12)
+    fig1.suptitle("Accuracy by model size", fontsize=12)
     fig1.tight_layout()
 
     ax2.set_xscale("log"); ax2.set_ylim(-0.02, 1.02); ax2.grid(True, which="both", alpha=0.25)
-    ax2.set_xlabel("Model size (B params, log)"); ax2.set_ylabel("Agreement rate (Wilson 95% CI)")
-    ax2.set_title("NEW sweep: format-invariance — role identical across all 3 orthogonal variants\n"
-                  "(bold = full invariance; faint = order-only & label-only agreement)")
-    h2 = handles + [plt.Line2D([], [], marker="o", ls="", color="grey", alpha=0.3, label="order / label only")]
+    ax2.set_xlabel("Model size (billion parameters)"); ax2.set_ylabel("Agreement rate (95% CI)")
+    ax2.set_title("Answer stability by model size\n"
+                  "(bold: same answer under all wording changes; faint: under one change)")
+    h2 = handles + [plt.Line2D([], [], marker="o", ls="", color="grey", alpha=0.3, label="One change only")]
     ax2.legend(handles=h2, fontsize=8, loc="best")
     fig2.tight_layout()
 
