@@ -147,3 +147,25 @@ PREVENTION (enforce):
   from ONE distribution object, never index them separately. And sanity-check pairs with a
   cheap physical invariant (a p≈1 spike must force diversity≈1) — it instantly flags
   off-by-ones that look plausible in isolation.
+
+## Forking: read the base path from existing response data — never re-decode it
+- The stability/readout sweep already produced every model's full greedy response_text. The
+  forking base path IS that response. Re-greedy-decoding it (the old decode_forking_base_path
+  PHASE 1) is wasted compute AND decouples forking from the real data.
+- Fix: build_branch_plan_from_text(runner, templated_prompt, base_path_text, ...) encodes the
+  stored prompt_text + response_text and teacher-forces ONCE for the per-position fork logits —
+  no generation. Every stored response is an independent base path -> forking is item-parallel
+  by construction (a whole sweep forks without re-decoding anything).
+- Remaining forking-parallelism work (prep): (1) a driver that reads out/stability/<model>/
+  response_samples.json and forks selected items via build_branch_plan_from_text; (2) make
+  fork_plan_positions resumable (skip positions already in dump_dir); (3) item-level fan-out
+  (many items x position-shards); (4) fix old out/sesgo/forking paths -> out/forking; (5) reuse
+  the robust stability box lifecycle (detached+resume+retries, kernels/torch FP8 fixes).
+
+## ALWAYS collect/sync a box's data BEFORE killing or re-configuring it
+- Killing a box SIGTERMs its driver -> EXIT trap runs vast_destroy -> the on-box checkpoint is
+  GONE within seconds (destroy is fast; a post-kill rsync race loses). Lost ~1175 q9b prompts
+  by killing before snapshotting when switching it to nonthinking-only.
+- RULE: before ANY kill/re-shard/mode-change of a running box, FIRST rsync its /root/apart/out/
+  to sync/partials/<tag>/ (and for shards, pull every shard + merge). Only then SIGTERM.
+- The driver only syncs at completion, so mid-run progress lives solely on the box until then.
