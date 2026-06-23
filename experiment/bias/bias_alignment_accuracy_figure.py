@@ -30,12 +30,16 @@ _PANEL_TITLE: dict[str, str] = {
 _PANEL_ORDER: tuple[str, ...] = ("ambig", "disambig")
 _LABEL_GREY = "#444444"
 # Minimum vertical gap (accuracy units) between two text labels before de-collision.
-_MIN_LABEL_GAP = 0.058
+# Each margin is split into TWO interleaved sub-columns, so this gap only needs to
+# clear labels that land in the SAME sub-column (every other model by accuracy rank).
+_MIN_LABEL_GAP = 0.052
 # Highest a de-collided label may sit, leaving headroom under the panel title.
-_LABEL_TOP = 0.96
-# Where the de-collided label column sits in each margin (outside the plotted band,
-# clear of the y-tick numbers on the left and the axes spine on the right).
-_LEFT_COL, _RIGHT_COL = -1.34, 1.20
+_LABEL_TOP = 1.0
+# Where the de-collided label columns sit in each margin (outside the plotted band).
+# Two sub-columns per side, staggered outward, so the dense band can interleave its
+# labels left/right instead of piling into one over-tall stack.
+_LEFT_COL_INNER, _LEFT_COL_OUTER = -1.30, -2.95
+_RIGHT_COL_INNER, _RIGHT_COL_OUTER = 1.16, 2.81
 
 
 def _draw_segment(ax, seg: BiasSegment, colour: str) -> None:
@@ -50,29 +54,48 @@ def _draw_segment(ax, seg: BiasSegment, colour: str) -> None:
             markeredgewidth=1.6, zorder=5)
 
 
-def _draw_label(ax, seg: BiasSegment, colour: str, name: str, y_label: float) -> None:
-    """Coloured label in the margin on the lean's far side + a thin leader line."""
+def _draw_label(ax, seg: BiasSegment, colour: str, name: str, y_label: float,
+                col_x: float, to_right: bool) -> None:
+    """Coloured label in a margin sub-column + a thin leader line to its segment."""
     left, right = seg.span
-    to_right = seg.align_pooled <= 0  # left-leaning -> label on the right margin
-    col_x, end_x, ha = (_RIGHT_COL, right, "left") if to_right else (_LEFT_COL, left, "right")
+    end_x, ha = (right, "left") if to_right else (left, "right")
     ax.plot([end_x, col_x], [seg.accuracy, y_label], color=colour, lw=0.6,
             alpha=0.55, zorder=3, solid_capstyle="round", clip_on=False)
     label = f"{name} ({seg.align_pooled:+.2f})  n={seg.total}"
-    ax.text(col_x, y_label, label, color=colour, fontsize=8.5, va="center", ha=ha,
+    ax.text(col_x, y_label, label, color=colour, fontsize=8.0, va="center", ha=ha,
             fontweight="bold", zorder=6, clip_on=False)
 
 
+def _label_side(ax, side: list[BiasSegment], colors: dict, names: dict,
+                inner_col: float, outer_col: float, to_right: bool) -> None:
+    """De-collide one margin's labels across TWO interleaved sub-columns.
+
+    Sorting the side by accuracy and assigning even ranks to the inner column and
+    odd ranks to the outer column halves the vertical density each de-collision
+    sweep must resolve, so the dense accuracy band stops piling into one stack.
+    """
+    ranked = sorted(range(len(side)), key=lambda i: side[i].accuracy)
+    columns = ([], [])  # (inner-column segs, outer-column segs)
+    for rank, i in enumerate(ranked):
+        columns[rank % 2].append(side[i])
+    for col_segs, col_x in zip(columns, (inner_col, outer_col)):
+        slots = spread_labels([s.accuracy for s in col_segs], _MIN_LABEL_GAP, hi=_LABEL_TOP)
+        for slot in slots:
+            seg = col_segs[slot.index]
+            _draw_label(ax, seg, colors[seg.group_key], names[seg.group_key],
+                        slot.y_label, col_x, to_right)
+
+
 def _draw_panel(ax, segs: list[BiasSegment], colors: dict, names: dict) -> None:
-    """Draw all segments, then de-collided margin labels with leader lines."""
+    """Draw all segments, then de-collided two-column margin labels with leaders."""
     for seg in segs:
         _draw_segment(ax, seg, colors[seg.group_key])
     left_segs = [s for s in segs if s.align_pooled > 0]   # labelled in left margin
     right_segs = [s for s in segs if s.align_pooled <= 0]  # labelled in right margin
-    for side in (left_segs, right_segs):
-        slots = spread_labels([s.accuracy for s in side], _MIN_LABEL_GAP, hi=_LABEL_TOP)
-        for slot in slots:
-            seg = side[slot.index]
-            _draw_label(ax, seg, colors[seg.group_key], names[seg.group_key], slot.y_label)
+    _label_side(ax, left_segs, colors, names, _LEFT_COL_INNER, _LEFT_COL_OUTER,
+                to_right=False)
+    _label_side(ax, right_segs, colors, names, _RIGHT_COL_INNER, _RIGHT_COL_OUTER,
+                to_right=True)
 
 
 def _style_panel(ax, panel: str) -> None:
@@ -98,10 +121,11 @@ def plot_bias_alignment(
     order: list[str], suptitle: str, out_path,
 ) -> None:
     """Render and save the two-panel figure for the given groups (size-ordered)."""
-    fig, axes = plt.subplots(1, 2, figsize=(19, 7.6))
-    # Wide gutters: the de-collided labels live in each panel's outer margins, so
-    # the two panels need breathing room between them and at the figure edges.
-    fig.subplots_adjust(left=0.175, right=0.825, wspace=0.95, top=0.85, bottom=0.13)
+    fig, axes = plt.subplots(1, 2, figsize=(26, 12))
+    # Wide gutters + extra height: each margin now carries TWO label sub-columns
+    # (inner + far-outer), so the panels need large outer breathing room (left/right)
+    # AND vertical room for the de-collided stacks to spread without overlapping.
+    fig.subplots_adjust(left=0.25, right=0.75, wspace=2.6, top=0.9, bottom=0.08)
     rank = {key: i for i, key in enumerate(order)}
     for ax, panel in zip(axes, _PANEL_ORDER):
         panel_segs = sorted(
