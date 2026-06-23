@@ -80,18 +80,53 @@ def build_branch_plan(
     base_ids = full_ids[prefill_len:]
     if max_positions > 0:
         base_ids = base_ids[:max_positions]
-    # One teacher-forced pass over the realized sequence recovers the per-position
-    # full-vocab logits (the top-K source). full_logits[i] PREDICTS token i; for
-    # base position t the predicting row is at absolute index prefill_len + t.
+    return _enumerate_branches(runner, full_ids, prefill_len, base_ids, near_window, n_samples)
+
+
+def build_branch_plan_from_text(
+    runner: ModelRunner,
+    templated_prompt: str,
+    base_path_text: str,
+    near_window: int,
+    n_samples: int,
+    max_positions: int = 0,
+) -> BranchPlan:
+    """Build the branch plan from an ALREADY-decoded base path (e.g. the ``response_text`` a
+    stability/readout run already produced) — NO re-generation. The expensive greedy decode is
+    skipped; we just re-encode the (templated) prompt + the stored response and teacher-force
+    once for the per-position fork logits. This is the cheap, item-parallel path: every stored
+    response is an independent base path, so a whole sweep of items forks without re-decoding.
+
+    `templated_prompt` is the prompt EXACTLY as the model saw it (the readout's `prompt_text`),
+    and `base_path_text` is that run's `response_text`."""
+    prefill_ids = runner.encode_ids(templated_prompt, add_special_tokens=True)
+    base_ids = runner.encode_ids(base_path_text, add_special_tokens=False)
+    if max_positions > 0:
+        base_ids = base_ids[:max_positions]
+    prefill_len = len(prefill_ids)
+    full_ids = list(prefill_ids) + list(base_ids)
+    return _enumerate_branches(runner, full_ids, prefill_len, list(base_ids), near_window, n_samples)
+
+
+def _enumerate_branches(
+    runner: ModelRunner, full_ids: list[int], prefill_len: int,
+    base_ids: list[int], near_window: int, n_samples: int,
+) -> BranchPlan:
+    """Teacher-force the realized prompt+base sequence ONCE and enumerate every (t, w) branch
+    prefix. Shared by the generate (`build_branch_plan`) and read-from-text
+    (`build_branch_plan_from_text`) entry points — only the base-id source differs."""
+    # One teacher-forced pass over the realized sequence recovers the per-position full-vocab
+    # logits (the top-K source). full_logits[i] PREDICTS token i; for base position t the
+    # predicting row is at absolute index prefill_len + t.
     traj = runner.compute_trajectory(full_ids[: prefill_len + len(base_ids)])
     pred_rows = [traj.full_logits[prefill_len + t] for t in range(len(base_ids))]
 
     base_token_texts = [runner.decode_ids([tid]) for tid in base_ids]
     counts = samples_per_position(pred_rows, near_window, n_samples)
 
-    # The backend's batched decode re-encodes the prefix string with
-    # add_special_tokens=True, so a leading BOS in the decoded text would be
-    # duplicated; drop it here and let re-encoding restore exactly one.
+    # The backend's batched decode re-encodes the prefix string with add_special_tokens=True,
+    # so a leading BOS in the decoded text would be duplicated; drop it here and let
+    # re-encoding restore exactly one.
     bos = runner.bos_token_id
 
     rows_per_position: list[list[tuple[AltToken, str, int]]] = []
