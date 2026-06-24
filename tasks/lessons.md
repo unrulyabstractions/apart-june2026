@@ -169,3 +169,11 @@ PREVENTION (enforce):
 - RULE: before ANY kill/re-shard/mode-change of a running box, FIRST rsync its /root/apart/out/
   to sync/partials/<tag>/ (and for shards, pull every shard + merge). Only then SIGTERM.
 - The driver only syncs at completion, so mid-run progress lives solely on the box until then.
+
+## 2026-06-24 — Never edit a script while it is executing
+Edited cloud/run_one_forking_box_32b.sh (IID_FILE line) WHILE a launched copy was mid-run.
+bash reads scripts by byte offset; inserting lines above the live execution point can
+corrupt the running process and (worst case) skip the destroy-trap → runaway GPU billing.
+Got lucky (execution was already past the edited region). RULE: finish/needed edits to a
+cloud driver BEFORE launching it; for changes mid-flight, copy the script to a new path and
+launch that, or wait for the run to finish.

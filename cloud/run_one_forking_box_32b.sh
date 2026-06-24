@@ -51,6 +51,9 @@ NUM_GPUS="${NUM_GPUS:-1}"
 MAX_PRICE="${MAX_PRICE:-3.0}"
 DISK="${DISK:-160}"
 MIN_RELIABILITY="${MIN_RELIABILITY:-0.985}"
+# Min GPU VRAM (GB) for the offer filter. Default 79 (the 32B needs an 80 GB card);
+# override DOWN for small models on a 24 GB RTX_4090 (e.g. GPU_RAM=20).
+GPU_RAM="${GPU_RAM:-79}"
 
 # FULL-CoT run knobs (task spec): branch EVERY base-path position (max-positions 0),
 # 768-token base decode + 768-token continuations, n-prior 50, n-samples 50, T=1.0.
@@ -99,7 +102,7 @@ THINKING_FLAG=""; [ -n "$THINKING" ] && THINKING_FLAG="--thinking"
 # "-interpretive_direction") would otherwise be mis-parsed by argparse as a flag.
 RUN_TAG_FLAG="--run-tag=$RUN_TAG"
 
-IID_FILE="$HERE/.fork32.iid"
+IID_FILE="${IID_FILE:-$HERE/.fork32.iid}"  # override per-run so parallel boxes never share a tracking file
 INSTANCE=""
 
 log() { echo "[fork32 $(date +%H:%M:%S)] $*"; }
@@ -195,7 +198,7 @@ run_detached_and_wait() {
 }
 
 # ── 1. SEARCH for a matching verified offer (reliability floor enforced) ──
-QUERY="gpu_name=${GPU_NAME} num_gpus=${NUM_GPUS} verified=true rentable=true direct_port_count>=1 gpu_ram>=79 disk_space>=${DISK} dph_total<=${MAX_PRICE}"
+QUERY="gpu_name=${GPU_NAME} num_gpus=${NUM_GPUS} verified=true rentable=true direct_port_count>=1 gpu_ram>=${GPU_RAM} disk_space>=${DISK} dph_total<=${MAX_PRICE}"
 log "search offers: $QUERY (rel2 floor $MIN_RELIABILITY enforced post-hoc)"
 OFFERS_JSON="$(vastai search offers "$QUERY" -o 'dph_total+' --raw 2>/dev/null)"
 OFFER_ID="$(printf '%s' "$OFFERS_JSON" | MIN_REL="$MIN_RELIABILITY" python3 -c '

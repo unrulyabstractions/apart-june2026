@@ -48,6 +48,17 @@ def token_strip(ax, tokens, fork_scores, fork_flags) -> None:
     ax.axis("off")
     n = max(len(tokens), 1)
     peak = max(fork_scores) if fork_scores else 1.0
+    # Long chains of thought (hundreds of tokens) cannot show readable rotated token
+    # text, so degrade to a heat bar: each position is a cell shaded by its O_t jump,
+    # with a red tick over every forking token. Short chains keep the labelled tokens.
+    if n > 90:
+        for i in range(n):
+            x = i / n
+            s = (fork_scores[i] / peak) if (peak > 0 and i < len(fork_scores)) else 0.0
+            ax.axvspan(x, (i + 1) / n, ymin=0.2, ymax=0.8, color=JUMP_CMAP(s), lw=0)
+            if i < len(fork_flags) and fork_flags[i]:
+                ax.plot([(i + 0.5) / n], [0.9], marker="v", color="red", ms=5, clip_on=False)
+        return
     for i, tok in enumerate(tokens):
         x = (i + 0.5) / n
         s = (fork_scores[i] / peak) if (peak > 0 and i < len(fork_scores)) else 0.0
