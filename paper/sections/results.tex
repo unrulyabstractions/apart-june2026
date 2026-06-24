@@ -2,21 +2,20 @@
 \label{sec:results}
 
 \paragraph{Smaller models are more biased.}
-\textit{Evidence.} Across the cross-model sweep ($n{=}770$ per cell), abstention on
-ambiguous items rises with scale within every family, three-option abstention goes
-from $0.77$ to $0.89$ for Qwen ($0.6$\,B$\to$$4$\,B) and from $0.30$ to $0.89$ for
-Llama ($1$\,B$\to$$3$\,B), and disambiguated accuracy rises with scale as well. The
-smallest model, \texttt{Llama-3.2-1B}, abstains least ($0.30$, below the $1/3$ chance
-line) and most often names the stereotyped target on disambiguated items ($0.68$ vs.\
-$0.40$ for \texttt{Qwen3-0.6B}). In the bias-vs-accuracy view (\Cref{fig:results-bias}),
-small models are both less accurate and more biased, while larger models cluster near
-zero bias at high accuracy. All rates carry Wilson $95\%$ confidence intervals.\\
+\textit{Evidence.} We score every model in the sweep by the \textsc{SESGO} bias score---the
+signed distance $\sigma\sqrt{(1-\mathrm{acc})^2 + (F(\text{Target})-F(\text{Other}))^2}$ from
+the ideal model (accuracy $1$, $F(\text{Target}){=}F(\text{Other})$), where $F(\text{Target})$
+and $F(\text{Other})$ are the shares of \emph{incorrect} answers biased toward each group and
+$\sigma$ is positive when the residual error favours the stereotyped Target group
+\citep{robles2025sesgo}. Abstention on ambiguous items rises steeply with scale within every
+family (\texttt{Qwen3.5} from $0.0$ at $0.8$B to $1.0$ at $27$B), and the error split toward the
+marginalized group narrows. In the bias-vs-accuracy view (\Cref{fig:results-bias}), small models
+are both less accurate and more biased, while larger models cluster near zero bias at high
+accuracy. All rates carry Wilson $95\%$ confidence intervals.\\
 \textit{Limitation.} The sweep mixes families and sizes, so we do not cleanly resolve
-size from family on every axis.\\
-\textit{Notes.} One run (\texttt{gemma-2-27b-it}) was degenerate and is shown honestly
-rather than dropped.
+size from family on every axis.
 
-\plotfig{figures/baseline_bias_alignment_old_new.png}{baseline_bias_alignment_old_new.png}{0.98\linewidth}{\textbf{Bias alignment vs.\ accuracy} across both the old baseline models and the new sweep ($29$ models / $58$ segments, count-based $F(\text{Target})/F(\text{Other})$). Each model is a segment at its accuracy spanning its neutral-vs-negative wording bias ($x{<}0$ leans toward the Other group, $x{>}0$ toward the stereotyped Target). Left: ambiguous items (accuracy $=$ abstention); right: disambiguated. Small models are less accurate and more biased; large models cluster near zero bias at high accuracy.}{fig:results-bias}
+\plotfig{figures/fig3_bias_alignment_accuracy.png}{fig3_bias_alignment_accuracy.png}{0.99\linewidth}{\textbf{Bias alignment vs.\ accuracy} across the sweep ($17$ model/mode slices), the count-based \textsc{SESGO} metric \citep{robles2025sesgo}: $F(\text{Target})$ and $F(\text{Other})$ are the shares of \emph{incorrect} answers biased toward each group, and each model is a segment at its accuracy spanning its neutral-vs-negative wording bias ($x{<}0$ leans toward the Other group, $x{>}0$ toward the stereotyped Target); the label gives the signed bias score. Left: ambiguous items (accuracy $=$ abstention); right: disambiguated. Small models are less accurate and more biased; large models cluster near zero bias at high accuracy.}{fig:results-bias}
 
 \paragraph{Scale lowers uncertainty.}
 \textit{Evidence.} We fork the chain of thought at every token and track the outcome
@@ -46,6 +45,20 @@ token most diverts the final outcome.
   \label{fig:results-forking}
 \end{figure}
 
+\Cref{fig:dynamics} shows the full per-token picture for \texttt{Qwen3-0.6B}: the outcome
+distribution, the pull/drift/potential states, the answer diversity $H(O_t)$, and a
+change-point posterior that never spikes decisively---the small model accretes its answer
+rather than committing at one token.
+
+\plotfig{figures/dynamics_forking_qwen06b.png}{dynamics_forking_qwen06b.png}{0.9\linewidth}{%
+  \textbf{Forking-paths dynamics} on \texttt{Qwen3-0.6B}. \emph{Top}: the outcome
+  distribution $O_t$ over token position, abstention-dominated (yellow) through the
+  reasoning, with a sharp swing toward the named roles as the chain of thought settles;
+  the token strip red-boxes the forking tokens where $O_t$ moves most. \emph{Middle}: the
+  dynamic states (pull / drift / potential) and the answer diversity $H(O_t)$.
+  \emph{Bottom}: the survival curve and change-point posterior, which spikes at the
+  position where the committed answer firms up.}{fig:dynamics}
+
 \paragraph{Smaller models do not answer consistently.}
 \textit{Evidence.} We measure consistency along two separable axes, holding the gold
 answer fixed: \emph{order} stability (the answer is unchanged when the target and other
@@ -60,3 +73,23 @@ flip a model's answer.\\
 \textit{Notes.} This implies the other studies should filter for unstable answers.
 
 \plotfig{figures/combined_invariance_old_new.png}{combined_invariance_old_new.png}{0.99\linewidth}{\textbf{Smaller models do not answer consistently.} Fraction of items whose committed greedy-readout answer is unchanged when the option \emph{positions} are swapped (left, order stability) and when the \texttt{a)b)c)} \emph{labels} are swapped (right, label stability), plotted vs.\ model size across the sweep (open circles non-thinking, filled triangles thinking), Wilson $95\%$ CIs; every model is named and a thin line joins each family in size order. Both axes rise with scale across families and the largest model reaches ${\approx}0.98$. For several mid-size models a label swap is far more disruptive than a position swap (e.g.\ \texttt{Mistral 3 8B}, order $0.85$ vs.\ label $0.27$).}{fig:results-stability}
+
+\paragraph{Forced forks expose the same scale trend.}
+\textit{Evidence.} Presenting each ambiguous item in \emph{both} target/other orderings and
+reading the committed answer, we track three quantities per model
+(\Cref{fig:forced-fork}): the diversity of the expected answer distribution (the effective
+number of distinct choices an item takes across its two forks), the next-token vocabulary
+entropy, and the probability mass on the selected label. Within each family the larger model
+commits more sharply---higher selected-label probability and lower answer diversity---echoing
+the stability and forking results on an independent forced-choice probe.\\
+\textit{Limitation.} Coverage is partial (the sweep is densest on the smaller models).
+
+\plotfig{figures/forced_fork_size_sweep.png}{forced_fork_size_sweep.png}{0.99\linewidth}{%
+  \textbf{Forced-fork size sweep}: three metric panels, all model slices overlaid vs.\
+  model size (log $x$), coloured by family, lines joining same-family points; open
+  circles non-thinking, filled triangles thinking, each point labelled. \emph{Left}:
+  diversity (exp of entropy) of the expected answer distribution---the effective number of
+  distinct committed choices an item takes across its two order-flips ($1$ $=$ identical,
+  $2$ $=$ flips on every item). \emph{Middle}: mean next-token (vocabulary) entropy of the
+  committed answer. \emph{Right}: mean probability of the selected label token. Slices are
+  partial where the sweep was incomplete.}{fig:forced-fork}

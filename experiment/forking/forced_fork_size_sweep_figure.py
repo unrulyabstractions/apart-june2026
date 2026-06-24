@@ -31,7 +31,7 @@ from src.common.math import q_diversity
 
 # (panel title = exact metric, y-axis label, attribute on ModelSweepPoint)
 _PANELS = (
-    ("Diversity (exp of entropy) of answer distribution", "effective # distinct answers", "output_diversity"),
+    ("Diversity (exp of entropy) of expected answer distribution", "effective # distinct answers", "output_diversity"),
     ("Vocab entropy", "mean vocab entropy", "vocab_entropy"),
     ("Selected label token probability", "mean label probability", "label_prob"),
 )
