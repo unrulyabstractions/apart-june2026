@@ -167,31 +167,31 @@ run_detached_and_wait() {
     setsid bash -c 'cd $REMOTE_ROOT; { $cmd; } > $rlog 2>&1; echo \$? > $rdone' \
     </dev/null >/dev/null 2>&1 &" || { log "FATAL: could not launch $tag detached"; return 99; }
   log "launched '$tag' DETACHED on box; polling $rdone (log: $rlog)"
-  local poll=20 drops=0 max_drops=30 seen=0
+  local poll=20 drops=0 max_drops=45 seen=0
   while true; do
-    local done_val tail_out
-    done_val="$(run_on_box "cat $rdone 2>/dev/null" 2>/dev/null)"
-    if [ -n "$done_val" ]; then
-      run_on_box "tail -n 25 $rlog 2>/dev/null" 2>/dev/null | sed "s/^/[fork32 $tag] /"
-      done_val="$(printf '%s' "$done_val" | tr -dc '0-9')"
-      log "'$tag' finished with exit code ${done_val:-?}"
-      return "${done_val:-1}"
-    fi
-    # stream only the NEW tail lines so the local log shows live progress
-    tail_out="$(run_on_box "wc -l < $rlog 2>/dev/null" 2>/dev/null | tr -dc '0-9')"
-    if [ -n "$tail_out" ]; then
-      drops=0
-      if [ "$tail_out" -gt "$seen" ]; then
-        run_on_box "sed -n '$((seen+1)),\$p' $rlog 2>/dev/null" 2>/dev/null | sed "s/^/[fork32 $tag] /"
-        seen="$tail_out"
-      fi
-    else
+    # ONE ssh call returns BOTH the done marker and the log line-count, so they can
+    # never desync (the old split cat/wc calls could livelock: a flaky link returns
+    # empty for `cat .done` while `wc -l` succeeds, resetting the drop counter and
+    # never detecting completion -> infinite hang). Sentinels bracket the payload so a
+    # partial/garbled read is treated as a transient drop, never as "done".
+    local probe done_val nlines
+    probe="$(run_on_box "printf 'P:%s:%s:Q' \"\$(cat $rdone 2>/dev/null)\" \"\$(wc -l < $rlog 2>/dev/null | tr -dc 0-9)\"" 2>/dev/null)"
+    if [[ "$probe" != P:*:Q ]]; then           # no/garbled response == one transient drop
       drops=$((drops+1))
-      log "'$tag' poll: no response from box ($drops/$max_drops)"
-      if [ "$drops" -ge "$max_drops" ]; then
-        log "FATAL: box unreachable for $max_drops polls during '$tag' -- aborting"
-        return 98
-      fi
+      log "'$tag' poll: no usable response from box ($drops/$max_drops)"
+      [ "$drops" -ge "$max_drops" ] && { log "FATAL: box unreachable for $max_drops polls during '$tag' -- aborting"; return 98; }
+      sleep "$poll"; continue
+    fi
+    drops=0
+    probe="${probe#P:}"; done_val="${probe%%:*}"; nlines="${probe#*:}"; nlines="${nlines%:Q}"
+    if [ -n "$done_val" ]; then                 # marker present => command finished
+      run_on_box "tail -n 25 $rlog 2>/dev/null" 2>/dev/null | sed "s/^/[fork32 $tag] /"
+      log "'$tag' finished with exit code $(printf '%s' "$done_val" | tr -dc '0-9' || echo '?')"
+      return "$(printf '%s' "$done_val" | tr -dc '0-9')"
+    fi
+    if [ -n "$nlines" ] && [ "$nlines" -gt "$seen" ] 2>/dev/null; then
+      run_on_box "sed -n '$((seen+1)),\$p' $rlog 2>/dev/null" 2>/dev/null | sed "s/^/[fork32 $tag] /"
+      seen="$nlines"
     fi
     sleep "$poll"
   done
@@ -274,8 +274,11 @@ INSTANCE="$INSTANCE" bash "$HERE/sync_up.sh" 2>&1 | sed "s/^/[fork32 up] /"
 
 # ── 6. uv sync + cu124 torch pin + device check (reuse at_setup.sh) ──
 log "at_setup (uv sync, cu124 pin, device check)"
-run_on_box "bash cloud/at_setup.sh" 2>&1 | sed "s/^/[fork32 setup] /"
-[ "${PIPESTATUS[0]}" -eq 0 ] || { log "FATAL: at_setup failed"; exit 6; }
+# DETACHED + polled: at_setup downloads ~500 MB of torch wheels over a single long SSH
+# session; a mid-download proxy drop ("Can't assign requested address" / broken pipe)
+# would otherwise crash it. Running detached makes it survive SSH drops like collect.
+run_detached_and_wait setup "bash cloud/at_setup.sh"
+[ $? -eq 0 ] || { log "FATAL: at_setup failed"; exit 6; }
 
 # ── 7a. SELECT the forking item ON the box for THIS model ──
 # SCAFFOLD_FLAG / FORCE_QID_FLAG are empty unless their env is set; RUN_TAG_FLAG is
