@@ -28,6 +28,19 @@ from .forking_plan_forker import fork_plan_positions
 from .forking_prior_resample import resample_prior
 
 
+def strided_positions(n_positions: int, stride: int) -> list[int]:
+    """Every ``stride``-th base-path position, always including the last (committed
+    answer). ``stride<=1`` returns all positions (the paper-default full sweep)."""
+    if n_positions <= 0:
+        return []
+    if stride <= 1:
+        return list(range(n_positions))
+    idxs = list(range(0, n_positions, stride))
+    if idxs[-1] != n_positions - 1:
+        idxs.append(n_positions - 1)
+    return idxs
+
+
 def capture_forking_trajectory(
     runner: ModelRunner,
     sample: SesgoPromptSample,
@@ -39,6 +52,7 @@ def capture_forking_trajectory(
     near_window: int = 0,
     base_max_new_tokens: int = 256,
     max_positions: int = 0,
+    position_stride: int = 1,
     dump_dir: Path | None = None,
 ) -> ForkingTrajectory:
     """Capture the full {O_t} series for one prompt (greedy base path + branches).
@@ -47,6 +61,10 @@ def capture_forking_trajectory(
     the positions nearest the highest-entropy base token (more samples near
     suspected change points, per the paper). ``max_positions`` (0 == all) caps how
     many leading base-path tokens are branched (the local-pilot cost knob).
+    ``position_stride`` (>=1) forks only every k-th base-path position (the dominant
+    sampling cost is ``positions x alternates x n_samples``, and most positions
+    barely move O_t); the final base-path position is always forked so the committed
+    answer's histogram is captured.
     When ``dump_dir`` is given, EVERY position's RAW rollout texts (+ parsed label
     and token info) are written incrementally to ``dump_dir/pos_<NNN>.json`` so a
     crash mid-run keeps every completed position auditable.
@@ -57,11 +75,12 @@ def capture_forking_trajectory(
         runner, sample, near_window, n_samples, base_max_new_tokens, max_positions
     )
 
-    # Fork EVERY base-path position in one batched decode (the single-box path is
-    # just the all-positions case of the shared per-position forker).
+    # Fork the chosen positions in one batched decode (single-box default == every
+    # position; position_stride>1 subsamples them, always keeping the last so the
+    # committed-answer histogram is present).
     positions: list[ForkPosition] = fork_plan_positions(
         runner, plan, sample, outcome_set,
-        list(range(len(plan.rows_per_position))),
+        _strided_positions(len(plan.rows_per_position), position_stride),
         max_new_tokens, temperature, dump_dir=dump_dir,
     )
 

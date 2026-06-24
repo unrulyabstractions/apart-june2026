@@ -55,13 +55,18 @@ MIN_RELIABILITY="${MIN_RELIABILITY:-0.985}"
 # FULL-CoT run knobs (task spec): branch EVERY base-path position (max-positions 0),
 # 768-token base decode + 768-token continuations, n-prior 50, n-samples 50, T=1.0.
 N_PRIOR="${N_PRIOR:-50}"
-N_SAMPLES="${N_SAMPLES:-50}"
+N_SAMPLES="${N_SAMPLES:-20}"
 MAX_NEW_TOKENS="${MAX_NEW_TOKENS:-768}"
 BASE_MAX_NEW_TOKENS="${BASE_MAX_NEW_TOKENS:-768}"
 TEMPERATURE="${TEMPERATURE:-1.0}"
 # Continuation decode micro-batch: 32B fp16 weights ~64 GB leave ~16 GB for the KV
 # cache, so cap the batch at 24 prompts × 768 tokens (GPU-saturating, OOM-safe).
+# (Left at 24 — unlike the <=14B paths, 32B has no headroom to raise this.)
 HF_GEN_MICRO_BATCH="${HF_GEN_MICRO_BATCH:-24}"
+# PILOT cost knob, default OFF here: this single-box run feeds the per-token O_t
+# dynamics figure, which needs every position, so stride defaults to 1. Set
+# POSITION_STRIDE>1 only for a cheap coverage pilot that doesn't need the figure.
+POSITION_STRIDE="${POSITION_STRIDE:-1}"
 
 # Item-selection knobs (runs ON the box for this model).
 # SELECT_SESGO_DIR: the prompt-source root. The select script's own default
@@ -268,7 +273,7 @@ run_on_box "bash cloud/at_setup.sh" 2>&1 | sed "s/^/[fork32 setup] /"
 # SCAFFOLD_FLAG / FORCE_QID_FLAG are empty unless their env is set; RUN_TAG_FLAG is
 # always passed so the out subdir matches the collect/analyze/plot/sync stages.
 log "select forking item ($MODEL): dir=$SELECT_SESGO_DIR cats=$SELECT_CATEGORIES langs=$SELECT_LANGUAGES n-pilot=$SELECT_N_PILOT max-items=$SELECT_MAX_ITEMS scaffold='$SELECT_SCAFFOLD' force-qid='$SELECT_FORCE_QID' run-tag='$RUN_TAG'"
-run_on_box ".venv/bin/python sesgo/forking/select_forking_item.py --model $MODEL \
+run_on_box ".venv/bin/python experiment/forking/select_forking_item.py --model $MODEL \
   --sesgo-dir $SELECT_SESGO_DIR \
   --categories $SELECT_CATEGORIES --languages $SELECT_LANGUAGES \
   --n-pilot $SELECT_N_PILOT --max-items $SELECT_MAX_ITEMS \
@@ -280,7 +285,7 @@ run_on_box ".venv/bin/python sesgo/forking/select_forking_item.py --model $MODEL
 # attempt died here on "Connection closed by remote host" mid-decode).
 log "collect FULL-CoT forking rollouts ($MODEL): max-positions=0 base/cont=$BASE_MAX_NEW_TOKENS/$MAX_NEW_TOKENS n-prior=$N_PRIOR n-samples=$N_SAMPLES T=$TEMPERATURE micro-batch=$HF_GEN_MICRO_BATCH"
 run_detached_and_wait collect \
-  "HF_GEN_MICRO_BATCH=$HF_GEN_MICRO_BATCH .venv/bin/python sesgo/forking/collect_forking_rollouts.py --model $MODEL \
+  "HF_GEN_MICRO_BATCH=$HF_GEN_MICRO_BATCH .venv/bin/python experiment/forking/collect_forking_rollouts.py --model $MODEL \
      --max-positions 0 --base-max-new-tokens $BASE_MAX_NEW_TOKENS --max-new-tokens $MAX_NEW_TOKENS \
      --n-prior $N_PRIOR --n-samples $N_SAMPLES --temperature $TEMPERATURE $RUN_TAG_FLAG"
 [ $? -eq 0 ] || { log "FATAL: collect failed"; exit 8; }
@@ -290,7 +295,7 @@ run_detached_and_wait collect \
 TAGGED_MODEL="${BARE_MODEL}${RUN_TAG}"
 
 # ── 8. Verify the trajectory is non-empty BEFORE we destroy ──
-NPOS="$(run_on_box ".venv/bin/python -c \"import json; print(len(json.load(open('out/sesgo/forking/$TAGGED_MODEL/forking_trajectory.json'))['positions']))\" 2>/dev/null || echo 0")"
+NPOS="$(run_on_box ".venv/bin/python -c \"import json; print(len(json.load(open('out/forking/$TAGGED_MODEL/forking_trajectory.json'))['positions']))\" 2>/dev/null || echo 0")"
 NPOS="$(printf '%s' "$NPOS" | tr -dc '0-9')"
 log "remote forking_trajectory.json has ${NPOS:-0} base positions"
 if [ "${NPOS:-0}" -lt 1 ]; then
@@ -300,15 +305,15 @@ fi
 
 log "analyze forking dynamics (detached + polled)"
 run_detached_and_wait analyze \
-  ".venv/bin/python sesgo/forking/analyze_forking_dynamics.py --model $MODEL $RUN_TAG_FLAG"
+  ".venv/bin/python experiment/forking/analyze_forking_dynamics.py --model $MODEL $RUN_TAG_FLAG"
 [ $? -eq 0 ] || { log "FATAL: analyze failed"; exit 10; }
 
 log "plot commit dynamics"
-run_on_box ".venv/bin/python sesgo/forking/plot_forking_commit_dynamics.py" 2>&1 | sed "s/^/[fork32 plotcommit] /"
+run_on_box ".venv/bin/python experiment/forking/plot_forking_commit_dynamics.py" 2>&1 | sed "s/^/[fork32 plotcommit] /"
 [ "${PIPESTATUS[0]}" -eq 0 ] || log "WARN: plot_forking_commit_dynamics returned non-zero (continuing)"
 
 log "plot forking dynamics (token-strip figure with forking tokens marked)"
-run_on_box ".venv/bin/python sesgo/forking/plot_forking_dynamics.py --model $MODEL $RUN_TAG_FLAG" 2>&1 | sed "s/^/[fork32 plotdyn] /"
+run_on_box ".venv/bin/python experiment/forking/plot_forking_dynamics.py --model $MODEL $RUN_TAG_FLAG" 2>&1 | sed "s/^/[fork32 plotdyn] /"
 [ "${PIPESTATUS[0]}" -eq 0 ] || log "WARN: plot_forking_dynamics returned non-zero (continuing)"
 
 # ── 9. Print the report facts FROM THE BOX (before teardown) ──
@@ -318,7 +323,7 @@ log "extracting report facts from the box"
 run_on_box "BARE_REPORT=$TAGGED_MODEL .venv/bin/python - <<'PYEOF'
 import json, glob, math, os
 BARE=os.environ['BARE_REPORT']
-d=json.load(open(f'out/sesgo/forking/{BARE}/forking_trajectory.json'))
+d=json.load(open(f'out/forking/{BARE}/forking_trajectory.json'))
 pos=d['positions']; toks=d.get('base_token_texts',[]); base=d.get('base_path_text','')
 print('REPORT_N_POSITIONS=%d' % len(pos))
 print('REPORT_N_BASE_TOKENS=%d' % len(toks))
@@ -328,7 +333,7 @@ print('REPORT_FINAL=%s' % [round(x,3) for x in d.get('final_histogram',[])])
 print('REPORT_LABELS=%s' % d.get('outcome_set',{}).get('labels'))
 # Forking tokens: load analysis change-point + the abrupt Delta_t spikes.
 try:
-    a=json.load(open(f'out/sesgo/forking/{BARE}/forking_analysis.json'))
+    a=json.load(open(f'out/forking/{BARE}/forking_analysis.json'))
     cp=a['change_points']; st=a['dynamic_states']
     jumps=st.get('forking_magnitude',[])
     fi=cp.get('forking_token_index',-1)
@@ -348,7 +353,7 @@ try:
 except Exception as e:
     print('REPORT_ANALYSIS_ERR=%r' % e)
 # Unparseable audit over the per-position raw dumps.
-dumps=sorted(glob.glob(f'out/sesgo/forking/{BARE}/forking_positions/pos_*.json'))
+dumps=sorted(glob.glob(f'out/forking/{BARE}/forking_positions/pos_*.json'))
 tot=unp=0
 for f in dumps:
     e=json.load(open(f))
@@ -366,7 +371,7 @@ print('REPORT_N_DUMP_FILES=%d' % len(dumps))
 PYEOF" 2>&1 | sed "s/^/[fork32 report] /"
 
 # ── 10. SYNC results BACK into a DISJOINT quarantine sync/fork32/ ──
-log "sync_back -> sync/fork32/sesgo/forking/"
+log "sync_back -> sync/fork32/forking/"
 SYNC_SUBDIR="fork32" STUDIES="forking" INSTANCE="$INSTANCE" bash "$HERE/sync_back.sh" 2>&1 | sed "s/^/[fork32 back] /"
 [ "${PIPESTATUS[0]}" -eq 0 ] || { log "FATAL: sync_back failed (box will still be destroyed)"; exit 11; }
 

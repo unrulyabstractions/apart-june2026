@@ -25,7 +25,14 @@ class SweepModel(BaseSchema):
     family: str
     size_b: float
     mode: str          # thinking / nonthinking
-    name: str          # display label e.g. "Qwen 0.8B" / "Mistral 3B-R"
+    name: str          # versioned display label e.g. "Qwen3.5 4B" / "Mistral 3 3B-R"
+
+
+def _ver(bare: str, pattern: str) -> str:
+    """The family version embedded in the checkpoint name (e.g. 3.5 from Qwen3.5),
+    so a label reads "Qwen3.5 4B" rather than the version-less "Qwen 4B"."""
+    m = re.search(pattern, bare, re.IGNORECASE)
+    return m.group(1) if m else ""
 
 
 def _size(bare: str) -> float | None:
@@ -51,13 +58,15 @@ def parse_model(dir_name: str) -> SweepModel | None:
     if size is None:
         return None
     if "gemma" in low:
-        fam, tag = "Gemma", ""
+        fam, name = "Gemma", f"Gemma {_ver(bare, r'gemma-([\d.]+)')} {size:g}B"
     elif "qwen" in low:
-        fam, tag = "Qwen", " (think)" if mode == "thinking" else ""
+        tag = " (think)" if mode == "thinking" else ""
+        fam, name = "Qwen", f"Qwen{_ver(bare, r'Qwen([\d.]+)')} {size:g}B{tag}"
     elif "ministral" in low:
-        fam, tag = "Mistral", "-R" if "reasoning" in low else "-I"
+        tag = "-R" if "reasoning" in low else "-I"
+        fam, name = "Mistral", f"Mistral {_ver(bare, r'Ministral-([\d.]+)')} {size:g}B{tag}"
     elif "llama" in low:
-        fam, tag = "Llama", ""
+        fam, name = "Llama", f"Llama {_ver(bare, r'Llama-([\d.]+)')} {size:g}B"
     else:
         return None
-    return SweepModel(dir_name, fam, size, mode, f"{fam} {size:g}B{tag}")
+    return SweepModel(dir_name, fam, size, mode, name)

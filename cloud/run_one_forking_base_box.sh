@@ -38,7 +38,7 @@ MAX_PRICE="${MAX_PRICE:-3.0}"
 DISK="${DISK:-160}"
 MIN_RELIABILITY="${MIN_RELIABILITY:-0.985}"
 
-N_SAMPLES="${N_SAMPLES:-50}"
+N_SAMPLES="${N_SAMPLES:-20}"
 BASE_MAX_NEW_TOKENS="${BASE_MAX_NEW_TOKENS:-768}"
 NEAR_WINDOW="${NEAR_WINDOW:-0}"
 
@@ -141,25 +141,25 @@ run_on_box "bash cloud/at_setup.sh" 2>&1 | sed "s/^/[forkbase setup] /"
 
 # ── 6. SELECT the forking item ON the box for THIS model ──
 log "select forking item ($MODEL)"
-run_on_box ".venv/bin/python sesgo/forking/select_forking_item.py --model $MODEL \
+run_on_box ".venv/bin/python experiment/forking/select_forking_item.py --model $MODEL \
   --sesgo-dir $SELECT_SESGO_DIR --categories $SELECT_CATEGORIES --languages $SELECT_LANGUAGES \
   --n-pilot $SELECT_N_PILOT --max-items $SELECT_MAX_ITEMS" 2>&1 | sed "s/^/[forkbase select] /"
 [ "${PIPESTATUS[0]}" -eq 0 ] || { log "FATAL: select failed"; exit 7; }
 
 # ── 7. DECODE the base path (greedy CoT + branch-prefix enumeration) ──
 log "decode base path ($MODEL): base-max-new-tokens=$BASE_MAX_NEW_TOKENS n-samples=$N_SAMPLES near-window=$NEAR_WINDOW"
-run_on_box ".venv/bin/python sesgo/forking/decode_forking_base_path.py --model $MODEL \
+run_on_box ".venv/bin/python experiment/forking/decode_forking_base_path.py --model $MODEL \
   --base-max-new-tokens $BASE_MAX_NEW_TOKENS --n-samples $N_SAMPLES --near-window $NEAR_WINDOW" 2>&1 | sed "s/^/[forkbase decode] /"
 [ "${PIPESTATUS[0]}" -eq 0 ] || { log "FATAL: decode failed"; exit 8; }
 
 # ── 8. Verify base_path.json is non-empty BEFORE we destroy ──
-NPOS="$(run_on_box ".venv/bin/python -c \"import json; print(len(json.load(open('out/sesgo/forking/$BARE_MODEL/base_path.json'))['base_token_ids']))\" 2>/dev/null || echo 0")"
+NPOS="$(run_on_box ".venv/bin/python -c \"import json; print(len(json.load(open('out/forking/$BARE_MODEL/base_path.json'))['base_token_ids']))\" 2>/dev/null || echo 0")"
 NPOS="$(printf '%s' "$NPOS" | tr -dc '0-9')"
 log "remote base_path.json has ${NPOS:-0} base positions"
 [ "${NPOS:-0}" -ge 1 ] || { log "FATAL: empty/missing base_path.json -- aborting"; exit 9; }
 
 # ── 9. SYNC selected_item.json + base_path.json BACK into sync/forkbase/ ──
-log "sync_back -> sync/forkbase/sesgo/forking/"
+log "sync_back -> sync/forkbase/forking/"
 SYNC_SUBDIR="forkbase" STUDIES="forking" INSTANCE="$INSTANCE" bash "$HERE/sync_back.sh" 2>&1 | sed "s/^/[forkbase back] /"
 [ "${PIPESTATUS[0]}" -eq 0 ] || { log "FATAL: sync_back failed"; exit 10; }
 

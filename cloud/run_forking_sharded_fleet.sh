@@ -33,9 +33,9 @@ MODEL="${MODEL:-Qwen/Qwen3-14B}"
 BARE_MODEL="${MODEL##*/}"
 NUM_SHARDS="${NUM_SHARDS:-5}"
 
-FORKBASE_ARTIFACTS="$REPO_ROOT/sync/forkbase/sesgo/forking/$BARE_MODEL"
+FORKBASE_ARTIFACTS="$REPO_ROOT/sync/forkbase/forking/$BARE_MODEL"
 SHARDS_PROMOTED="$REPO_ROOT/sync/forkmerged/$BARE_MODEL"
-FINAL_OUT="$REPO_ROOT/out/sesgo/forking/$BARE_MODEL"
+FINAL_OUT="$REPO_ROOT/out/forking/$BARE_MODEL"
 
 log() { echo "[fleet $(date +%H:%M:%S)] $*"; }
 
@@ -99,14 +99,14 @@ cp -n "$FORKBASE_ARTIFACTS/base_path.json" "$FINAL_OUT/" 2>/dev/null || true
 
 # ── STEP C(merge): reassemble shards into one ordered trajectory LOCALLY ──
 log "STEP C: merge shards -> $FINAL_OUT/forking_trajectory.json"
-( cd "$REPO_ROOT" && uv run python sesgo/forking/merge_forking_shards.py \
+( cd "$REPO_ROOT" && uv run python experiment/forking/merge_forking_shards.py \
     --in-dir "$SHARDS_PROMOTED" --out-dir "$FINAL_OUT" ) 2>&1 | sed "s/^/[fleet merge] /"
 [ "${PIPESTATUS[0]}" -eq 0 ] || { log "FATAL: merge failed"; exit 3; }
 
 # ── STEP C(analyze + plot): drive the existing downstream on the merged file ──
 log "analyze + plot the merged trajectory"
-( cd "$REPO_ROOT" && uv run python sesgo/forking/analyze_forking_dynamics.py --model "$MODEL" ) 2>&1 | sed "s/^/[fleet analyze] /"
-( cd "$REPO_ROOT" && uv run python sesgo/forking/plot_forking_dynamics.py --model "$MODEL" ) 2>&1 | sed "s/^/[fleet plot] /"
+( cd "$REPO_ROOT" && uv run python experiment/forking/analyze_forking_dynamics.py --model "$MODEL" ) 2>&1 | sed "s/^/[fleet analyze] /"
+( cd "$REPO_ROOT" && uv run python experiment/forking/plot_forking_dynamics.py --model "$MODEL" ) 2>&1 | sed "s/^/[fleet plot] /"
 
 log "DONE: sharded forking trajectory for $BARE_MODEL at $FINAL_OUT/forking_trajectory.json"
 log "      figures: $FINAL_OUT/forking_dynamics.png , forking_branching_tree.png"

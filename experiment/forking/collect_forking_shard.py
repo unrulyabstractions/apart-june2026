@@ -33,6 +33,7 @@ from src.dynamics.forking_paths import (  # noqa: E402
     fork_plan_positions,
     resample_prior,
     serialized_to_branch_plan,
+    strided_positions,
 )
 from src.inference.backends import ModelBackend  # noqa: E402
 from src.ternary_choice import TernaryChoiceRunner  # noqa: E402
@@ -48,6 +49,7 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--num-shards", type=int, required=True, help="total shard count N")
     p.add_argument("--n-prior", type=int, default=50, help="full-resample draws for o_0 (shard 0 only)")
     p.add_argument("--max-new-tokens", type=int, default=768, help="tokens per continuation rollout")
+    p.add_argument("--position-stride", type=int, default=1, help="fork only every k-th position (>=1; composed with sharding) — pilot cost knob")
     p.add_argument("--temperature", type=float, default=1.0)
     p.add_argument("--out-dir", type=Path, default=Path("out"))
     return p.parse_args()
@@ -66,8 +68,13 @@ def main() -> None:
     )
 
     n_positions = len(plan.rows_per_position)
-    position_indices = [t for t in range(n_positions) if t % n == k]
-    log(f"[shard{k}] {len(position_indices)}/{n_positions} positions: {position_indices[:8]}...")
+    # Stride first (subsample positions), then round-robin the survivors across the
+    # N boxes, so stride and sharding compose and each forked position lands on
+    # exactly one shard.
+    forked = strided_positions(n_positions, args.position_stride)
+    position_indices = forked[k::n]
+    log(f"[shard{k}] {len(position_indices)}/{n_positions} positions "
+        f"(stride={args.position_stride}): {position_indices[:8]}...")
 
     runner = TernaryChoiceRunner(model_name=args.model, backend=ModelBackend.HUGGINGFACE)
     dump_dir = out_dir / f"forking_positions_shard_{k}_of_{n}"

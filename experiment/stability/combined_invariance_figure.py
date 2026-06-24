@@ -1,5 +1,4 @@
-"""TWO-panel format-stability figure spanning BOTH data generations: the OLD stability study
-(`data/hf_old/sesgo/stability/<model>`) and the NEW greedy-readout sweep (`out/stability/<dir>`).
+"""TWO-panel format-stability figure for the greedy-readout sweep (`out/stability/<dir>`).
 
 We split the single "role identical across all 3 orthogonal variants" metric into its two
 orthogonal axes, each its own panel:
@@ -8,29 +7,22 @@ orthogonal axes, each its own panel:
   - LABEL stability  = fraction of base items where choice(baseline) == choice(swap), i.e. the
     role survives swapping the label style a)b)c) -> x)y)z).      [needs baseline & swap present]
 
-Both panels: y = agreement rate (Wilson 95% CI), x = model size (log), family-coloured, OLD =
-filled SQUARE / NEW = open circle (non-thinking) / filled triangle (thinking). OLD choices are
-parser-free (argmax of `non_thinking.prob`, via `old_nonthinking_role`, NEVER mapped through
-option positions, which would wrongly swap target<->other); NEW choices are the committed greedy
-`choice`. EVERY point carries an explicit model label (name + n), de-collided by `spread_labels`.
+Both panels: y = agreement rate (Wilson 95% CI), x = model size (log), family-coloured, the
+committed greedy `choice`; open circle = non-thinking, filled triangle = thinking. A thin
+family-coloured line joins each (family, marker) series in size order, and EVERY point carries
+its proper versioned name (e.g. "Qwen3.5 4B"), de-collided into a left/right margin column so
+the ~17 labels stay legible.
 """
 
 from __future__ import annotations
 
 import argparse
 import json
-import math
 from collections import defaultdict
 from pathlib import Path
 
 import matplotlib.pyplot as plt
 
-from experiment.baseline.old_data_parser_free_figures import model_meta
-from experiment.baseline.reparse_old_thinking_labels import (
-    old_nonthinking_role,
-    option_labels_from_style,
-    position_labels_from_prompt,
-)
 from experiment.bias.segment_label_layout import spread_labels
 from experiment.bias.stability_readout_join import load_metadata
 from experiment.common.sweep_models import FAMILY_COLOR, parse_model
@@ -40,47 +32,12 @@ from src.common.math import wilson_interval
 REPO_ROOT = Path(__file__).resolve().parents[2]
 
 
-def _old_choice(s: dict) -> tuple[str, tuple]:
-    """Parser-free committed role + the (role-at-each-position) tuple for an OLD sample.
-
-    The CHOICE is the OLD non_thinking committed role (argmax of the ROLE-ORDERED prob, via
-    `old_nonthinking_role`); mapping through option positions would wrongly swap target<->other.
-    The `tuple(roles)` from `position_labels_from_prompt` is kept ONLY to type the format VARIANT
-    (baseline / position-flip / label-swap), never for the choice."""
-    labels = option_labels_from_style(s["label_style"])
-    roles = position_labels_from_prompt(s, labels)
-    return old_nonthinking_role(s), tuple(roles)
-
-
-def old_invariance(model_dir: Path) -> dict:
-    """Same 3-orthogonal-variant role choices as the NEW sweep, on OLD data. Item =
-    (question_id, replicate-index): the replicate index disambiguates the two draws per
-    (qid, ordering, style) combo so every item gets exactly one baseline/flip/swap choice.
-
-    Returns ORDER stability (baseline==flip over items having both) and LABEL stability
-    (baseline==swap over items having both), each with its own n, matching the NEW
-    `_invariance` order/label semantics but on a per-axis denominator."""
-    samples = json.load((model_dir / "response_samples.json").open())["samples"]
-    seen: dict = defaultdict(int)
-    items: dict = defaultdict(dict)
-    for s in sorted(samples, key=lambda x: x["sample_idx"]):
-        choice, roles = _old_choice(s)
-        v = _VARIANT.get((roles, s["label_style"]))
-        if v is None:
-            continue
-        combo = (s["question_id"], roles, s["label_style"])
-        rep = seen[combo]
-        seen[combo] += 1
-        items[(s["question_id"], rep)][v] = choice
-    return _split_stability(items.values())
-
-
 def new_invariance(slice_dir: Path, meta: dict) -> dict:
-    """ORDER + LABEL stability for one NEW sweep slice, with their per-axis denominators.
+    """ORDER + LABEL stability for one sweep slice, with their per-axis denominators.
 
-    The shared `_invariance` requires all 3 variants per item; here ORDER only needs
-    baseline+flip and LABEL only needs baseline+swap, so we re-group from scratch to use
-    the larger, axis-specific denominators (more items, tighter Wilson CI)."""
+    ORDER needs baseline+flip and LABEL needs baseline+swap, so we group per base item and
+    score each axis over only the items carrying both of its variants (the larger,
+    axis-specific denominator gives a tighter Wilson CI)."""
     samples = json.load((slice_dir / "response_samples.json").open())["samples"]
     choice = {s["prompt_id"]: s["choice"] for s in samples}
     items: dict = defaultdict(dict)
@@ -93,7 +50,7 @@ def new_invariance(slice_dir: Path, meta: dict) -> dict:
 
 
 def _item_key(m: dict) -> tuple:
-    """Group a NEW record's variants back to their shared base item (mirrors new_sweep figure)."""
+    """Group a record's variants back to their shared base item (mirrors new_sweep figure)."""
     return (m["question_id"], m["context_condition"], m["question_polarity"],
             m["bias_category"], m["target_identity"], m["other_identity"], m["language"])
 
@@ -124,51 +81,9 @@ def _plot_point(ax, size, succ, n, color, marker, ms) -> float:
     return p
 
 
-def _draw_side(ax, group: list[tuple], x_text: float, ha: str) -> None:
-    """De-collide one side's labels in y (via `spread_labels`) and draw them with leaders."""
-    slots = spread_labels([g[1] for g in group], 0.082, 1.0)
-    for (x, y, text, color), slot in zip(group, slots):
-        ax.annotate(text, (x, y), xytext=(x_text, slot.y_label),
-                    textcoords="data", fontsize=7, color=color, va="center", ha=ha, zorder=4,
-                    arrowprops=dict(arrowstyle="-", color=color, lw=0.5, alpha=0.6))
-
-
-def _label_points(ax, pts: list[tuple]) -> None:
-    """Draw an explicit model label (name + n) beside every point, de-colliding in y.
-
-    Points are greedily clustered along x (a >0.18-decade gap starts a new cluster) so only
-    near-overlapping markers compete for space; each cluster's labels are split left/right
-    (the leftmost cluster spills fully into the empty left margin) and `spread_labels` pushes
-    each side apart in y with a thin family-coloured leader line.
-    """
-    clusters: list[list[tuple]] = []
-    for p in sorted(pts, key=lambda g: g[0]):
-        if clusters and math.log10(p[0]) - math.log10(clusters[-1][-1][0]) <= 0.42:
-            clusters[-1].append(p)
-        else:
-            clusters.append([p])
-    for ci, group in enumerate(clusters):
-        group.sort(key=lambda g: g[1])
-        xmin, xmax = min(g[0] for g in group), max(g[0] for g in group)
-        if ci == 0:  # leftmost cluster: send ALL labels into the empty left margin (no neighbour)
-            _draw_side(ax, group, xmin / 1.12, "right")
-        elif len(group) >= 2:  # split: lower-y labels hug the left edge, upper-y the right edge
-            mid = len(group) // 2
-            _draw_side(ax, group[:mid], xmin / 1.12, "right")
-            _draw_side(ax, group[mid:], xmax * 1.12, "left")
-        else:
-            _draw_side(ax, group, xmax * 1.2, "left")
-
-
-def _collect(new_dir: Path, old_root: Path, meta: dict) -> list[dict]:
-    """One row per (generation, model): family, size, marker, colour, and both stabilities."""
+def _collect(new_dir: Path, meta: dict) -> list[dict]:
+    """One row per model slice: family, size, marker, colour, proper name, both stabilities."""
     rows: list[dict] = []
-    for name in sorted(d.name for d in old_root.iterdir()
-                       if (d / "response_samples.json").is_file()):
-        fam, size = model_meta(name)
-        iv = old_invariance(old_root / name)
-        rows.append({"gen": "OLD", "name": f"{fam} {size:g}B (earlier)", "family": fam, "size": size,
-                     "marker": "s", "ms": 10, "color": FAMILY_COLOR.get(fam, "gray"), **iv})
     for name in sorted(p.name for p in new_dir.iterdir()
                        if (p / "response_samples.json").exists()):
         sm = parse_model(name)
@@ -177,34 +92,64 @@ def _collect(new_dir: Path, old_root: Path, meta: dict) -> list[dict]:
             continue
         iv = new_invariance(new_dir / name, meta)
         marker = "^" if sm.mode == "thinking" else "o"
-        rows.append({"gen": "NEW", "name": sm.name, "family": sm.family, "size": sm.size_b,
-                     "marker": marker, "ms": 8, "color": FAMILY_COLOR[sm.family], **iv})
+        rows.append({"name": sm.name, "family": sm.family, "size": sm.size_b,
+                     "marker": marker, "color": FAMILY_COLOR[sm.family], **iv})
     return rows
 
 
+def _label_side(ax, group: list[tuple], x_text: float, ha: str) -> None:
+    """Draw one margin column of labels: sort by y, spread vertically, thin leader to each point.
+    Sorting by y makes the leaders monotonic, so a column of many labels never crosses itself."""
+    group = sorted(group, key=lambda g: g[1])
+    for (x, y, text, color), slot in zip(group, spread_labels([g[1] for g in group], 0.07, 1.0)):
+        ax.annotate(text, (x, y), xytext=(x_text, slot.y_label), textcoords="data",
+                    fontsize=7, color=color, va="center", ha=ha, zorder=4,
+                    arrowprops=dict(arrowstyle="-", color=color, lw=0.5, alpha=0.6))
+
+
+def _label_points(ax, labels: list[tuple], xmin: float, xmax: float) -> None:
+    """Name every point, splitting the labels into a left and a right margin column by SIZE rank
+    (smaller half left, larger half right) so the two columns carry an equal share and neither
+    crowds — most models are small, so an x-midpoint split would overload the left column."""
+    by_size = sorted(labels, key=lambda l: l[0])
+    half = (len(by_size) + 1) // 2
+    _label_side(ax, by_size[:half], xmin / 1.9, "right")
+    _label_side(ax, by_size[half:], xmax * 1.9, "left")
+
+
 def _draw_panel(ax, rows: list[dict], axis: str, title: str) -> None:
-    """Render one stability axis ('order' or 'label') as a labelled scatter with Wilson CIs."""
+    """Render one stability axis ('order' or 'label') as named family trend-lines with Wilson CIs.
+
+    Each marker is one model (family colour, mode marker, Wilson 95% CI); a thin family-coloured
+    line joins every (family, marker) series in size order, and every point is labelled with its
+    proper versioned name in a de-collided left/right margin column."""
     n_key, succ_key = f"{axis}_n", axis
+    pts = [r for r in rows if r[n_key]]
+    series: dict[tuple, list[tuple]] = defaultdict(list)
     labels: list[tuple] = []
-    for r in rows:
-        n = r[n_key]
-        if not n:
-            continue
-        p = _plot_point(ax, r["size"], r[succ_key], n, r["color"], r["marker"], r["ms"])
-        labels.append((r["size"], p, f"{r['name']} (n={n})", r["color"]))
-    _label_points(ax, labels)
+    for r in pts:
+        p = _plot_point(ax, r["size"], r[succ_key], r[n_key], r["color"], r["marker"], ms=8)
+        series[(r["family"], r["marker"])].append((r["size"], p, r["color"]))
+        labels.append((r["size"], p, r["name"], r["color"]))
+    for group in series.values():
+        group.sort(key=lambda g: g[0])
+        if len(group) >= 2:  # a lone model is just its marker, not a broken one-point line
+            ax.plot([g[0] for g in group], [g[1] for g in group], "-",
+                    color=group[0][2], lw=0.9, alpha=0.5, zorder=1)
+    sizes = [r["size"] for r in pts]
+    xmin, xmax = min(sizes), max(sizes)
+    _label_points(ax, labels, xmin, xmax)
     ax.set_xscale("log"); ax.set_ylim(-0.02, 1.02); ax.grid(True, which="both", alpha=0.25)
-    xs = [l[0] for l in labels]
-    ax.set_xlim(min(xs) * 0.28, max(xs) * 3.0)  # headroom so offset labels aren't clipped
+    ax.set_xlim(xmin / 3.2, xmax * 3.2)  # margin room so the offset labels are not clipped
     ax.set_xlabel("Model size (billion parameters)")
     ax.set_title(title)
 
 
-def build(new_dir: Path, dataset: Path, old_root: Path, out: Path) -> None:
+def build(new_dir: Path, dataset: Path, out: Path) -> None:
     meta = load_metadata(dataset)
-    rows = _collect(new_dir, old_root, meta)
+    rows = _collect(new_dir, meta)
 
-    fig, (ax_order, ax_label) = plt.subplots(1, 2, figsize=(16, 7), sharey=True)
+    fig, (ax_order, ax_label) = plt.subplots(1, 2, figsize=(17, 8), sharey=True)
     _draw_panel(ax_order, rows, "order", "Stability when answer positions are swapped")
     _draw_panel(ax_label, rows, "label", "Stability when answer labels are swapped")
     ax_order.set_ylabel("Agreement rate (95% CI)")
@@ -213,23 +158,21 @@ def build(new_dir: Path, dataset: Path, old_root: Path, out: Path) -> None:
                   key=lambda f: list(FAMILY_COLOR).index(f) if f in FAMILY_COLOR else 9)
     handles = [_legend_marker(marker="o", color=FAMILY_COLOR[f], label=f) for f in fams]
     handles += [
-        _legend_marker(marker="s", mfc="gray", mec="gray", color="gray",
-                       label="Earlier models"),
         _legend_marker(marker="o", mfc="white", mec="k", label="Standard"),
         _legend_marker(marker="^", color="k", label="Reasoning"),
     ]
-    fig.legend(handles=handles, fontsize=9, loc="lower center", ncol=len(fams) + 3,
+    fig.legend(handles=handles, fontsize=9, loc="lower center", ncol=len(fams) + 2,
                bbox_to_anchor=(0.5, -0.02), frameon=True)
     fig.suptitle("Answer stability by model size", fontsize=14)
     fig.tight_layout(rect=(0, 0.05, 1, 0.97))
     out.parent.mkdir(parents=True, exist_ok=True)
     fig.savefig(out, dpi=150, bbox_inches="tight")
 
-    print(f"{'gen':4s} {'model':24s} {'fam':8s} {'size':>6s}  {'order':>22s}  {'label':>22s}")
-    for r in sorted(rows, key=lambda r: (r["gen"], r["size"])):
+    print(f"{'model':18s} {'fam':8s} {'size':>6s}  {'order':>22s}  {'label':>22s}")
+    for r in sorted(rows, key=lambda r: r["size"]):
         o = f"{r['order']}/{r['order_n']}={r['order']/r['order_n']:.3f}" if r["order_n"] else "-"
         l = f"{r['label']}/{r['label_n']}={r['label']/r['label_n']:.3f}" if r["label_n"] else "-"
-        print(f"{r['gen']:4s} {r['name']:24s} {r['family']:8s} {r['size']:6g}  {o:>22s}  {l:>22s}")
+        print(f"{r['name']:18s} {r['family']:8s} {r['size']:6g}  {o:>22s}  {l:>22s}")
     print(f"\nWrote {out}")
 
 
@@ -237,10 +180,9 @@ def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--new-dir", type=Path, default=REPO_ROOT / "out" / "stability")
     ap.add_argument("--dataset", type=Path, default=REPO_ROOT / "data" / "full_prompt_dataset.json")
-    ap.add_argument("--old-root", type=Path, default=REPO_ROOT / "data" / "hf_old" / "sesgo" / "stability")
     ap.add_argument("--out", type=Path, default=REPO_ROOT / "paper" / "figures" / "combined_invariance_old_new.png")
     a = ap.parse_args()
-    build(a.new_dir, a.dataset, a.old_root, a.out)
+    build(a.new_dir, a.dataset, a.out)
 
 
 if __name__ == "__main__":

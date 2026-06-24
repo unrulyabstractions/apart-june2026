@@ -29,10 +29,11 @@ from experiment.forking.forking_plot_styles import REF, save_fig
 from src.common import BaseSchema
 from src.common.math import q_diversity
 
+# (panel title = exact metric, y-axis label, attribute on ModelSweepPoint)
 _PANELS = (
-    ("Answer variety\n(effective number of distinct answers)", "output_diversity"),
-    ("Word-choice variety", "vocab_entropy"),
-    ("Answer confidence", "label_prob"),
+    ("Diversity (exp of entropy) of answer distribution", "effective # distinct answers", "output_diversity"),
+    ("Vocab entropy", "mean vocab entropy", "vocab_entropy"),
+    ("Selected label token probability", "mean label probability", "label_prob"),
 )
 
 
@@ -149,10 +150,10 @@ def _legend(fig, points) -> None:
 def plot(points: list[ModelSweepPoint], out_path: Path) -> Path:
     """One row of 3 metric panels, all models overlaid, labelled; X = size (log)."""
     series = _series(points)
-    fig, axes = plt.subplots(1, 3, figsize=(15, 4.6))
-    for ax, (ylabel, attr) in zip(axes, _PANELS):
+    fig, axes = plt.subplots(1, 3, figsize=(16, 4.6))
+    for ax, (title, ylabel, attr) in zip(axes, _PANELS):
         _draw_panel(ax, points, series, attr, ylabel)
-        ax.set_title(ylabel.split("\n")[0], fontsize=11, fontweight="bold")
+        ax.set_title(title, fontsize=10, fontweight="bold")
     _legend(fig, points)
     fig.suptitle("Answer variety and confidence by model size", fontsize=13, fontweight="bold")
     fig.tight_layout(rect=(0, 0.05, 1, 0.97))

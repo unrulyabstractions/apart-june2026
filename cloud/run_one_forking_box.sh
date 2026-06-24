@@ -179,17 +179,17 @@ INSTANCE="$INSTANCE" bash "$HERE/sync_up.sh" 2>&1 | sed "s/^/[fork up] /"
 [ "${PIPESTATUS[0]}" -eq 0 ] || { log "FATAL: sync_up failed"; exit 5; }
 
 # ── 5b. Push the EXISTING selected_item.json (under out/, excluded by sync_up) ──
-# The collect driver reads out/sesgo/forking/<MODEL>/selected_item.json. Item
+# The collect driver reads out/forking/<MODEL>/selected_item.json. Item
 # selection is stochastic, so we reuse the locally-chosen item (idx=6, the gender
 # ambiguous item already piloted) instead of re-running selection on the box.
 log "push selected_item.json (the fixed forking item)"
 . "$HERE/_ssh_target.sh"; _resolve_ssh_target || { log "FATAL: ssh endpoint"; exit 5; }
 RSYNC_E="ssh -F /dev/null -o StrictHostKeyChecking=accept-new -i $SSH_KEY -p $SSH_PORT"
 ssh -F /dev/null -o StrictHostKeyChecking=accept-new -i "$SSH_KEY" -p "$SSH_PORT" \
-  "$SSH_USER@$SSH_HOST" "mkdir -p $REMOTE_ROOT/out/sesgo/forking/$BARE_MODEL"
+  "$SSH_USER@$SSH_HOST" "mkdir -p $REMOTE_ROOT/out/forking/$BARE_MODEL"
 rsync -ah -e "$RSYNC_E" \
-  "$REPO_ROOT/out/sesgo/forking/$BARE_MODEL/selected_item.json" \
-  "$SSH_USER@$SSH_HOST:$REMOTE_ROOT/out/sesgo/forking/$BARE_MODEL/selected_item.json"
+  "$REPO_ROOT/out/forking/$BARE_MODEL/selected_item.json" \
+  "$SSH_USER@$SSH_HOST:$REMOTE_ROOT/out/forking/$BARE_MODEL/selected_item.json"
 [ $? -eq 0 ] || { log "FATAL: selected_item.json push failed"; exit 5; }
 
 # ── 6. uv sync + cu124 torch pin + device check (reuse at_setup.sh) ──
@@ -201,13 +201,13 @@ run_on_box "bash cloud/at_setup.sh" 2>&1 | sed "s/^/[fork setup] /"
 # Pull the model on the box happens inside collect (HF from_pretrained). max-positions
 # 0 == branch EVERY base-CoT token; 768-token budgets cut unparseable rollouts.
 log "collect FULL-CoT forking rollouts ($MODEL): max-positions=0 base/cont=$BASE_MAX_NEW_TOKENS/$MAX_NEW_TOKENS n-prior=$N_PRIOR n-samples=$N_SAMPLES T=$TEMPERATURE"
-run_on_box ".venv/bin/python sesgo/forking/collect_forking_rollouts.py --model $MODEL \
+run_on_box ".venv/bin/python experiment/forking/collect_forking_rollouts.py --model $MODEL \
   --max-positions 0 --base-max-new-tokens $BASE_MAX_NEW_TOKENS --max-new-tokens $MAX_NEW_TOKENS \
   --n-prior $N_PRIOR --n-samples $N_SAMPLES --temperature $TEMPERATURE" 2>&1 | sed "s/^/[fork collect] /"
 [ "${PIPESTATUS[0]}" -eq 0 ] || { log "FATAL: collect failed"; exit 7; }
 
 # ── 8. Verify the trajectory is non-empty & FULL (>> 60) BEFORE we destroy ──
-NPOS="$(run_on_box ".venv/bin/python -c \"import json; print(len(json.load(open('out/sesgo/forking/$BARE_MODEL/forking_trajectory.json'))['positions']))\" 2>/dev/null || echo 0")"
+NPOS="$(run_on_box ".venv/bin/python -c \"import json; print(len(json.load(open('out/forking/$BARE_MODEL/forking_trajectory.json'))['positions']))\" 2>/dev/null || echo 0")"
 NPOS="$(printf '%s' "$NPOS" | tr -dc '0-9')"
 log "remote forking_trajectory.json has ${NPOS:-0} base positions (old capped run was 60)"
 if [ "${NPOS:-0}" -lt 1 ]; then
@@ -216,22 +216,22 @@ if [ "${NPOS:-0}" -lt 1 ]; then
 fi
 
 log "analyze forking dynamics"
-run_on_box ".venv/bin/python sesgo/forking/analyze_forking_dynamics.py --model $MODEL" 2>&1 | sed "s/^/[fork analyze] /"
+run_on_box ".venv/bin/python experiment/forking/analyze_forking_dynamics.py --model $MODEL" 2>&1 | sed "s/^/[fork analyze] /"
 [ "${PIPESTATUS[0]}" -eq 0 ] || { log "FATAL: analyze failed"; exit 9; }
 
 log "plot commit dynamics"
-run_on_box ".venv/bin/python sesgo/forking/plot_forking_commit_dynamics.py" 2>&1 | sed "s/^/[fork plotcommit] /"
+run_on_box ".venv/bin/python experiment/forking/plot_forking_commit_dynamics.py" 2>&1 | sed "s/^/[fork plotcommit] /"
 [ "${PIPESTATUS[0]}" -eq 0 ] || log "WARN: plot_forking_commit_dynamics returned non-zero (continuing)"
 
 log "plot forking dynamics"
-run_on_box ".venv/bin/python sesgo/forking/plot_forking_dynamics.py --model $MODEL" 2>&1 | sed "s/^/[fork plotdyn] /"
+run_on_box ".venv/bin/python experiment/forking/plot_forking_dynamics.py --model $MODEL" 2>&1 | sed "s/^/[fork plotdyn] /"
 [ "${PIPESTATUS[0]}" -eq 0 ] || log "WARN: plot_forking_dynamics returned non-zero (continuing)"
 
 # ── 9. Print the FULL-CoT report facts FROM THE BOX (before teardown) ──
 log "extracting report facts from the box"
 run_on_box ".venv/bin/python - <<'PYEOF'
 import json
-d=json.load(open('out/sesgo/forking/Qwen3-0.6B/forking_trajectory.json'))
+d=json.load(open('out/forking/Qwen3-0.6B/forking_trajectory.json'))
 pos=d['positions']
 toks=d.get('base_token_texts',[])
 base=d.get('base_path_text','')
@@ -242,7 +242,7 @@ print('REPORT_HAS_THINK_CLOSE=%s' % ('</think>' in base))
 print('REPORT_PRIOR=%s' % [round(x,3) for x in d.get('prior_histogram',[])])
 print('REPORT_FINAL=%s' % [round(x,3) for x in d.get('final_histogram',[])])
 import glob, os
-dumps=sorted(glob.glob('out/sesgo/forking/Qwen3-0.6B/forking_positions/pos_*.json'))
+dumps=sorted(glob.glob('out/forking/Qwen3-0.6B/forking_positions/pos_*.json'))
 tot=unp=0
 for f in dumps:
     e=json.load(open(f))
@@ -261,7 +261,7 @@ print('REPORT_N_DUMP_FILES=%d' % len(dumps))
 PYEOF" 2>&1 | sed "s/^/[fork report] /"
 
 # ── 10. SYNC results BACK into a DISJOINT quarantine sync/fork/ ──
-log "sync_back -> sync/fork/sesgo/forking/"
+log "sync_back -> sync/fork/forking/"
 SYNC_SUBDIR="fork" STUDIES="forking" INSTANCE="$INSTANCE" bash "$HERE/sync_back.sh" 2>&1 | sed "s/^/[fork back] /"
 [ "${PIPESTATUS[0]}" -eq 0 ] || { log "FATAL: sync_back failed (box will still be destroyed)"; exit 10; }
 

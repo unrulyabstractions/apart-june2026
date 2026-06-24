@@ -5,23 +5,24 @@
 \section{Baselines: accuracy and bias alignment across scale}
 \label{app:baselines}
 
-For the earlier models we read each answer with the \emph{non-thinking} probability
-method: the committed choice is the role (target, other, or unknown) whose option
-probability is highest, read directly from the role-ordered probability vector rather
-than mapped through option position. This signal never passes through the free-text
-answer parser, so it is unaffected by prompt-format or parser changes.
-\Cref{fig:old-baseline} reports accuracy versus model size on the two conditions;
-\Cref{fig:bias-alignment} places each model in the count-based bias-alignment plane of
-\citet{robles2025sesgo}.
+We report baseline accuracy on the full \textsc{SESGO} prompt set across the model
+sweep, reading each answer as the committed greedy-readout choice---the role the model
+actually names (\Cref{fig:new-baseline})---and place each model in the count-based
+bias-alignment plane of \citet{robles2025sesgo} (\Cref{fig:bias-alignment}). As a
+readout cross-check, the earlier models scored with the \emph{non-thinking probability}
+method---the committed choice is the role (target, other, or unknown) whose option
+probability is highest, read from the role-ordered probability vector rather than mapped
+through option position, so it never passes through the free-text parser---reproduce the
+same scale trend (\Cref{fig:old-baseline}).
 
-\plotfig{figures/old_baseline_accuracy_vs_size.png}{old_baseline_accuracy_vs_size.png}{0.96\linewidth}{%
-  \textbf{Baseline accuracy vs.\ model size} (non-thinking probability readout,
-  $12$ open-weight models, Wilson $95\%$ CIs; the committed choice is read from the
-  role-ordered option probabilities for target, other, and unknown, not mapped through
-  option position). \emph{Left}: on \emph{ambiguous} items (gold $=$ \emph{unknown}) the
-  abstention rate rises with scale toward ${\approx}0.95$ for the largest models.
-  \emph{Right}: on \emph{disambiguated} items accuracy sits in the $0.4$--$0.75$ band and
-  rises modestly with scale.}{fig:old-baseline}
+\plotfig{figures/new_baseline_accuracy_vs_size.png}{new_baseline_accuracy_vs_size.png}{0.99\linewidth}{%
+  \textbf{Baseline accuracy vs.\ model size} (committed greedy-readout choice, full
+  prompt set, $17$ model/mode slices, Wilson $95\%$ CIs, $n$ annotated per point; thin
+  lines join each family in size order; filled triangles thinking, open circles
+  non-thinking). \emph{Left}: ambiguous accuracy (abstain rate) climbs steeply with
+  scale within every family, with \texttt{Qwen3.5} rising from $0$ at $0.8$B to $1.0$ at
+  $27$B. \emph{Right}: disambiguated accuracy (pick the gold group) sits in the
+  $0.2$--$0.93$ range. Several slices are partial where the sweep was incomplete.}{fig:new-baseline}
 
 \plotfig{figures/fig3_bias_alignment_accuracy.png}{fig3_bias_alignment_accuracy.png}{0.99\linewidth}{%
   \textbf{Bias alignment vs.\ accuracy}, count-based $F(\text{Target})/F(\text{Other})$
@@ -31,27 +32,26 @@ answer parser, so it is unaffected by prompt-format or parser changes.
   $F(\text{other})\!\leftrightarrow\!F(\text{target})$ axis; whiskers are Wilson $95\%$
   CIs. Larger models sit higher (more accurate) and narrower (less wording bias).}{fig:bias-alignment}
 
-\plotfig{figures/new_baseline_accuracy_vs_size.png}{new_baseline_accuracy_vs_size.png}{0.99\linewidth}{%
-  \textbf{Baseline accuracy across the full new sweep}: the committed greedy-readout
-  choice (not the probability method of \Cref{fig:old-baseline}), $17$ model/mode
-  slices, Wilson $95\%$ CIs, $n$ annotated per point; filled triangles are thinking
-  modes, open circles non-thinking. \emph{Left}: ambiguous accuracy (abstain rate)
-  climbs steeply with scale within every family, with \texttt{Qwen3.5} rising from $0$ at
-  $0.8$B to $1.0$ at $27$B. \emph{Right}: disambiguated accuracy (pick the gold group)
-  sits in the $0.2$--$0.93$ range. Several slices are partial where the sweep was
-  incomplete.}{fig:new-baseline}
+\plotfig{figures/old_baseline_accuracy_vs_size.png}{old_baseline_accuracy_vs_size.png}{0.96\linewidth}{%
+  \textbf{Readout cross-check on the earlier models} (non-thinking probability readout,
+  $12$ open-weight models, Wilson $95\%$ CIs; the committed choice is read from the
+  role-ordered option probabilities for target, other, and unknown, not mapped through
+  option position). \emph{Left}: on \emph{ambiguous} items (gold $=$ \emph{unknown}) the
+  abstention rate rises with scale toward ${\approx}0.95$ for the largest models.
+  \emph{Right}: on \emph{disambiguated} items accuracy sits in the $0.4$--$0.75$ band and
+  rises modestly with scale---the same scaling seen in \Cref{fig:new-baseline}.}{fig:old-baseline}
 
 \section{Format invariance}
 \label{app:format-invariance}
 
 Format invariance is reported in the main text along two separable axes.
-\Cref{fig:results-stability} plots, for both the earlier stability models and the new
-sweep, the fraction of items whose committed answer is unchanged when the option
-\emph{positions} are swapped (order stability) and when the \texttt{a)b)c)}
-\emph{labels} are swapped (label stability). Both axes rise with scale across families:
-the smallest models change their answer on a large share of cosmetic edits, while the
-largest (\texttt{Qwen3-32B}, \texttt{Llama-3.1-70B}) reach ${\approx}1.0$ on both. For
-several mid-size models a label swap is more disruptive than a position swap.
+\Cref{fig:results-stability} plots, across the greedy-readout sweep, the fraction of
+items whose committed answer is unchanged when the option \emph{positions} are swapped
+(order stability) and when the \texttt{a)b)c)} \emph{labels} are swapped (label
+stability). Both axes rise with scale across families: the smallest models change their
+answer on a large share of cosmetic edits, while the largest model
+(\texttt{Qwen3.5-27B}) reaches ${\approx}0.98$ on both. For several mid-size models a
+label swap is more disruptive than a position swap.
 
 \section{Forced forking}
 \label{app:forced-forking}

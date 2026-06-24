@@ -8,7 +8,7 @@ helpers give every collect script the SAME behaviour:
     model write to DISJOINT paths and can never clobber each other on sync-back.
 
 K == 1 (the default for small models) is a no-op: the full grid, the plain
-``out/sesgo/<study>/<bare-model>/`` path — exactly the pre-sharding layout.
+``out/<study>/<bare-model>/`` path — exactly the pre-sharding layout.
 """
 
 from __future__ import annotations
@@ -41,10 +41,10 @@ def shard_out_dir(
 ) -> Path:
     """Per-(model, shard) output dir; disjoint across concurrent boxes.
 
-    ``out/sesgo/<study>/<bare-model>/`` for a single shard, with a
+    ``out/<study>/<bare-model>/`` for a single shard, with a
     ``shard_<k>_of_<K>/`` leaf appended when K > 1 so shard boxes never collide.
     """
-    root = base_out / "sesgo" / study / bare_model
+    root = base_out / study / bare_model
     if shard_count <= 1:
         return root
     return root / f"shard_{shard_index}_of_{shard_count}"

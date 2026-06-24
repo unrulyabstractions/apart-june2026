@@ -51,12 +51,12 @@ token most diverts the final outcome.
 answer fixed: \emph{order} stability (the answer is unchanged when the target and other
 options swap positions) and \emph{label} stability (the answer is unchanged when the
 \texttt{a)b)c)} labels become \texttt{x)y)z)}). Both rise with scale across every
-family, and the largest models (\texttt{Qwen3-32B}, \texttt{Llama-3.1-70B}) reach
-${\approx}1.0$ (\Cref{fig:results-stability}). The two axes can diverge: for several
+family, and the largest model in the sweep (\texttt{Qwen3.5-27B}) reaches
+${\approx}0.98$ on both (\Cref{fig:results-stability}). The two axes can diverge: for several
 mid-size models a label swap is far more disruptive than a position swap (e.g.\
-\texttt{Mistral 8B}, order $0.85$ vs.\ label $0.27$), so cosmetic relabelling alone can
+\texttt{Mistral 3 8B}, order $0.85$ vs.\ label $0.27$), so cosmetic relabelling alone can
 flip a model's answer.\\
-\textit{Limitation.} Coverage is partial on the largest slices (small $n$, annotated).\\
+\textit{Limitation.} Coverage is partial on the largest slices (small $n$).\\
 \textit{Notes.} This implies the other studies should filter for unstable answers.
 
-\plotfig{figures/combined_invariance_old_new.png}{combined_invariance_old_new.png}{0.92\linewidth}{\textbf{Smaller models do not answer consistently.} Fraction of items whose committed answer is unchanged when the option \emph{positions} are swapped (left, order stability) and when the \texttt{a)b)c)} \emph{labels} are swapped (right, label stability), plotted vs.\ model size for both the earlier stability models (filled squares, probability readout) and the new sweep (open circles non-thinking, filled triangles thinking; greedy-readout choice), Wilson $95\%$ CIs, $n$ items annotated. Both axes rise with scale across families and the largest models reach ${\approx}1.0$. For several mid-size models a label swap is far more disruptive than a position swap.}{fig:results-stability}
+\plotfig{figures/combined_invariance_old_new.png}{combined_invariance_old_new.png}{0.99\linewidth}{\textbf{Smaller models do not answer consistently.} Fraction of items whose committed greedy-readout answer is unchanged when the option \emph{positions} are swapped (left, order stability) and when the \texttt{a)b)c)} \emph{labels} are swapped (right, label stability), plotted vs.\ model size across the sweep (open circles non-thinking, filled triangles thinking), Wilson $95\%$ CIs; every model is named and a thin line joins each family in size order. Both axes rise with scale across families and the largest model reaches ${\approx}0.98$. For several mid-size models a label swap is far more disruptive than a position swap (e.g.\ \texttt{Mistral 3 8B}, order $0.85$ vs.\ label $0.27$).}{fig:results-stability}

@@ -38,10 +38,14 @@ MIN_RELIABILITY="${MIN_RELIABILITY:-0.985}"
 N_PRIOR="${N_PRIOR:-50}"
 MAX_NEW_TOKENS="${MAX_NEW_TOKENS:-768}"
 TEMPERATURE="${TEMPERATURE:-1.0}"
-HF_GEN_MICRO_BATCH="${HF_GEN_MICRO_BATCH:-24}"
+HF_GEN_MICRO_BATCH="${HF_GEN_MICRO_BATCH:-48}"
+# PILOT cost knob: fork only every k-th base-path position (composed with sharding).
+# stride 2 ~halves the dominant positions*alternates*n_samples cost on big models;
+# set POSITION_STRIDE=1 for a full-resolution O_t trajectory.
+POSITION_STRIDE="${POSITION_STRIDE:-2}"
 
-OUT_DIR_REL="out/sesgo/forking/$BARE_MODEL"
-LOCAL_ARTIFACTS="$REPO_ROOT/sync/forkbase/sesgo/forking/$BARE_MODEL"
+OUT_DIR_REL="out/forking/$BARE_MODEL"
+LOCAL_ARTIFACTS="$REPO_ROOT/sync/forkbase/forking/$BARE_MODEL"
 IID_FILE="$HERE/.forkshard_${SHARD_INDEX}.iid"
 INSTANCE=""
 
@@ -180,10 +184,10 @@ rsync -ah -e "$RSYNC_E" \
 [ "${PIPESTATUS[0]}" -eq 0 ] || { log "FATAL: artifact push failed"; exit 7; }
 
 # ── 7. FORK this shard's position slice (detached + polled) ──
-log "fork shard $SHARD_INDEX/$NUM_SHARDS ($MODEL): max-new-tokens=$MAX_NEW_TOKENS n-prior=$N_PRIOR T=$TEMPERATURE micro-batch=$HF_GEN_MICRO_BATCH"
+log "fork shard $SHARD_INDEX/$NUM_SHARDS ($MODEL): max-new-tokens=$MAX_NEW_TOKENS n-prior=$N_PRIOR T=$TEMPERATURE micro-batch=$HF_GEN_MICRO_BATCH stride=$POSITION_STRIDE"
 run_detached_and_wait collect \
-  "HF_GEN_MICRO_BATCH=$HF_GEN_MICRO_BATCH .venv/bin/python sesgo/forking/collect_forking_shard.py --model $MODEL \
-     --shard-index $SHARD_INDEX --num-shards $NUM_SHARDS \
+  "HF_GEN_MICRO_BATCH=$HF_GEN_MICRO_BATCH .venv/bin/python experiment/forking/collect_forking_shard.py --model $MODEL \
+     --shard-index $SHARD_INDEX --num-shards $NUM_SHARDS --position-stride $POSITION_STRIDE \
      --n-prior $N_PRIOR --max-new-tokens $MAX_NEW_TOKENS --temperature $TEMPERATURE"
 [ $? -eq 0 ] || { log "FATAL: shard collect failed"; exit 8; }
 
@@ -195,7 +199,7 @@ log "remote $SHARD_FILE has ${NPOS:-0} positions"
 [ "${NPOS:-0}" -ge 1 ] || { log "FATAL: empty/missing shard file -- aborting"; exit 9; }
 
 # ── 9. SYNC the shard file BACK into a DISJOINT quarantine sync/forkshards/shard_<k>/ ──
-log "sync_back -> sync/forkshards/shard_$SHARD_INDEX/sesgo/forking/"
+log "sync_back -> sync/forkshards/shard_$SHARD_INDEX/forking/"
 SYNC_SUBDIR="forkshards/shard_$SHARD_INDEX" STUDIES="forking" INSTANCE="$INSTANCE" \
   bash "$HERE/sync_back.sh" 2>&1 | sed "s/^/[forkshard$SHARD_INDEX back] /"
 [ "${PIPESTATUS[0]}" -eq 0 ] || { log "FATAL: sync_back failed"; exit 10; }

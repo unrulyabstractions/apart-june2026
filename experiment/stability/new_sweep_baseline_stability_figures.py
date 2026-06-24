@@ -79,6 +79,17 @@ def _scatter(ax, x, succ, n, color, marker, label=None, alpha=1.0, ms=8):
     ax.errorbar(x, p, yerr=yerr, fmt=marker, color=color, mfc=(color if marker != "o" else "white"),
                 mec=color, ms=ms, capsize=3, alpha=alpha, label=label, mew=1.5, zorder=3)
     ax.annotate(f"{n}", (x, p), textcoords="offset points", xytext=(6, 6), fontsize=6, alpha=0.8)
+    return p
+
+
+def _trend(ax, series: dict) -> None:
+    """Join each (family, marker) series in size order with a thin family-coloured line,
+    matching the stability and forced-fork size-sweep figures (a lone point stays a marker)."""
+    for (color, _marker), pts in series.items():
+        pts.sort(key=lambda q: q[0])
+        if len(pts) >= 2:
+            ax.plot([q[0] for q in pts], [q[1] for q in pts], "-", color=color, lw=0.9,
+                    alpha=0.5, zorder=1)
 
 
 def build(stability_dir: Path, dataset: Path, out_dir: Path) -> None:
@@ -88,6 +99,7 @@ def build(stability_dir: Path, dataset: Path, out_dir: Path) -> None:
     fig1, ax1 = plt.subplots(1, 2, figsize=(13, 5.5), sharey=True)
     fig2, ax2 = plt.subplots(figsize=(9, 6))
     acc_tbl, inv_tbl = [], []
+    acc_series = ({}, {})  # one (family,marker)->[(size,p)] map per panel, for trend lines
     for name in slices:
         sm = parse_model(name)
         if sm is None:
@@ -100,7 +112,8 @@ def build(stability_dir: Path, dataset: Path, out_dir: Path) -> None:
         for j, panel in enumerate(("ambig", "disambig")):
             succ, n = _accuracy_count([r for r in rows if r.context == panel], panel)
             if n:
-                _scatter(ax1[j], sm.size_b, succ, n, color, marker)
+                p = _scatter(ax1[j], sm.size_b, succ, n, color, marker)
+                acc_series[j].setdefault((color, marker), []).append((sm.size_b, p))
                 acc_tbl.append((sm.name, panel, succ, n, succ / n))
         iv = _invariance(samples, meta)
         if iv["n"]:
@@ -110,6 +123,7 @@ def build(stability_dir: Path, dataset: Path, out_dir: Path) -> None:
             inv_tbl.append((sm.name, iv["n"], iv["inv"] / iv["n"], iv["order"] / iv["n"], iv["label"] / iv["n"]))
 
     for j, panel in enumerate(("Ambiguous questions (correct = abstains)", "Clear questions (correct = picks right group)")):
+        _trend(ax1[j], acc_series[j])
         ax1[j].set_xscale("log"); ax1[j].set_title(panel); ax1[j].set_xlabel("Model size (billion parameters)")
         ax1[j].grid(True, which="both", alpha=0.25); ax1[j].set_ylim(-0.02, 1.02)
     ax1[0].set_ylabel("Accuracy")
