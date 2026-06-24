@@ -51,9 +51,10 @@ benchmark, where an item is \emph{ambiguous} when its text names no specific per
 correct answer is \emph{unknown}, abstain) and \emph{disambiguated} when it specifies a
 group. We report two preliminary findings. First, smaller models are more biased: across
 a sweep of open-weight models, abstention accuracy rises with scale and the error split toward the
-marginalized group narrows. Second, scale lowers uncertainty: forking the chain of
-thought, the larger \texttt{Qwen3-14B} commits its answer at a single decisive token
-while the smaller \texttt{Qwen3-0.6B} accretes it gradually. These results give future
+marginalized group narrows. Second, reasoning commits at one token: forking the chain of
+thought of the thinking models on a bias-revealing item, every model from $0.8$B to $9$B
+resolves its answer at a single decisive forking token (change-point Bayes factor
+${\approx}10^{9}$), a concrete locus for inspection or intervention. These results give future
 LATAM-context interventions, including the debiasing prompt scaffolds we leave to future
 work, a map of where bias lives, and we release the evaluation harness.
 \end{abstract}

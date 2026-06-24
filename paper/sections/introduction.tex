@@ -32,9 +32,10 @@ Qwen, Llama, and Mistral families.
 \emph{Smaller models are more biased:} abstention accuracy on ambiguous items rises with
 scale while the error split toward the marginalized group narrows.
 \emph{Smaller models answer less consistently:} the small model in each family flips its
-answer under cosmetic reformatting while the large model does not. \emph{Scale lowers
-uncertainty:} forking the chain of thought, the larger model commits its answer at a
-single decisive token while the smaller model accretes it gradually. We stress that
+answer under cosmetic reformatting while the large model does not. \emph{Reasoning commits
+at one token:} forking the chain of thought of the thinking models, every model from
+$0.8$B to $9$B resolves its answer at a single decisive forking token (change-point Bayes
+factor ${\approx}10^{9}$). We stress that
 these are preliminary, mostly single-model results, offered as a foundation rather than
 a conclusion.
 
