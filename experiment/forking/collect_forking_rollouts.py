@@ -30,8 +30,8 @@ from src.common.file_io import save_json_atomic  # noqa: E402
 from src.common.logging import log, log_header  # noqa: E402
 from src.common.profiler import P  # noqa: E402
 from src.dynamics.forking_paths import capture_forking_trajectory  # noqa: E402
+from src.inference import ModelRunner  # noqa: E402
 from src.inference.backends import ModelBackend  # noqa: E402
-from src.ternary_choice import TernaryChoiceRunner  # noqa: E402
 
 from experiment.forking.forking_item_io import load_selected_sample  # noqa: E402
 
@@ -47,6 +47,7 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--base-max-new-tokens", type=int, default=512, help="tokens for the greedy base path decode")
     p.add_argument("--max-positions", type=int, default=0, help="cap on branched base-path positions (0 = all; local-pilot knob)")
     p.add_argument("--position-stride", type=int, default=1, help="fork only every k-th position (>=1; last always kept) — pilot cost knob")
+    p.add_argument("--thinking", action="store_true", help="decode the base path + prior in THINKING mode (enable_thinking for Qwen3.5 etc.)")
     p.add_argument("--temperature", type=float, default=1.0)
     p.add_argument("--out-dir", type=Path, default=Path("out"))
     # Output subdir suffix selecting the scaffold/baseline condition (default: none).
@@ -70,7 +71,9 @@ def main() -> None:
     # forking_trajectory position for unparseable / outcome audits.
     dump_dir = out_dir / "forking_positions"
 
-    runner = TernaryChoiceRunner(model_name=args.model, backend=ModelBackend.HUGGINGFACE)
+    runner = ModelRunner(model_name=args.model, backend=ModelBackend.HUGGINGFACE)
+    runner.force_thinking = args.thinking  # enable_thinking for the base-path decode + prior
+    log(f"[collect] thinking={args.thinking} reasoning_model={runner.is_reasoning_model}")
     with P("capture_forking_trajectory"):
         traj = capture_forking_trajectory(
             runner, sample, outcome_set,

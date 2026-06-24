@@ -21,7 +21,6 @@ from pathlib import Path
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[2]))
 
-from experiment.scaffolds import get_scaffolds  # noqa: E402
 from experiment.shard_output_paths import shard_out_dir  # noqa: E402
 from src.common.file_io import save_json_atomic  # noqa: E402
 from src.common.logging import log, log_header, log_section  # noqa: E402
@@ -38,7 +37,7 @@ from src.dynamics.forking_paths import (  # noqa: E402
     pilot_item_entropy,
     rank_items_by_entropy,
 )
-from src.ternary_choice import TernaryChoiceRunner  # noqa: E402
+from src.inference import ModelRunner  # noqa: E402
 from src.inference.backends import ModelBackend  # noqa: E402
 
 from experiment.forking.forking_item_io import selected_item_to_dict  # noqa: E402
@@ -60,6 +59,7 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--n-pilot", type=int, default=12, help="pilot decodes per item")
     p.add_argument("--max-items", type=int, default=10, help="candidate items to pilot")
     p.add_argument("--max-new-tokens", type=int, default=256)
+    p.add_argument("--thinking", action="store_true", help="pilot decodes in THINKING mode (enable_thinking for Qwen3.5 etc.)")
     p.add_argument("--temperature", type=float, default=1.0)
     p.add_argument("--out-dir", type=Path, default=Path("out"))
     # Debiasing-scaffold condition: prepend this scaffold's preamble to the prompt
@@ -71,6 +71,12 @@ def parse_args() -> argparse.Namespace:
     # Suffix the bare-model output subdir so conditions write disjoint paths.
     p.add_argument("--run-tag", default="", help="output subdir suffix (default: none)")
     return p.parse_args()
+
+
+def get_scaffolds() -> list[Scaffold]:
+    """Registered debiasing scaffolds. None are bundled yet (scaffolds are future work);
+    `--scaffold ""` is the only supported value until a registry is added."""
+    return []
 
 
 def _resolve_scaffold(scaffold_id: str) -> Scaffold | None:
@@ -115,7 +121,8 @@ def _select_chosen(args, prompts, scaffold, outcome_set):
 
     candidates = prompts[: args.max_items]
     log(f"[select] piloting {len(candidates)} ambiguous prompts x {args.n_pilot} decodes")
-    runner = TernaryChoiceRunner(model_name=args.model, backend=ModelBackend.HUGGINGFACE)
+    runner = ModelRunner(model_name=args.model, backend=ModelBackend.HUGGINGFACE)
+    runner.force_thinking = getattr(args, "thinking", False)  # pilot decodes in the chosen mode
     scored = [
         pilot_item_entropy(runner, s, outcome_set, args.n_pilot, args.max_new_tokens, args.temperature)
         for s in candidates

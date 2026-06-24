@@ -1191,13 +1191,15 @@ class ModelRunner:
         if hasattr(tokenizer, "apply_chat_template") and getattr(tokenizer, "chat_template", None):
             # print(f"apply_chat_template: True for {self.model_name}")
             # Some models (e.g., Qwen 3.5) use enable_thinking parameter,
-            # while others (e.g., Qwen 3) use prefix-based soft switch
+            # while others (e.g., Qwen 3) use prefix-based soft switch.
+            # `force_thinking` (set by callers that want the reasoning trace, e.g. the
+            # forking pipeline) flips enable_thinking back on for these families.
             if self._disables_thinking_via_template:
                 return tokenizer.apply_chat_template(
                     [{"role": "user", "content": prompt}],
                     tokenize=False,
                     add_generation_prompt=True,
-                    enable_thinking=False,
+                    enable_thinking=getattr(self, "force_thinking", False),
                 )
             return tokenizer.apply_chat_template(
                 [{"role": "user", "content": prompt}],

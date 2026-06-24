@@ -30,8 +30,8 @@ from src.dynamics.forking_paths import (  # noqa: E402
     branch_plan_to_serialized,
     build_branch_plan,
 )
+from src.inference import ModelRunner  # noqa: E402
 from src.inference.backends import ModelBackend  # noqa: E402
-from src.ternary_choice import TernaryChoiceRunner  # noqa: E402
 
 from experiment.forking.forking_item_io import load_selected_sample  # noqa: E402
 
@@ -43,6 +43,7 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--n-samples", type=int, default=50, help="per-(t,w) continuation budget recorded in the plan")
     p.add_argument("--near-window", type=int, default=0, help="+50%% samples within this radius of the peak-entropy token")
     p.add_argument("--base-max-new-tokens", type=int, default=768, help="tokens for the greedy base path decode")
+    p.add_argument("--thinking", action="store_true", help="decode the base path in THINKING mode (enable_thinking for Qwen3.5 etc.)")
     p.add_argument("--out-dir", type=Path, default=Path("out"))
     return p.parse_args()
 
@@ -56,7 +57,9 @@ def main() -> None:
     sample, _outcome_set = load_selected_sample(out_dir / "selected_item.json")
     log(f"[base] item idx={sample.sample_idx} q={sample.question_id[:12]}")
 
-    runner = TernaryChoiceRunner(model_name=args.model, backend=ModelBackend.HUGGINGFACE)
+    runner = ModelRunner(model_name=args.model, backend=ModelBackend.HUGGINGFACE)
+    runner.force_thinking = args.thinking  # enable_thinking for the base-path decode
+    log(f"[base] thinking={args.thinking} reasoning_model={runner.is_reasoning_model}")
     with P("build_branch_plan"):
         plan = build_branch_plan(
             runner, sample, args.near_window, args.n_samples,

@@ -35,8 +35,8 @@ from src.dynamics.forking_paths import (  # noqa: E402
     serialized_to_branch_plan,
     strided_positions,
 )
+from src.inference import ModelRunner  # noqa: E402
 from src.inference.backends import ModelBackend  # noqa: E402
-from src.ternary_choice import TernaryChoiceRunner  # noqa: E402
 
 from experiment.forking.forking_item_io import load_selected_sample  # noqa: E402
 
@@ -50,6 +50,7 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--n-prior", type=int, default=50, help="full-resample draws for o_0 (shard 0 only)")
     p.add_argument("--max-new-tokens", type=int, default=768, help="tokens per continuation rollout")
     p.add_argument("--position-stride", type=int, default=1, help="fork only every k-th position (>=1; composed with sharding) — pilot cost knob")
+    p.add_argument("--thinking", action="store_true", help="decode prior in THINKING mode (enable_thinking for Qwen3.5 etc.)")
     p.add_argument("--temperature", type=float, default=1.0)
     p.add_argument("--out-dir", type=Path, default=Path("out"))
     return p.parse_args()
@@ -76,7 +77,8 @@ def main() -> None:
     log(f"[shard{k}] {len(position_indices)}/{n_positions} positions "
         f"(stride={args.position_stride}): {position_indices[:8]}...")
 
-    runner = TernaryChoiceRunner(model_name=args.model, backend=ModelBackend.HUGGINGFACE)
+    runner = ModelRunner(model_name=args.model, backend=ModelBackend.HUGGINGFACE)
+    runner.force_thinking = args.thinking  # enable_thinking for the prior decode (base path is pre-decoded)
     dump_dir = out_dir / f"forking_positions_shard_{k}_of_{n}"
     with P(f"fork_shard_{k}"):
         positions = fork_plan_positions(
