@@ -67,6 +67,7 @@ echo "[sync_up] code  $REPO_ROOT/  ->  $SSH_HOST:$REMOTE_ROOT/"
 # which silently breaks `import src.datasets` on the box.
 rsync_retry \
   --exclude='/out/'             \
+  --exclude='/old/'             \
   --exclude='/datasets/'        \
   --exclude='/sync/'            \
   --exclude='/data/'            \
