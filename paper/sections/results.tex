@@ -43,6 +43,28 @@ final outcome; the right panel is the survival curve and change-point posterior 
   the forking tokens), and the survival curve $+$ change-point posterior (right). Every model
   commits at a single token (Bayes factor ${\approx}10^{9}$) onto the \emph{other} group.}{fig:forking-grid}
 
+\paragraph{Sampled vs.\ immediate-forced answer.}
+\textit{Evidence.} The forking $O_t$ is what the model would \emph{sample} if it kept
+reasoning; we also read, at each token, the answer it would give \emph{immediately} if
+forced to commit now --- the normalized next-token distribution over the three option
+labels (the \textsc{SESGO} non-thinking readout, reconstructed at the answer position).
+\Cref{fig:forced-vs-sampled} compares the two per token position across scale:
+$\mathrm{KL}(O_t \,\|\, \text{forced})$ spikes around the forking token, where the sampled
+outcome and the snap decision disagree most; the immediate forced answer abstains (picks
+\emph{unknown}) only rarely; and the next-token vocabulary entropy tracks the model's local
+uncertainty along the chain of thought.\\
+\textit{Limitation.} A single item; the forced readout reconstructs the non-thinking
+probability method, validated against the sampled outcome at the committed token.
+
+\plotfig{figures/forced_vs_sampled.png}{forced_vs_sampled.png}{0.92\linewidth}{%
+  \textbf{Sampled vs.\ immediate-forced answer along the chain of thought} (Qwen3.5 thinking
+  models, racismo item; one line per model, size-coloured). Per token position (as a fraction
+  of the chain of thought): \emph{top}, $\mathrm{KL}(O_t \,\|\, \text{forced})$ between the
+  sampled forking outcome distribution and the immediate forced-answer distribution over
+  target / other / unknown; \emph{middle}, the immediate forced probability of abstaining
+  (\emph{unknown}); \emph{bottom}, the next-token vocabulary entropy of the forced
+  answer.}{fig:forced-vs-sampled}
+
 \paragraph{Smaller models do not answer consistently.}
 \textit{Evidence.} We measure consistency along two separable axes, holding the gold
 answer fixed: \emph{order} stability (the answer is unchanged when the target and other
