@@ -86,9 +86,14 @@ SELECT_MAX_ITEMS="${SELECT_MAX_ITEMS:-10}"
 SELECT_SCAFFOLD="${SELECT_SCAFFOLD:-}"
 SELECT_FORCE_QID="${SELECT_FORCE_QID:-}"
 RUN_TAG="${RUN_TAG:-}"
+# THINKING=1 decodes the base path + prior in reasoning mode (enable_thinking for
+# Qwen3.5-family). Required when forking a *-thinking model so the captured base
+# path is the chain of thought, not the suppressed-thinking answer.
+THINKING="${THINKING:-}"
 # Build the optional select-only flags (only appended when their env is set).
 SCAFFOLD_FLAG=""; [ -n "$SELECT_SCAFFOLD" ] && SCAFFOLD_FLAG="--scaffold $SELECT_SCAFFOLD"
 FORCE_QID_FLAG=""; [ -n "$SELECT_FORCE_QID" ] && FORCE_QID_FLAG="--force-question-id $SELECT_FORCE_QID"
+THINKING_FLAG=""; [ -n "$THINKING" ] && THINKING_FLAG="--thinking"
 # RUN_TAG is ALWAYS passed (empty suffix == current path) to every stage. The
 # --run-tag=VALUE form (not a space) is REQUIRED because a leading '-' suffix (e.g.
 # "-interpretive_direction") would otherwise be mis-parsed by argparse as a flag.
@@ -277,7 +282,7 @@ run_on_box ".venv/bin/python experiment/forking/select_forking_item.py --model $
   --sesgo-dir $SELECT_SESGO_DIR \
   --categories $SELECT_CATEGORIES --languages $SELECT_LANGUAGES \
   --n-pilot $SELECT_N_PILOT --max-items $SELECT_MAX_ITEMS \
-  $SCAFFOLD_FLAG $FORCE_QID_FLAG $RUN_TAG_FLAG" 2>&1 | sed "s/^/[fork32 select] /"
+  $SCAFFOLD_FLAG $FORCE_QID_FLAG $THINKING_FLAG $RUN_TAG_FLAG" 2>&1 | sed "s/^/[fork32 select] /"
 [ "${PIPESTATUS[0]}" -eq 0 ] || { log "FATAL: select failed"; exit 7; }
 
 # ── 7b. COLLECT the FULL-CoT forking rollouts (HF batched, all positions) ──
@@ -287,7 +292,7 @@ log "collect FULL-CoT forking rollouts ($MODEL): max-positions=0 base/cont=$BASE
 run_detached_and_wait collect \
   "HF_GEN_MICRO_BATCH=$HF_GEN_MICRO_BATCH .venv/bin/python experiment/forking/collect_forking_rollouts.py --model $MODEL \
      --max-positions 0 --base-max-new-tokens $BASE_MAX_NEW_TOKENS --max-new-tokens $MAX_NEW_TOKENS \
-     --n-prior $N_PRIOR --n-samples $N_SAMPLES --temperature $TEMPERATURE $RUN_TAG_FLAG"
+     --n-prior $N_PRIOR --n-samples $N_SAMPLES --temperature $TEMPERATURE $THINKING_FLAG $RUN_TAG_FLAG"
 [ $? -eq 0 ] || { log "FATAL: collect failed"; exit 8; }
 
 # The out subdir is suffixed by RUN_TAG (empty == current path); every below

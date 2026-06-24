@@ -80,7 +80,7 @@ def capture_forking_trajectory(
     # committed-answer histogram is present).
     positions: list[ForkPosition] = fork_plan_positions(
         runner, plan, sample, outcome_set,
-        _strided_positions(len(plan.rows_per_position), position_stride),
+        strided_positions(len(plan.rows_per_position), position_stride),
         max_new_tokens, temperature, dump_dir=dump_dir,
     )
 
