@@ -26,9 +26,11 @@ from experiment.common.sweep_models import FAMILY_COLOR, FAMILY_ORDER, parse_mod
 
 
 def _shade(base_hex: str, frac: float) -> str:
-    """Blend white->base by frac (small model light, large model dark)."""
+    """Darken the family base by size (small = the lighter tint, large = full colour).
+    Floor the blend high so even the smallest model's label/segment stays readable
+    (the old 0.35 floor washed small models out to near-white)."""
     base = mcolors.to_rgb(base_hex)
-    w = 0.35 + 0.65 * max(0.0, min(1.0, frac))
+    w = 0.66 + 0.34 * max(0.0, min(1.0, frac))
     return mcolors.to_hex(tuple(1 - w + w * b for b in base))
 
 
