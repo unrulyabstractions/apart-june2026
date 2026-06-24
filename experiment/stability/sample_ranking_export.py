@@ -1,6 +1,6 @@
-"""Write a per-model ``ranking.json`` into each ``out/stability/<model>/`` dir: the
-top-N samples by PERFORMANCE in each of the four context x polarity cells
-(ambiguous/disambiguated x neutral/negative).
+"""Write per-model ``best.json`` and ``worst.json`` into each ``out/stability/<model>/``
+dir: the top-N (best) and bottom-N (worst) samples by PERFORMANCE in each of the four
+context x polarity cells (ambiguous/disambiguated x neutral/negative).
 
 Performance of one sample = its committed-answer confidence signed by correctness:
 ``label_prob`` when the answer is correct (the gold role: ``unknown`` on ambiguous items,
@@ -17,7 +17,7 @@ from __future__ import annotations
 
 import argparse
 import json
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 
 from src.common import BaseSchema
@@ -53,9 +53,10 @@ class RankingEntry(BaseSchema):
 
 @dataclass
 class ModelRanking(BaseSchema):
-    """Top-N samples by performance for one model, split into the four cells."""
+    """Best- or worst-N samples by performance for one model, split into the four cells."""
 
     model: str
+    kind: str             # "best" (top-N) or "worst" (bottom-N)
     top_n: int
     ambiguous_neutral: list[RankingEntry]
     ambiguous_negative: list[RankingEntry]
@@ -72,8 +73,14 @@ def _excerpt(text: str, n: int = 200) -> str:
     return " ".join(text.split())[:n]
 
 
-def build_ranking(model_dir: Path, meta: dict) -> ModelRanking:
-    """Rank each cell's samples by performance and keep the top-N per cell."""
+def _rank_cell(scored: list[tuple[float, RankingEntry]], worst: bool) -> list[RankingEntry]:
+    """Top-N (best) or bottom-N (worst) of one cell, re-ranked 1..N from that end."""
+    ordered = sorted(scored, key=lambda t: t[0], reverse=not worst)[:TOP_N]
+    return [replace(e, rank=i) for i, (_, e) in enumerate(ordered, 1)]
+
+
+def build_rankings(model_dir: Path, meta: dict) -> tuple[ModelRanking, ModelRanking]:
+    """Best (top-N) and worst (bottom-N) per-cell rankings for one model."""
     samples = json.load((model_dir / "response_samples.json").open())["samples"]
     by_pid = {s["prompt_id"]: s for s in samples}
     cells: dict[str, list[tuple[float, RankingEntry]]] = {f: [] for f in _CELL.values()}
@@ -89,13 +96,11 @@ def build_ranking(model_dir: Path, meta: dict) -> ModelRanking:
             label_prob=r.label_prob, vocab_diversity=r.vocab_diversity, performance=perf,
             prompt_excerpt=_excerpt(s["prompt_text"]),
         )))
-    ranked = {}
-    for field, scored in cells.items():
-        top = [e for _, e in sorted(scored, key=lambda t: t[0], reverse=True)[:TOP_N]]
-        for i, e in enumerate(top, 1):
-            e.rank = i
-        ranked[field] = top
-    return ModelRanking(model=model_dir.name, top_n=TOP_N, **ranked)
+    best = ModelRanking(model=model_dir.name, kind="best", top_n=TOP_N,
+                        **{f: _rank_cell(cells[f], worst=False) for f in _CELL.values()})
+    worst = ModelRanking(model=model_dir.name, kind="worst", top_n=TOP_N,
+                         **{f: _rank_cell(cells[f], worst=True) for f in _CELL.values()})
+    return best, worst
 
 
 def main() -> None:
@@ -107,13 +112,12 @@ def main() -> None:
     dirs = sorted(d for d in a.stability_dir.iterdir()
                   if (d / "response_samples.json").exists())
     for d in dirs:
-        ranking = build_ranking(d, meta)
-        out = d / "ranking.json"
-        out.write_text(json.dumps(ranking.to_dict(), indent=2, ensure_ascii=False))
-        counts = " ".join(f"{f.split('_')[0][:5]}/{f.split('_')[1][:3]}={len(getattr(ranking, f))}"
-                          for f in _CELL.values())
-        print(f"[ranking] {d.name:36s} -> {out.name}  ({counts})")
-    print(f"[ranking] wrote ranking.json for {len(dirs)} models")
+        best, worst = build_rankings(d, meta)
+        (d / "best.json").write_text(json.dumps(best.to_dict(), indent=2, ensure_ascii=False))
+        (d / "worst.json").write_text(json.dumps(worst.to_dict(), indent=2, ensure_ascii=False))
+        (d / "ranking.json").unlink(missing_ok=True)  # superseded by best.json
+        print(f"[ranking] {d.name:36s} -> best.json + worst.json")
+    print(f"[ranking] wrote best.json + worst.json for {len(dirs)} models")
 
 
 if __name__ == "__main__":

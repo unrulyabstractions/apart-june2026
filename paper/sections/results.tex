@@ -93,3 +93,17 @@ the stability and forking results on an independent forced-choice probe.\\
   $2$ $=$ flips on every item). \emph{Middle}: mean next-token (vocabulary) entropy of the
   committed answer. \emph{Right}: mean probability of the selected label token. Slices are
   partial where the sweep was incomplete.}{fig:forced-fork}
+
+\paragraph{Reasoning models do not think in the prompt's language.}
+\textit{Evidence.} Every prompt is Spanish, yet the reasoning models split sharply by
+family in the language of their chain of thought (\Cref{fig:cot-language}): both
+\texttt{Ministral-3} Reasoning slices think entirely in Spanish, while every
+\texttt{Qwen3.5} thinking slice reasons in English ($95$--$99\%$ of traces), emitting only
+the final-answer line in Spanish. The language of thought is a family/training artefact,
+not a response to the input language---which matters for any intervention that inspects or
+steers the reasoning trace.\\
+\textit{Limitation.} Language is assigned by a high-precision Spanish/English function-word
+detector on the reasoning prefix (before the final-answer line); the few genuinely mixed
+traces fall in ``other''.
+
+\plotfig{figures/cot_language_by_model.png}{cot_language_by_model.png}{0.82\linewidth}{\textbf{Reasoning-trace language by model.} Share of each thinking model's chain-of-thought traces classified as Spanish, English, or other/mixed (the detector reads the reasoning prefix, before the final-answer line). All prompts are Spanish, yet \texttt{Ministral-3} Reasoning thinks in Spanish while every \texttt{Qwen3.5} thinking slice thinks in English.}{fig:cot-language}
