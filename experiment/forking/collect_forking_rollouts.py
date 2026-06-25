@@ -19,6 +19,7 @@ Usage:
 from __future__ import annotations
 
 import argparse
+import json
 import pathlib
 import sys
 from pathlib import Path
@@ -48,6 +49,9 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--max-positions", type=int, default=0, help="cap on branched base-path positions (0 = all; local-pilot knob)")
     p.add_argument("--position-stride", type=int, default=1, help="fork only every k-th position (>=1; last always kept) — pilot cost knob")
     p.add_argument("--thinking", action="store_true", help="decode the base path + prior in THINKING mode (enable_thinking for Qwen3.5 etc.)")
+    p.add_argument("--shared-base", type=Path, default=None,
+                   help="JSON with a fixed base trajectory ('base_path_text') to fork for ALL "
+                        "models (e.g. Qwen3.5-27B's CoT), teacher-forced; skips this model's own decode")
     p.add_argument("--temperature", type=float, default=1.0)
     p.add_argument("--out-dir", type=Path, default=Path("out"))
     # Output subdir suffix selecting the scaffold/baseline condition (default: none).
@@ -71,6 +75,12 @@ def main() -> None:
     # forking_trajectory position for unparseable / outcome audits.
     dump_dir = out_dir / "forking_positions"
 
+    shared_base_text = None
+    if args.shared_base is not None:
+        shared_base_text = json.load(args.shared_base.open())["base_path_text"]
+        log(f"[collect] SHARED base trajectory from {args.shared_base} "
+            f"({len(shared_base_text)} chars) — teacher-forced for {args.model}")
+
     runner = ModelRunner(model_name=args.model, backend=ModelBackend.HUGGINGFACE)
     runner.force_thinking = args.thinking  # enable_thinking for the base-path decode + prior
     log(f"[collect] thinking={args.thinking} reasoning_model={runner.is_reasoning_model}")
@@ -83,6 +93,7 @@ def main() -> None:
             base_max_new_tokens=args.base_max_new_tokens,
             max_positions=args.max_positions,
             position_stride=args.position_stride,
+            shared_base_text=shared_base_text,
             dump_dir=dump_dir,
         )
 

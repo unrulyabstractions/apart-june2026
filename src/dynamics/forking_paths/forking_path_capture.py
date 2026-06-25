@@ -21,7 +21,7 @@ from pathlib import Path
 from src.datasets.prompt import SesgoPromptSample
 from src.inference import ModelRunner
 
-from .forking_branch_plan import BranchPlan, build_branch_plan
+from .forking_branch_plan import BranchPlan, build_branch_plan, build_branch_plan_from_text
 from .forking_outcome_set import ForkOutcomeSet
 from .forking_path_types import ForkingTrajectory, ForkPosition
 from .forking_plan_forker import fork_plan_positions
@@ -53,6 +53,7 @@ def capture_forking_trajectory(
     base_max_new_tokens: int = 256,
     max_positions: int = 0,
     position_stride: int = 1,
+    shared_base_text: str | None = None,
     dump_dir: Path | None = None,
 ) -> ForkingTrajectory:
     """Capture the full {O_t} series for one prompt (greedy base path + branches).
@@ -71,9 +72,20 @@ def capture_forking_trajectory(
     Returns a serializable ForkingTrajectory the analysis driver consumes.
     """
     outcome_set = outcome_set or ForkOutcomeSet()
-    plan: BranchPlan = build_branch_plan(
-        runner, sample, near_window, n_samples, base_max_new_tokens, max_positions
-    )
+    if shared_base_text is not None:
+        # SHARED-trajectory mode: every model forks the SAME externally-supplied base path
+        # (e.g. Qwen3.5-27B's chain of thought), teacher-forced under THIS model's own
+        # prompt templating. No re-decode — we measure how each model's outcome distribution
+        # evolves along the identical reasoning, so the dynamics are directly comparable.
+        text = sample.text if isinstance(sample.text, str) else "\n".join(sample.text)
+        templated = runner.apply_chat_template(text)
+        plan = build_branch_plan_from_text(
+            runner, templated, shared_base_text, near_window, n_samples, max_positions
+        )
+    else:
+        plan = build_branch_plan(
+            runner, sample, near_window, n_samples, base_max_new_tokens, max_positions
+        )
 
     # Fork the chosen positions in one batched decode (single-box default == every
     # position; position_stride>1 subsamples them, always keeping the last so the
