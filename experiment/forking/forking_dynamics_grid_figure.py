@@ -79,10 +79,25 @@ def _row(fig, gs_row, traj: dict, analysis: dict, label: str) -> None:
     fig.add_subplot(inner[1, 1]).axis("off")
 
 
-def build(forking_dir: Path, out_path: Path) -> Path:
+# Known per-item run-tag suffixes so the default (untagged) item does not pick up tagged dirs.
+_KNOWN_TAGS = ("-xeno",)
+
+
+def build(forking_dir: Path, out_path: Path, run_tag: str = "") -> Path:
     rows = []
     for d in sorted(forking_dir.iterdir()):
-        sm = parse_model(d.name) if d.is_dir() else None
+        if not d.is_dir():
+            continue
+        name = d.name
+        if run_tag:                       # this item: only dirs carrying the tag
+            if not name.endswith(run_tag):
+                continue
+            base = name[: -len(run_tag)]
+        else:                             # default item: skip any tagged dir
+            if any(name.endswith(t) for t in _KNOWN_TAGS):
+                continue
+            base = name
+        sm = parse_model(base)
         loaded = _load(d) if sm else None
         # forking output dirs are bare model names (no -thinking suffix); these runs were
         # all captured with --thinking, so include every model that has results.
@@ -103,7 +118,8 @@ def build(forking_dir: Path, out_path: Path) -> Path:
     handles.append(Line2D([], [], color="red", ls="--", lw=1.3, label="forking token"))
     fig.legend(handles=handles, loc="upper center", ncol=len(handles), fontsize=9,
                frameon=False, bbox_to_anchor=(0.5, 0.985))
-    fig.suptitle("Forking-paths dynamics across model scale (Qwen3.5 thinking, racismo prompt)",
+    item = {"": "racismo", "-xeno": "xenofobia"}.get(run_tag, run_tag.lstrip("-") or "item")
+    fig.suptitle(f"Forking-paths dynamics across model scale (Qwen3.5 thinking, {item} prompt)",
                  fontsize=13, fontweight="bold", y=0.999)
     save_fig(fig, out_path)
     print(f"[grid] wrote {out_path}  ({len(rows)} models: {', '.join(r[1] for r in rows)})")
@@ -114,9 +130,10 @@ def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--forking-dir", type=Path, default=Path("out/forking"))
     ap.add_argument("--out", type=Path, default=Path("paper/figures/forking_dynamics_grid.png"))
+    ap.add_argument("--run-tag", default="", help="per-item output suffix (e.g. -xeno); empty = the default item")
     a = ap.parse_args()
     a.out.parent.mkdir(parents=True, exist_ok=True)
-    build(a.forking_dir, a.out)
+    build(a.forking_dir, a.out, a.run_tag)
 
 
 if __name__ == "__main__":
