@@ -43,6 +43,22 @@ final outcome; the right panel is the survival curve and change-point posterior 
   the forking tokens), and the survival curve $+$ change-point posterior (right). Every model
   commits at a single token (Bayes factor ${\approx}10^{9}$) onto the \emph{other} group.}{fig:forking-grid}
 
+We repeat the analysis on a second, deliberately harder item (\Cref{fig:forking-grid-xeno}):
+a xenofobia ambiguous question (two travellers at the U.S.\ border, one Chilean and one
+Venezuelan --- ``who was denied entry?''), chosen because its committed answer \emph{flips
+with scale} under the greedy readout (\emph{other} at $0.8$B, \emph{target} at $2$B, abstain
+at $4$/$9$B) and it carries the highest outcome uncertainty in the sweep. The single-token
+commitment recurs (Bayes factor ${\approx}10^{9}$), but the larger models retain a visible
+residual abstention (\emph{unknown}) band rather than fully committing --- the genuinely
+ambiguous item is reasoned more cautiously at scale.
+
+\plotfig{figures/forking_dynamics_grid_xeno.png}{forking_dynamics_grid_xeno.png}{\linewidth}{%
+  \textbf{Forking-paths dynamics on a second, higher-uncertainty item} (Qwen3.5 thinking, the
+  xenofobia border question; same layout as \Cref{fig:forking-grid}). Every model still
+  commits at one forking token (Bayes factor ${\approx}10^{9}$), but a residual \emph{unknown}
+  band persists at $4$/$9$B, so the larger models hedge more on the truly ambiguous
+  case.}{fig:forking-grid-xeno}
+
 \paragraph{Sampled vs.\ immediate-forced answer.}
 \textit{Evidence.} The forking $O_t$ is what the model would \emph{sample} if it kept
 reasoning; we also read, at each token, the answer it would give \emph{immediately} if
