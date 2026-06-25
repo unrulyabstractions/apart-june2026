@@ -93,11 +93,6 @@ RUN_TAG="${RUN_TAG:-}"
 # Qwen3.5-family). Required when forking a *-thinking model so the captured base
 # path is the chain of thought, not the suppressed-thinking answer.
 THINKING="${THINKING:-}"
-# SHARED_BASE_FILE: local path to a JSON {base_path_text} (e.g. a 27B chain of thought).
-# When set, EVERY model forks this SAME trajectory (teacher-forced under its own templating)
-# instead of decoding its own — pushed to the box and passed via --shared-base.
-SHARED_BASE_FILE="${SHARED_BASE_FILE:-}"
-SHARED_BASE_FLAG=""; [ -n "$SHARED_BASE_FILE" ] && SHARED_BASE_FLAG="--shared-base data/.shared_base.json --position-stride $POSITION_STRIDE"
 # Build the optional select-only flags (only appended when their env is set).
 SCAFFOLD_FLAG=""; [ -n "$SELECT_SCAFFOLD" ] && SCAFFOLD_FLAG="--scaffold $SELECT_SCAFFOLD"
 FORCE_QID_FLAG=""; [ -n "$SELECT_FORCE_QID" ] && FORCE_QID_FLAG="--force-question-id $SELECT_FORCE_QID"
@@ -203,7 +198,7 @@ run_detached_and_wait() {
 }
 
 # ── 1. SEARCH for a matching verified offer (reliability floor enforced) ──
-INET_DOWN="${INET_DOWN:-0}"  # min download Mbps — set high so model weights pull fast (slow links stall on HF)
+INET_DOWN="${INET_DOWN:-0}"  # min download Mbps — set high so the ~54GB model pulls fast (slow links stall on HF)
 QUERY="gpu_name=${GPU_NAME} num_gpus=${NUM_GPUS} verified=true rentable=true direct_port_count>=1 gpu_ram>=${GPU_RAM} disk_space>=${DISK} inet_down>=${INET_DOWN} dph_total<=${MAX_PRICE}"
 log "search offers: $QUERY (rel2 floor $MIN_RELIABILITY enforced post-hoc)"
 OFFERS_JSON="$(vastai search offers "$QUERY" -o 'dph_total+' --raw 2>/dev/null)"
@@ -286,121 +281,33 @@ log "at_setup (uv sync, cu124 pin, device check)"
 run_detached_and_wait setup "bash cloud/at_setup.sh"
 [ $? -eq 0 ] || { log "FATAL: at_setup failed"; exit 6; }
 
-# ── 6b. Push the SHARED base trajectory (if any) — data/ is excluded by sync_up ──
-if [ -n "$SHARED_BASE_FILE" ]; then
-  log "push shared base trajectory ($SHARED_BASE_FILE)"
-  . "$HERE/_ssh_target.sh"; _resolve_ssh_target || { log "FATAL: ssh endpoint"; exit 6; }
-  ssh $SSH_EPHEMERAL_OPTS -i "$SSH_KEY" -p "$SSH_PORT" "$SSH_USER@$SSH_HOST" "mkdir -p $REMOTE_ROOT/data" 2>/dev/null
-  rsync -ah -e "ssh $SSH_EPHEMERAL_OPTS -i $SSH_KEY -p $SSH_PORT" "$REPO_ROOT/$SHARED_BASE_FILE" \
-    "$SSH_USER@$SSH_HOST:$REMOTE_ROOT/data/.shared_base.json" || { log "FATAL: shared base push failed"; exit 6; }
-fi
 
-# ── 7a. SELECT the forking item ON the box for THIS model ──
-# SCAFFOLD_FLAG / FORCE_QID_FLAG are empty unless their env is set; RUN_TAG_FLAG is
-# always passed so the out subdir matches the collect/analyze/plot/sync stages.
-log "select forking item ($MODEL): dir=$SELECT_SESGO_DIR cats=$SELECT_CATEGORIES langs=$SELECT_LANGUAGES n-pilot=$SELECT_N_PILOT max-items=$SELECT_MAX_ITEMS scaffold='$SELECT_SCAFFOLD' force-qid='$SELECT_FORCE_QID' run-tag='$RUN_TAG'"
-run_on_box ".venv/bin/python experiment/forking/select_forking_item.py --model $MODEL \
-  --sesgo-dir $SELECT_SESGO_DIR \
-  --categories $SELECT_CATEGORIES --languages $SELECT_LANGUAGES \
-  --n-pilot $SELECT_N_PILOT --max-items $SELECT_MAX_ITEMS \
-  $SCAFFOLD_FLAG $FORCE_QID_FLAG $THINKING_FLAG $RUN_TAG_FLAG" 2>&1 | sed "s/^/[fork32 select] /"
-[ "${PIPESTATUS[0]}" -eq 0 ] || { log "FATAL: select failed"; exit 7; }
+# ── 7. Push the candidate dataset (sync_up excludes /data/, so push it explicitly) ──
+log "push candidate dataset to box"
+. "$HERE/_ssh_target.sh"; _resolve_ssh_target || { log "FATAL: ssh endpoint"; exit 5; }
+RSYNC_E="ssh $SSH_EPHEMERAL_OPTS -i $SSH_KEY -p $SSH_PORT"
+ssh $SSH_EPHEMERAL_OPTS -i "$SSH_KEY" -p "$SSH_PORT" "$SSH_USER@$SSH_HOST" "mkdir -p $REMOTE_ROOT/data" 2>/dev/null
+rsync -ah -e "$RSYNC_E" "$REPO_ROOT/data/shared_base_candidates_dataset.json" \
+  "$SSH_USER@$SSH_HOST:$REMOTE_ROOT/data/" || { log "FATAL: dataset push failed"; exit 5; }
 
-# ── 7b. COLLECT the FULL-CoT forking rollouts (HF batched, all positions) ──
-# DETACHED + polled: the long batched decode survives SSH drops (the previous
-# attempt died here on "Connection closed by remote host" mid-decode).
-log "collect FULL-CoT forking rollouts ($MODEL): max-positions=0 base/cont=$BASE_MAX_NEW_TOKENS/$MAX_NEW_TOKENS n-prior=$N_PRIOR n-samples=$N_SAMPLES T=$TEMPERATURE micro-batch=$HF_GEN_MICRO_BATCH"
-run_detached_and_wait collect \
-  "HF_GEN_MICRO_BATCH=$HF_GEN_MICRO_BATCH .venv/bin/python experiment/forking/collect_forking_rollouts.py --model $MODEL \
-     --max-positions 0 --base-max-new-tokens $BASE_MAX_NEW_TOKENS --max-new-tokens $MAX_NEW_TOKENS \
-     --n-prior $N_PRIOR --n-samples $N_SAMPLES --temperature $TEMPERATURE $THINKING_FLAG $SHARED_BASE_FLAG $RUN_TAG_FLAG"
-[ $? -eq 0 ] || { log "FATAL: collect failed"; exit 8; }
+# ── 8. 27B THINKING greedy readout over the candidates (detached + polled) ──
+log "27B thinking readout over candidate items ($MODEL)"
+run_detached_and_wait readout \
+  ".venv/bin/python -m experiment.stability.run_greedy_readout --model $MODEL --mode thinking \
+     --backend huggingface --dataset data/shared_base_candidates_dataset.json --study sharedcand \
+     --out-dir out --max-reasoning 1024"
+[ $? -eq 0 ] || { log "FATAL: readout failed"; exit 8; }
 
-# The out subdir is suffixed by RUN_TAG (empty == current path); every below
-# path-key references this same tagged bare-model dir.
-TAGGED_MODEL="${BARE_MODEL}${RUN_TAG}"
+# ── 9. Verify non-empty + sync back ──
+OUT="out/sharedcand/${BARE_MODEL}-thinking/response_samples.json"
+N="$(run_on_box ".venv/bin/python -c \"import json;print(len(json.load(open('$OUT'))['samples']))\" 2>/dev/null || echo 0")"
+N="$(printf '%s' "$N" | tr -dc '0-9')"
+log "remote $OUT has ${N:-0} samples"
+[ "${N:-0}" -ge 1 ] || { log "FATAL: empty readout (no sync, will destroy)"; exit 9; }
 
-# ── 8. Verify the trajectory is non-empty BEFORE we destroy ──
-NPOS="$(run_on_box ".venv/bin/python -c \"import json; print(len(json.load(open('out/forking/$TAGGED_MODEL/forking_trajectory.json'))['positions']))\" 2>/dev/null || echo 0")"
-NPOS="$(printf '%s' "$NPOS" | tr -dc '0-9')"
-log "remote forking_trajectory.json has ${NPOS:-0} base positions"
-if [ "${NPOS:-0}" -lt 1 ]; then
-  log "FATAL: empty/missing forking_trajectory.json on box -- aborting (no sync, will destroy)"
-  exit 9
-fi
-
-log "analyze forking dynamics (detached + polled)"
-run_detached_and_wait analyze \
-  ".venv/bin/python experiment/forking/analyze_forking_dynamics.py --model $MODEL $RUN_TAG_FLAG"
-[ $? -eq 0 ] || { log "FATAL: analyze failed"; exit 10; }
-
-log "plot commit dynamics"
-run_on_box ".venv/bin/python experiment/forking/plot_forking_commit_dynamics.py" 2>&1 | sed "s/^/[fork32 plotcommit] /"
-[ "${PIPESTATUS[0]}" -eq 0 ] || log "WARN: plot_forking_commit_dynamics returned non-zero (continuing)"
-
-log "plot forking dynamics (token-strip figure with forking tokens marked)"
-run_on_box ".venv/bin/python experiment/forking/plot_forking_dynamics.py --model $MODEL $RUN_TAG_FLAG" 2>&1 | sed "s/^/[fork32 plotdyn] /"
-[ "${PIPESTATUS[0]}" -eq 0 ] || log "WARN: plot_forking_dynamics returned non-zero (continuing)"
-
-# ── 9. Print the report facts FROM THE BOX (before teardown) ──
-# BARE_REPORT (the tagged bare-model dir) is exported into the remote shell so the
-# quoted heredoc reads the RIGHT condition's out subdir instead of a hardcoded one.
-log "extracting report facts from the box"
-run_on_box "BARE_REPORT=$TAGGED_MODEL .venv/bin/python - <<'PYEOF'
-import json, glob, math, os
-BARE=os.environ['BARE_REPORT']
-d=json.load(open(f'out/forking/{BARE}/forking_trajectory.json'))
-pos=d['positions']; toks=d.get('base_token_texts',[]); base=d.get('base_path_text','')
-print('REPORT_N_POSITIONS=%d' % len(pos))
-print('REPORT_N_BASE_TOKENS=%d' % len(toks))
-print('REPORT_HAS_THINK_CLOSE=%s' % ('</think>' in base))
-print('REPORT_PRIOR=%s' % [round(x,3) for x in d.get('prior_histogram',[])])
-print('REPORT_FINAL=%s' % [round(x,3) for x in d.get('final_histogram',[])])
-print('REPORT_LABELS=%s' % d.get('outcome_set',{}).get('labels'))
-# Forking tokens: load analysis change-point + the abrupt Delta_t spikes.
-try:
-    a=json.load(open(f'out/forking/{BARE}/forking_analysis.json'))
-    cp=a['change_points']; st=a['dynamic_states']
-    jumps=st.get('forking_magnitude',[])
-    fi=cp.get('forking_token_index',-1)
-    print('REPORT_CP_FORK_IDX=%d significant=%s bayes=%.2f' % (fi, cp.get('significant'), cp.get('bayes_factor',0)))
-    if jumps:
-        import statistics as S
-        mu=sum(jumps)/len(jumps); sd=S.pstdev(jumps) if len(jumps)>1 else 0.0
-        thr=mu+sd
-        flagged=[i for i,v in enumerate(jumps) if i>0 and v>thr]
-        print('REPORT_ABRUPT_TOKEN_IDXS=%s' % flagged)
-        for i in flagged:
-            ctx=''.join(toks[max(0,i-4):i+1])
-            print('REPORT_FORK_TOKEN idx=%d delta=%.4f tok=%r ctx=%r' % (i, jumps[i], toks[i] if i<len(toks) else '', ctx))
-        if fi>=0 and fi<len(toks):
-            ctx=''.join(toks[max(0,fi-4):fi+1])
-            print('REPORT_CP_TOKEN idx=%d tok=%r ctx=%r' % (fi, toks[fi], ctx))
-except Exception as e:
-    print('REPORT_ANALYSIS_ERR=%r' % e)
-# Unparseable audit over the per-position raw dumps.
-dumps=sorted(glob.glob(f'out/forking/{BARE}/forking_positions/pos_*.json'))
-tot=unp=0
-for f in dumps:
-    e=json.load(open(f))
-    for alt in e.get('alternates', e.get('rollouts', [])):
-        rs=alt.get('rollouts', alt.get('rollout_labels', alt.get('samples',[])))
-        if isinstance(rs,dict): rs=[rs]
-        for r in rs:
-            lab=r if isinstance(r,str) else (r.get('label', r.get('parsed_label')) if isinstance(r,dict) else None)
-            tot+=1
-            if lab in (None,'','unparseable','UNPARSEABLE','none'): unp+=1
-print('REPORT_ROLLOUT_TOTAL=%d' % tot)
-print('REPORT_ROLLOUT_UNPARSEABLE=%d' % unp)
-print('REPORT_UNPARSEABLE_FRAC=%.4f' % ((unp/tot) if tot else 0.0))
-print('REPORT_N_DUMP_FILES=%d' % len(dumps))
-PYEOF" 2>&1 | sed "s/^/[fork32 report] /"
-
-# ── 10. SYNC results BACK into a DISJOINT quarantine sync/fork32/ ──
-log "sync_back -> sync/fork32/forking/"
-SYNC_SUBDIR="fork32" STUDIES="forking" INSTANCE="$INSTANCE" bash "$HERE/sync_back.sh" 2>&1 | sed "s/^/[fork32 back] /"
+log "sync_back -> sync/27b/sharedcand/"
+SYNC_SUBDIR="27b" STUDIES="sharedcand" INSTANCE="$INSTANCE" bash "$HERE/sync_back.sh" 2>&1 | sed "s/^/[27b back] /"
 [ "${PIPESTATUS[0]}" -eq 0 ] || { log "FATAL: sync_back failed (box will still be destroyed)"; exit 11; }
 
-log "SUCCESS: FULL-CoT forking captured for $BARE_MODEL ($NPOS positions); quarantined under sync/fork32/"
-# EXIT trap destroys the box now.
+log "SUCCESS: 27B thinking readout over ${N} candidates; quarantined under sync/27b/"
 exit 0
