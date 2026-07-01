@@ -1,0 +1,65 @@
+\section{Model Size and SESGO Bias}
+\label{sec:bias}
+
+\subsection{Methods}
+\label{sec:bias-methods}
+\textsc{SESGO}~\citep{robles2025sesgo} is a Spanish, Latin-American-grounded social-bias
+benchmark in the BBQ ambiguous/disambiguated tradition, spanning racism, xenophobia, classism,
+and gender. Each item is rendered under two crossed factors (a context
+$c\in\{\text{ambig},\text{disambig}\}$ and a question polarity
+$\in\{\text{neg},\text{nonneg}\}$), with answer options realizing three roles: the stereotyped
+\emph{Target} group ($t$), an \emph{Other} group ($o$), and \emph{Unknown} ($u$). The gold
+answer depends on the context:
+
+\begin{table}[ht]
+  \centering \small
+  \caption{\textsc{SESGO} item types and their gold answer.}
+  \label{tab:sesgo-gold}
+  \begin{tabular}{@{}lll@{}}
+    \toprule
+    \textbf{Context} & \textbf{Item text} & \textbf{Gold answer} \\
+    \midrule
+    Ambiguous     & names no specific person & \emph{Unknown} (abstain) \\
+    Disambiguated & specifies a group        & that group \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+We write $F(\text{Target})$ and $F(\text{Other})$ for the shares of \emph{incorrect} answers
+that harm the marginalized Target and the Other group, and define the signed \emph{bias
+alignment} $F(\text{Target})-F(\text{Other})$ (positive when errors lean toward the stereotyped
+group). Accuracy is the correctness of the committed choice,
+\begin{equation}
+  p^{\mathrm{nt}}_y = \frac{\exp(\ell_y)}{\sum_{y'} \exp(\ell_{y'})},\quad y,y'\in\{t,o,u\};
+  \qquad
+  \mathrm{acc} = \frac{1}{|\mathcal{Q}|}\sum_{q\in\mathcal{Q}} \mathbf{1}[\,\hat{y}_q = y^\star_q\,],
+  \label{eq:acc}
+\end{equation}
+and \textsc{SESGO} summarizes a condition with a single
+\begin{equation}
+  \mathrm{bias\_score}
+    \;=\; \sigma \cdot \sqrt{\,(1 - \mathrm{acc})^2 + \big(F(\text{Target}) - F(\text{Other})\big)^2\,},
+  \label{eq:bias-score}
+\end{equation}
+large when a model is both inaccurate and one-sidedly biased ($\sigma$ a fixed sign/scale
+factor). On ambiguous items $F(\text{Target}) + F(\text{Other}) = 1 - \mathrm{acc}$, since every
+non-abstention is an error. We compute these count-based quantities from the greedy readout
+across the sweep.
+
+\subsection{Results}
+\label{sec:bias-results}
+
+\paragraph{Smaller models are more biased (\Cref{fig:results-bias}).}
+\begin{itemize}[leftmargin=*,topsep=3pt,itemsep=3pt]
+  \item Abstention accuracy on ambiguous items \textbf{rises steeply with scale} within every
+    family (\texttt{Qwen3.5}: $0.0$ at $0.8$B to $1.0$ at $27$B; \texttt{Gemma} and the larger
+    \texttt{Mistral} slices abstain near-perfectly).
+  \item \textbf{Low accuracy comes with a wide wording span:} the smallest models spread their
+    errors across both named groups (e.g.\ \texttt{Llama 3.2 1B}, accuracy $0.15$, alignment
+    span $0.65$), while large models collapse to a near-zero span at high accuracy.
+  \item The residual \emph{net} lean toward the marginalized Target group is small for every
+    model (${\le}0.17$); the scale effect is in accuracy and spread, not a one-sided lean.
+  \item \textbf{Limitation:} the sweep mixes families and sizes. All rates carry Wilson $95\%$ CIs.
+\end{itemize}
+
+\plotfig{figures/fig3_bias_alignment_accuracy.png}{fig3_bias_alignment_accuracy.png}{0.99\linewidth}{\textbf{Bias vs.\ accuracy across model scale} (count-based \textsc{SESGO} metric, \citealp{robles2025sesgo}), \textbf{one row per family} $\times$ two panels. In each cell: $y$ $=$ accuracy, $x$ $=$ bias alignment $F(\text{Target})-F(\text{Other})$ ($0$ $=$ unbiased, left favours the Other group, right the stereotyped Target). Each model is a horizontal \textbf{segment} spanning its neutral- to negative-wording alignment at its accuracy (circle $=$ direct, triangle $=$ thinking; diamond $=$ pooled bias; vertical whisker $=$ Wilson $95\%$ CI); a wide, off-centre segment means the model spreads its errors across the two named groups. \emph{Left column}: ambiguous (accuracy $=$ abstention); \emph{right}: disambiguated. Small models sit low with wide spans; large models collapse to a near-zero span at high accuracy.}{fig:results-bias}

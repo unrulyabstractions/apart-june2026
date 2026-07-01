@@ -23,7 +23,6 @@ from pathlib import Path
 
 import matplotlib.pyplot as plt
 
-from experiment.bias.segment_label_layout import spread_labels
 from experiment.bias.stability_readout_join import load_metadata
 from experiment.common.sweep_models import FAMILY_COLOR, parse_model
 from experiment.stability.new_sweep_baseline_stability_figures import _VARIANT
@@ -97,74 +96,63 @@ def _collect(new_dir: Path, meta: dict) -> list[dict]:
     return rows
 
 
-def _label_side(ax, group: list[tuple], x_text: float, ha: str) -> None:
-    """Draw one margin column of labels: sort by y, spread vertically, thin leader to each point.
-    Sorting by y makes the leaders monotonic, so a column of many labels never crosses itself."""
-    group = sorted(group, key=lambda g: g[1])
-    for (x, y, text, color), slot in zip(group, spread_labels([g[1] for g in group], 0.07, 1.0)):
-        ax.annotate(text, (x, y), xytext=(x_text, slot.y_label), textcoords="data",
-                    fontsize=7, color=color, va="center", ha=ha, zorder=4,
-                    arrowprops=dict(arrowstyle="-", color=color, lw=0.5, alpha=0.6))
+_AXES = (("order", "Position swap: option order flipped"),
+         ("label", "Label swap: a)b)c) $\\rightarrow$ x)y)z)"))
 
 
-def _label_points(ax, labels: list[tuple], xmin: float, xmax: float) -> None:
-    """Name every point, splitting the labels into a left and a right margin column by SIZE rank
-    (smaller half left, larger half right) so the two columns carry an equal share and neither
-    crowds — most models are small, so an x-midpoint split would overload the left column."""
-    by_size = sorted(labels, key=lambda l: l[0])
-    half = (len(by_size) + 1) // 2
-    _label_side(ax, by_size[:half], xmin / 1.9, "right")
-    _label_side(ax, by_size[half:], xmax * 1.9, "left")
-
-
-def _draw_panel(ax, rows: list[dict], axis: str, title: str) -> None:
-    """Render one stability axis ('order' or 'label') as named family trend-lines with Wilson CIs.
-
-    Each marker is one model (family colour, mode marker, Wilson 95% CI); a thin family-coloured
-    line joins every (family, marker) series in size order, and every point is labelled with its
-    proper versioned name in a de-collided left/right margin column."""
+def _draw_cell(ax, fam_rows: list[dict], axis: str, xlim: tuple[float, float]) -> None:
+    """One family x one swap axis: agreement vs size, direct (solid) / thinking (dashed)."""
     n_key, succ_key = f"{axis}_n", axis
-    pts = [r for r in rows if r[n_key]]
-    series: dict[tuple, list[tuple]] = defaultdict(list)
-    labels: list[tuple] = []
+    pts = [r for r in fam_rows if r[n_key]]
+    series: dict[str, list[tuple]] = defaultdict(list)
     for r in pts:
         p = _plot_point(ax, r["size"], r[succ_key], r[n_key], r["color"], r["marker"], ms=8)
-        series[(r["family"], r["marker"])].append((r["size"], p, r["color"]))
-        labels.append((r["size"], p, r["name"], r["color"]))
-    for group in series.values():
+        series[r["marker"]].append((r["size"], p, r["color"]))
+    for marker, group in series.items():
         group.sort(key=lambda g: g[0])
-        if len(group) >= 2:  # a lone model is just its marker, not a broken one-point line
-            ax.plot([g[0] for g in group], [g[1] for g in group], "-",
-                    color=group[0][2], lw=0.9, alpha=0.5, zorder=1)
-    sizes = [r["size"] for r in pts]
-    xmin, xmax = min(sizes), max(sizes)
-    _label_points(ax, labels, xmin, xmax)
-    ax.set_xscale("log"); ax.set_ylim(-0.02, 1.02); ax.grid(True, which="both", alpha=0.25)
-    ax.set_xlim(xmin / 3.2, xmax * 3.2)  # margin room so the offset labels are not clipped
-    ax.set_xlabel("Model size (billion parameters)")
-    ax.set_title(title)
+        if len(group) >= 2:
+            ax.plot([g[0] for g in group], [g[1] for g in group],
+                    ls="--" if marker == "^" else "-", color=group[0][2], lw=1.4,
+                    alpha=0.55, zorder=1)
+    ax.set_xscale("log"); ax.set_ylim(0.40, 1.02); ax.set_xlim(*xlim)
+    ax.axhline(0.95, color="#CC3311", ls="--", lw=1.1, zorder=0)  # 95% reference (red)
+    ax.axhline(0.90, color="#999999", ls="--", lw=1.0, zorder=0)  # 90% reference (grey)
+    ax.grid(True, which="major", axis="y", ls=":", alpha=0.35)
+    for spine in ("top", "right"):
+        ax.spines[spine].set_visible(False)
 
 
 def build(new_dir: Path, dataset: Path, out: Path) -> None:
     meta = load_metadata(dataset)
     rows = _collect(new_dir, meta)
+    fams = [f for f in FAMILY_COLOR if any(r["family"] == f for r in rows)]
+    sizes = [r["size"] for r in rows]
+    xlim = (min(sizes) / 1.6, max(sizes) * 1.6)
 
-    fig, (ax_order, ax_label) = plt.subplots(1, 2, figsize=(17, 8), sharey=True)
-    _draw_panel(ax_order, rows, "order", "Stability when answer positions are swapped")
-    _draw_panel(ax_label, rows, "label", "Stability when answer labels are swapped")
-    ax_order.set_ylabel("Agreement rate (95% CI)")
+    fig, axes = plt.subplots(len(fams), 2, figsize=(11, 2.15 * len(fams) + 0.8),
+                             sharex=True, sharey=True, squeeze=False)
+    fig.subplots_adjust(left=0.11, right=0.985, wspace=0.08, hspace=0.28, top=0.90, bottom=0.09)
+    for r_i, fam in enumerate(fams):
+        fam_rows = [r for r in rows if r["family"] == fam]
+        for c_i, (axis, title) in enumerate(_AXES):
+            ax = axes[r_i][c_i]
+            _draw_cell(ax, fam_rows, axis, xlim)
+            if r_i == 0:
+                ax.set_title(title, fontsize=11.5, fontweight="bold", pad=8)
+            if r_i == len(fams) - 1:
+                ax.set_xlabel("Model size (billion parameters)", fontsize=10.5)
+        axes[r_i][0].set_ylabel(fam, fontsize=12, fontweight="bold", color=FAMILY_COLOR[fam])
 
-    fams = sorted({r["family"] for r in rows},
-                  key=lambda f: list(FAMILY_COLOR).index(f) if f in FAMILY_COLOR else 9)
-    handles = [_legend_marker(marker="o", color=FAMILY_COLOR[f], label=f) for f in fams]
-    handles += [
-        _legend_marker(marker="o", mfc="white", mec="k", label="Standard"),
-        _legend_marker(marker="^", color="k", label="Reasoning"),
-    ]
-    fig.legend(handles=handles, fontsize=9, loc="lower center", ncol=len(fams) + 2,
-               bbox_to_anchor=(0.5, -0.02), frameon=True)
-    fig.suptitle("Answer stability by model size", fontsize=14)
-    fig.tight_layout(rect=(0, 0.05, 1, 0.97))
+    handles = [_legend_marker(marker="o", mfc="white", mec="k", ms=9, label="direct (solid line)"),
+               _legend_marker(marker="^", color="k", ms=9, label="thinking / reasoning (dashed)"),
+               plt.Line2D([], [], color="#CC3311", ls="--", lw=1.3, label="95%"),
+               plt.Line2D([], [], color="#999999", ls="--", lw=1.3, label="90%")]
+    fig.legend(handles=handles, fontsize=9.5, loc="upper center", ncol=4, frameon=False,
+               bbox_to_anchor=(0.5, 0.965), columnspacing=1.6)
+    fig.suptitle("Answer stability rises with model size (by family)", fontsize=13.5,
+                 fontweight="bold", y=0.995)
+    fig.text(0.028, 0.5, "Agreement rate  (Wilson 95% CI)", va="center", ha="center",
+             rotation=90, fontsize=10.5)
     out.parent.mkdir(parents=True, exist_ok=True)
     fig.savefig(out, dpi=150, bbox_inches="tight")
 

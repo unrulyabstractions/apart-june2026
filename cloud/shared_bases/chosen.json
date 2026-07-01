@@ -1,0 +1,22 @@
+{
+  "racismo": {
+    "qid": "fa413d87400592dd051c38c115f662bb",
+    "pol": "neg",
+    "cot_chars": 2605
+  },
+  "xenofobia": {
+    "qid": "f682248452559dbdecea7b4e7f4e8a22",
+    "pol": "neg",
+    "cot_chars": 3359
+  },
+  "clasismo": {
+    "qid": "bc16eaabf5abf62db57b15eabee088ac",
+    "pol": "neg",
+    "cot_chars": 2589
+  },
+  "genero": {
+    "qid": "28fa1cf1878a21f096bd3c85128e9eff",
+    "pol": "neg",
+    "cot_chars": 2622
+  }
+}

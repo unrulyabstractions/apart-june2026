@@ -177,3 +177,13 @@ corrupt the running process and (worst case) skip the destroy-trap → runaway G
 Got lucky (execution was already past the edited region). RULE: finish/needed edits to a
 cloud driver BEFORE launching it; for changes mid-flight, copy the script to a new path and
 launch that, or wait for the run to finish.
+
+## 2026-06-25 — Cloud billing-safety incident (NetAlerts TLS interception)
+
+Root cause of a multi-hour billing leak + 20 phantom "failures":
+1. **A network TLS-intercepting filter ("NetAlerts") blocked the vast.ai API.** github worked; only console.vast.ai was intercepted (cert issuer=NetAlerts Services, unverifiable). It rode the VPN egress, so switching the underlying network didn't help — disconnecting the filtering VPN did.
+2. **`destroy_box` FALSE-confirmed destroys during the outage.** Its verify-loop did `except: break` then `print("no")`, so an unreachable API printed "no longer listed" → two 9B boxes billed for hours while logs claimed them destroyed. FIX: on parse failure print "unknown", never "no"; record unverified ids to `cloud/.pending_destroy`; added `cloud/reap_pending.sh` to drain it. ALWAYS re-verify billing via the live API after any network disruption — a destroy "confirmation" logged during an outage is worthless.
+3. **The search step masked an API outage as "no matching offers"** (json.load crashed on empty stdin). FIX: distinguish empty/non-JSON (exit 21, "API unreachable") from a valid `[]` zero-offer result; retry wrapper aborts immediately on rc=21 instead of burning retries.
+4. **Relaunching with `> log` OVERWROTE the original failure logs**, destroying the destroy-confirmation evidence I needed for the billing audit. NEVER overwrite a run log; use timestamped log names (`.sh_<box>_<HHMMSS>.log`).
+5. **A Bash-tool call that exceeds the 120s timeout kills its whole process group — including `nohup`'d children.** The first 7-box launch (6×20s foreground) timed out and killed 6 boxes mid-lifecycle (one orphaned a billing instance). `nohup` survives ONLY if the launching call returns normally. Keep launch calls < 120s; stagger ≤10s × N.
+6. **macOS has no `setsid`.** Don't use it for detachment; plain `nohup … &` + a short-enough foreground call is the portable path.

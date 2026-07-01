@@ -1,0 +1,67 @@
+\section{Model Size and Stability}
+\label{sec:stability}
+
+\subsection{Methods}
+\label{sec:stability-methods}
+We probe how consistently a model commits to an answer under cosmetic reformatting that leaves
+the gold answer unchanged. Holding each \textsc{SESGO} item fixed, we read the committed
+greedy-readout choice under two invariances (all rates with Wilson $95\%$ CIs):
+
+\begin{itemize}[leftmargin=*,topsep=3pt,itemsep=3pt]
+  \item \textbf{Order stability:} the answer is unchanged when the Target and Other options
+    swap positions.
+  \item \textbf{Label stability:} the answer is unchanged when the \texttt{a)b)c)} option
+    labels become \texttt{x)y)z)}.
+\end{itemize}
+
+\subsection{Results}
+\label{sec:stability-results}
+
+\paragraph{Smaller models do not answer consistently (\Cref{fig:results-stability}).}
+\begin{itemize}[leftmargin=*,topsep=3pt,itemsep=3pt]
+  \item Order and label stability both \textbf{rise with scale in every family}; the largest
+    model in the sweep (\texttt{Qwen3.5-27B}) reaches ${\approx}0.98$ on both, while the
+    smallest slices sit far lower (\texttt{Llama 3.2 1B} at $0.47$ order stability).
+  \item The two axes can \textbf{diverge for small models, in either direction}:
+    \texttt{Llama 3.2 1B} survives a \emph{label} swap far better than a \emph{position} swap
+    ($0.73$ vs.\ $0.47$), whereas \texttt{Qwen3.5 2B} is the opposite ($0.74$ position vs.\ $0.62$
+    label).
+  \item \textbf{Implication:} the other studies should filter for unstable answers.
+  \item \textbf{Limitation:} coverage is partial on the largest slices (small $n$).
+\end{itemize}
+
+\plotfig{figures/combined_invariance_old_new.png}{combined_invariance_old_new.png}{0.99\linewidth}{\textbf{Smaller models do not answer consistently.} Fraction of items whose committed greedy-readout answer is unchanged when the option \emph{positions} are swapped (left column, order stability) and when the \texttt{a)b)c)} \emph{labels} are swapped (right column, label stability), vs.\ model size (log $x$), \textbf{one row per family} (open circles / solid lines direct, filled triangles / dashed thinking), Wilson $95\%$ CIs; the $y$-axis is zoomed to $0.4$--$1.0$ with dashed reference lines at $0.90$ (grey) and $0.95$ (red). Both axes rise with scale within every family and the largest model reaches ${\approx}0.98$; the two axes diverge most for the smallest models (e.g.\ \texttt{Llama 3.2 1B}, order $0.47$ vs.\ label $0.73$).}{fig:results-stability}
+
+\paragraph{Refusals and unparseable answers, separated (\Cref{fig:unparseable}).}
+Some models sometimes give no committed option; we split these non-committal answers into
+explicit safety \textbf{refusals} (``No puedo \ldots discriminaci\'on'') and otherwise
+\textbf{unparseable} answers (garbled output, or a label outside the item's option set). The
+readout credits case, paren, and prose variants of a choice (so a stated ``No hay suficiente
+informaci\'on'' counts as the abstention option), which removes most spurious unparseables.
+
+\begin{itemize}[leftmargin=*,topsep=3pt,itemsep=3pt]
+  \item \textbf{Refusing is a \texttt{Llama} trait:} \texttt{Llama 3.1 8B} refuses $21\%$ of items
+    and \texttt{Llama 3.2 3B} $17\%$; no other family refuses measurably.
+  \item \textbf{Genuinely unparseable answers are rare:} once case, paren, prose, and repeated
+    variants of a stated choice are credited, every slice is under $3\%$.
+  \item \textbf{Implication:} neither a refusal nor an unparseable answer is the gold
+    \emph{unknown} abstention, so both depress a model's apparent \textsc{SESGO} accuracy
+    (\Cref{sec:bias}) independent of any bias direction.
+\end{itemize}
+
+\plotfig{figures/unparseable_rate.png}{unparseable_rate.png}{0.84\linewidth}{\textbf{Refusal vs.\ unparseable, by model.} Share of greedy-readout responses with no committed option, split into explicit safety refusals (red) and otherwise unparseable answers (grey), per model slice (sorted by total). Refusals appear almost only in \texttt{Llama} ($21\%$ / $17\%$ for $8$B / $3$B); other unparseable answers stay under $3\%$ for every slice. Neither is the gold abstention, so both lower a model's apparent accuracy in the bias study.}{fig:unparseable}
+
+\paragraph{Reasoning models do not think in the prompt's language (\Cref{fig:cot-language}).}
+\begin{itemize}[leftmargin=*,topsep=3pt,itemsep=3pt]
+  \item Every \textsc{SESGO} prompt is Spanish, yet the reasoning language \textbf{splits
+    cleanly by family}: both \texttt{Ministral-3} Reasoning slices think in Spanish
+    ($100\%$ of traces), while every \texttt{Qwen3.5} thinking slice reasons in English
+    ($100\%$), emitting only the final answer in Spanish.
+  \item The language of thought is a \textbf{family/training artefact}, not a response to the
+    input, which matters for any intervention that inspects or steers the reasoning trace.
+  \item \textbf{Limitation:} language is assigned by a high-precision Spanish/English
+    function-word detector on the reasoning prefix; short or genuinely mixed traces fall in
+    ``other''.
+\end{itemize}
+
+\plotfig{figures/cot_language_by_model.png}{cot_language_by_model.png}{0.82\linewidth}{\textbf{Reasoning-trace language by model.} Share of each thinking model's chain-of-thought traces classified as Spanish, English, or other/mixed (the detector reads the reasoning prefix, before the final-answer line, and drops quoted spans of the Spanish prompt). All prompts are Spanish, yet \texttt{Ministral-3} Reasoning thinks in Spanish while every \texttt{Qwen3.5} thinking slice thinks in English.}{fig:cot-language}

@@ -80,10 +80,16 @@ def _row(fig, gs_row, traj: dict, analysis: dict, label: str) -> None:
 
 
 # Known per-item run-tag suffixes so the default (untagged) item does not pick up tagged dirs.
-_KNOWN_TAGS = ("-xeno",)
+# The "*sh" tags are the SHARED-BASE runs (every model forks the SAME Qwen3.5-27B abstaining
+# chain of thought for that bias category), kept distinct from the per-model untagged runs.
+_KNOWN_TAGS = ("-xeno", "-racsh", "-xensh", "-clash", "-gensh")
+
+# Human-readable item name per run tag (for the figure title).
+_ITEM_NAME = {"": "racismo", "-xeno": "xenofobia",
+              "-racsh": "racismo", "-xensh": "xenofobia", "-clash": "clasismo", "-gensh": "género"}
 
 
-def build(forking_dir: Path, out_path: Path, run_tag: str = "") -> Path:
+def build(forking_dir: Path, out_path: Path, run_tag: str = "", title: str = "") -> Path:
     rows = []
     for d in sorted(forking_dir.iterdir()):
         if not d.is_dir():
@@ -118,9 +124,10 @@ def build(forking_dir: Path, out_path: Path, run_tag: str = "") -> Path:
     handles.append(Line2D([], [], color="red", ls="--", lw=1.3, label="forking token"))
     fig.legend(handles=handles, loc="upper center", ncol=len(handles), fontsize=9,
                frameon=False, bbox_to_anchor=(0.5, 0.985))
-    item = {"": "racismo", "-xeno": "xenofobia"}.get(run_tag, run_tag.lstrip("-") or "item")
-    fig.suptitle(f"Forking-paths dynamics across model scale (Qwen3.5 thinking, {item} prompt)",
-                 fontsize=13, fontweight="bold", y=0.999)
+    item = _ITEM_NAME.get(run_tag, run_tag.lstrip("-") or "item")
+    suptitle = title or (f"Forking-paths dynamics across scale (Qwen3.5 thinking): {item} item, "
+                         "ambiguous, negative framing; correct answer = abstain (unknown)")
+    fig.suptitle(suptitle, fontsize=11.5, fontweight="bold", y=0.999)
     save_fig(fig, out_path)
     print(f"[grid] wrote {out_path}  ({len(rows)} models: {', '.join(r[1] for r in rows)})")
     return out_path
@@ -131,9 +138,10 @@ def main() -> None:
     ap.add_argument("--forking-dir", type=Path, default=Path("out/forking"))
     ap.add_argument("--out", type=Path, default=Path("paper/figures/forking_dynamics_grid.png"))
     ap.add_argument("--run-tag", default="", help="per-item output suffix (e.g. -xeno); empty = the default item")
+    ap.add_argument("--title", default="", help="override the figure suptitle")
     a = ap.parse_args()
     a.out.parent.mkdir(parents=True, exist_ok=True)
-    build(a.forking_dir, a.out, a.run_tag)
+    build(a.forking_dir, a.out, a.run_tag, a.title)
 
 
 if __name__ == "__main__":

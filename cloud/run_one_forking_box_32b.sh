@@ -120,6 +120,10 @@ destroy_box() {
     INSTANCE="$INSTANCE" bash "$HERE/vast_destroy.sh" --yes-i-am-really-sure 2>&1 | sed "s/^/[fork32 destroy] /"
     sleep 5
     local still
+    # Verify the destroy ACTUALLY took. Critical: if the API is unreachable the
+    # parse fails -- we must report "unknown", NEVER "no" (a false "destroyed" once
+    # leaked two boxes for hours). Unknown/still-listed => record to .pending_destroy
+    # so a later reaper (cloud/reap_pending.sh) kills it once the API is back.
     still="$(INSTANCE_ID="$INSTANCE" python3 -c '
 import json, os, subprocess, sys
 iid=int(os.environ["INSTANCE_ID"]); token=None
@@ -127,19 +131,23 @@ for _ in range(40):
     cmd=["vastai","show","instances-v1","--raw"]
     if token: cmd+=["--next-token",token]
     try: d=json.loads(subprocess.run(cmd,capture_output=True,text=True).stdout)
-    except Exception: break
+    except Exception: print("unknown"); sys.exit()   # API down -> do NOT claim destroyed
     rows=d if isinstance(d,list) else d.get("instances",d.get("results",[]))
     if any(isinstance(r,dict) and r.get("id")==iid for r in rows): print("yes"); sys.exit()
     token=d.get("next_token") if isinstance(d,dict) else None
     if not token or not rows: break
 print("no")' 2>/dev/null)"
-    if [ "$still" = "yes" ]; then
-      log "WARN: instance $INSTANCE still listed; retrying destroy"
-      printf 'y\n' | vastai destroy instance "$INSTANCE" 2>&1 | sed "s/^/[fork32 destroy2] /"
-    else
+    if [ "$still" = "no" ]; then
       log "confirmed instance $INSTANCE no longer listed"
+      rm -f "$IID_FILE"
+    elif [ "$still" = "yes" ]; then
+      log "WARN: instance $INSTANCE still listed; retrying destroy + recording to pending_destroy"
+      printf 'y\n' | vastai destroy instance "$INSTANCE" 2>&1 | sed "s/^/[fork32 destroy2] /"
+      echo "$INSTANCE" >> "$HERE/.pending_destroy"; rm -f "$IID_FILE"
+    else
+      log "WARN: destroy of $INSTANCE UNVERIFIED (API unreachable) -- recorded to pending_destroy, keeping iid"
+      echo "$INSTANCE" >> "$HERE/.pending_destroy"
     fi
-    rm -f "$IID_FILE"
   fi
   return $rc
 }
@@ -207,12 +215,19 @@ INET_DOWN="${INET_DOWN:-0}"  # min download Mbps — set high so model weights p
 QUERY="gpu_name=${GPU_NAME} num_gpus=${NUM_GPUS} verified=true rentable=true direct_port_count>=1 gpu_ram>=${GPU_RAM} disk_space>=${DISK} inet_down>=${INET_DOWN} dph_total<=${MAX_PRICE}"
 log "search offers: $QUERY (rel2 floor $MIN_RELIABILITY enforced post-hoc)"
 OFFERS_JSON="$(vastai search offers "$QUERY" -o 'dph_total+' --raw 2>/dev/null)"
+# Distinguish a genuine zero-offer result (valid JSON []) from an API/TLS outage
+# (empty / non-JSON) -- the latter must NOT be mislabeled "no offers" with a traceback.
 OFFER_ID="$(printf '%s' "$OFFERS_JSON" | MIN_REL="$MIN_RELIABILITY" python3 -c '
 import sys, json, os
 floor=float(os.environ["MIN_REL"])
-o=json.load(sys.stdin)
+try: o=json.load(sys.stdin)
+except Exception: print("APIDOWN"); sys.exit()
 flt=[r for r in o if r.get("reliability2",0)>=floor]
-print(flt[0]["id"] if flt else "")')"
+print(flt[0]["id"] if flt else "")' 2>/dev/null)"
+if [ "$OFFER_ID" = "APIDOWN" ]; then
+  log "FATAL: vast API unreachable (empty/non-JSON search response -- TLS/network, NOT a zero-offer result)"
+  exit 21
+fi
 if [ -z "$OFFER_ID" ]; then
   log "FATAL: no matching offers for $GPU_NAME (reliability2>=$MIN_RELIABILITY, <=\$$MAX_PRICE/hr)"
   exit 2

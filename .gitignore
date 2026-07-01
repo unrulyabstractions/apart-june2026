@@ -134,3 +134,10 @@ cloud/.fleet*/
 
 # cloud per-box driver logs / iids (may reference HF_TOKEN context)
 cloud/.stab_*
+
+# session artifacts
+paper/*.tar.gz
+cloud/.sh_*.iid
+cloud/.watch_*
+cloud/.pending_destroy
+cloud/.shared_base_candidates.json

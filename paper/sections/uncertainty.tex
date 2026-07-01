@@ -1,0 +1,118 @@
+\section{Model Size and Uncertainty}
+\label{sec:uncertainty}
+
+\subsection{Methods}
+\label{sec:uncertainty-methods}
+We localize \emph{where} a reasoning model commits along its chain of thought with the
+forking-paths method~\citep{forkingpaths,forkingpaths2}, applied to the \texttt{Qwen3.5}
+thinking models ($0.8$ to $9$B) on ambiguous \textsc{SESGO} items:
+
+\begin{itemize}[leftmargin=*,topsep=3pt,itemsep=3pt]
+  \item \textbf{Outcome distribution $O_t$:} given a greedy reasoning trace, re-fork the decode
+    at each token $t$, sample continuations, parse each to an outcome, and track $O_t$ over
+    position.
+  \item \textbf{Commitment test:} a Bayesian change-point posterior over $O_t$ tests whether the
+    answer is decided at discrete change-point tokens (and how many) or accretes gradually.
+  \item \textbf{Immediate-forced readout:} at each token, also read the answer the model would
+    give if forced to commit now (the normalized next-token distribution over the three option
+    labels), compared to the sampled $O_t$ via $\mathrm{KL}(O_t \,\|\, \text{forced})$ and
+    vocabulary entropy.
+  \item \textbf{Shared-base test:} to separate reasoning \emph{text} from model commitment,
+    teacher-force one fixed chain of thought (\texttt{Qwen3.5-27B}'s, which abstains) into every
+    smaller model and re-measure $O_t$ along the identical tokens, once per bias category.
+\end{itemize}
+
+\subsection{Results}
+\label{sec:uncertainty-results}
+
+\subsubsection{The chain of thought commits at a few discrete tokens}
+We fork every token on one bias-revealing racismo item (ambiguous, negative; ``who did not
+study for the exam?'', two study partners, one white and one Black; gold $=$ \emph{unknown}),
+the item on which \texttt{Qwen3.5-0.8B} most confidently named the stereotyped Black student.
+
+\begin{itemize}[leftmargin=*,topsep=3pt,itemsep=3pt]
+  \item Every model resolves its answer at \textbf{a few discrete forking tokens}, not gradually
+    (change-point Bayes factor ${\approx}10^{9}$ for their presence; the posterior number of
+    change points is $4$ for \texttt{0.8B} and $2$ for \texttt{4B}/\texttt{9B}, the first at
+    $t{=}85$/$77$/$78$).
+  \item At the first such token $O_t$ swings through the named groups, the survival curve drops,
+    and the answer \textbf{first locks onto the \emph{other} (non-stereotyped) group} rather than
+    abstaining, then wobbles at the later change points.
+  \item \textbf{Takeaway:} the commitment happens at a few identifiable tokens, concrete targets
+    for inspection or intervention.
+  \item \textbf{Limitation:} single item; the forked base path is length-capped.
+\end{itemize}
+
+The base trajectory is each model's own greedy reasoning, which opens \texttt{``Thinking
+Process: 1. Analyze the Request: Context: a study group \ldots''} and then enumerates the
+options. \Cref{tab:forking-trajectories} gives each model's \emph{full} chain of thought with
+its \textcolor{red}{\textbf{forking tokens}} in red; the first forking token is the point where
+the model writes the answer letter \texttt{a)} (the non-stereotyped ``white'' option), not during
+the free-text deliberation.
+
+\input{sections/table_forking_trajectories}
+
+\plotfig{figures/forking_dynamics_grid.png}{forking_dynamics_grid.png}{\linewidth}{%
+  \textbf{Forking-paths dynamics across model scale} (Qwen3.5 thinking models, the racismo
+  ambiguous item; correct answer $=$ abstain). One row per model (size-ordered): the outcome
+  distribution $O_t$ stacked over chain-of-thought token position (target / other / unknown /
+  unparseable), the first forking token marked (red dashed line) above a heat strip of per-token
+  $O_t$ jump (red markers on the forking tokens), and the survival curve plus change-point
+  posterior (right; multimodal). Every model resolves its answer at a few discrete forking tokens
+  (Bayes factor ${\approx}10^{9}$), first onto the \emph{other} group.}{fig:forking-grid}
+
+\subsubsection{The same reasoning, re-walked by every size}
+We teacher-force the identical \texttt{Qwen3.5-27B} chain of thought (which abstains, the gold
+answer) into every smaller model and re-measure $O_t$ along it, for all four bias categories
+(\Cref{tab:base-trajectories}). Because every cell re-walks the \emph{same} 27B tokens, the
+gross $O_t$ shape (an early swing, then a drift toward abstention) looks alike across the grid;
+what differs is the \emph{final} commitment, which ranges from $F(\text{unknown}){=}0.31$ to
+$0.92$.
+
+\input{sections/table_base_trajectories}
+
+\begin{itemize}[leftmargin=*,topsep=3pt,itemsep=3pt]
+  \item \textbf{Identical reasoning does not yield identical answers:} at the committed token
+    every size keeps mass on a named group ($F(\text{other})$ from $0.08$ to $0.69$), so the
+    committed bias lives in the model, not only in the reasoning text. The starkest case is
+    \texttt{xenofobia~9B} at $69\%$ on the named group.
+  \item \textbf{The pull toward gold abstention is strongest for the smallest model}
+    ($F(\text{unknown})$ from $0.70$ to $0.92$ at \texttt{0.8B} across all four categories); on
+    racismo this reverses \texttt{0.8B}'s own-path stereotyped commitment into $92\%$ abstention.
+  \item Divergence from the shared path is again an early forking token (e.g.\ clasismo
+    $t{\approx}20/189$).
+  \item \textbf{Limitation:} one item per category, teacher-forced; the prior $o_0$ is each
+    model's own.
+\end{itemize}
+
+\plotfig{figures/forking_shared_grid.png}{forking_shared_grid.png}{\linewidth}{%
+  \textbf{Forking a shared \texttt{Qwen3.5-27B} abstaining chain of thought.} Rows: the model
+  size that re-walks the identical 27B reasoning; columns: bias category (negative-polarity
+  ambiguous item). Each cell stacks the outcome distribution $O_t$ (target / other /
+  unknown~(gold) / unparseable) over chain-of-thought token position. Reading down a column,
+  every size is pulled toward the gold
+  \emph{unknown} abstention, yet a residual commitment to a named \emph{other} group persists:
+  identical reasoning, different committed answers.}{fig:forking-shared-grid}
+
+\subsubsection{Sampled vs.\ immediate-forced answer}
+The forking $O_t$ is what a model would \emph{sample} if it kept reasoning; the forced readout
+is what it would answer \emph{immediately} if made to commit at that token.
+
+\begin{itemize}[leftmargin=*,topsep=3pt,itemsep=3pt]
+  \item $\mathrm{KL}(O_t \,\|\, \text{forced})$ \textbf{spikes at each forking token} (marked by
+    the dashed lines in each model's colour), where the sampled outcome and the snap decision
+    disagree most.
+  \item The immediate forced answer \textbf{abstains only rarely}, and next-token vocabulary
+    entropy tracks local uncertainty along the chain of thought.
+  \item \textbf{Limitation:} a single item; the forced readout reconstructs the non-thinking
+    method, validated against the sampled outcome at the committed token.
+\end{itemize}
+
+\plotfig{figures/forced_vs_sampled.png}{forced_vs_sampled.png}{0.92\linewidth}{%
+  \textbf{Sampled vs.\ immediate-forced answer along the chain of thought} (Qwen3.5 thinking
+  models, racismo item; one line per model, size-coloured). Per token position (as a fraction of
+  the chain of thought): \emph{top}, $\mathrm{KL}(O_t \,\|\, \text{forced})$ between the sampled
+  forking outcome distribution and the immediate forced-answer distribution over target / other
+  / unknown; \emph{middle}, the immediate forced probability of abstaining (\emph{unknown});
+  \emph{bottom}, the next-token vocabulary entropy of the forced answer. Dashed vertical lines
+  mark each model's forking tokens (change points); the KL spikes line up with them.}{fig:forced-vs-sampled}

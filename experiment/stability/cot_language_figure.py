@@ -33,7 +33,6 @@ _EN = {"the", "and", "this", "that", "for", "with", "are", "analyze", "request",
        "question", "answer", "process", "options", "option", "enough", "should",
        "because", "need", "who", "context", "information", "white", "black", "step"}
 _WORD = re.compile(r"[a-záéíóúñ]+")
-_DIACRITIC = re.compile(r"[áéíóúñ¿¡]")
 # Quoted spans are usually the model copying the Spanish PROMPT verbatim into its
 # reasoning; strip them so we classify the model's OWN prose, not the quoted prompt
 # (a verbose English reasoner that quotes the Spanish context heavily would otherwise
@@ -62,7 +61,11 @@ def detect_cot_language(text: str) -> str:
     toks = _WORD.findall(low)
     if len(toks) < 8:
         return "other"
-    es = sum(t in _ES for t in toks) + len(_DIACRITIC.findall(low))
+    # Classify by FUNCTION-WORD dominance only. We deliberately do NOT count diacritics:
+    # an English reasoner that copies the Spanish context ("Bogotá", "Chocó", "compañero")
+    # carries many accented proper nouns, which would otherwise inflate the Spanish score and
+    # mislabel a clearly-English chain of thought as mixed.
+    es = sum(t in _ES for t in toks)
     en = sum(t in _EN for t in toks)
     if es == 0 and en == 0:
         return "other"

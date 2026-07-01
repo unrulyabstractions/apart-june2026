@@ -40,11 +40,13 @@
 \usepackage{booktabs}
 \usepackage{array}
 \usepackage{multirow}
+\usepackage{longtable}  % full base-trajectory tables that break across pages
 
 % --- Captions / floats ---
 \usepackage{caption}
 \usepackage{subcaption}
 \usepackage{float}
+\usepackage[section]{placeins}  % keep every figure inside the section that references it
 
 %% Float-placement tuning: let a page mix text and floats freely instead of
 %% promoting tall figures to near-empty dedicated float pages. This packs the
@@ -99,7 +101,7 @@
 %% automatically once the plot is generated.
 \newcommand{\plotplaceholder}[1]{%
   \fbox{\parbox[c][0.18\textheight][c]{0.78\linewidth}{\centering
-    \color{guidecolor}\itshape Plot pending --- will render automatically once
+    \color{guidecolor}\itshape Plot pending; will render automatically once
     \detokenize{#1} is produced by the run.}}}
 \newcommand{\plotfig}[5]{%
   \begin{figure}[htbp]\centering

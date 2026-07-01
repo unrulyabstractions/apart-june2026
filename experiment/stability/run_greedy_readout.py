@@ -29,12 +29,21 @@ from pathlib import Path
 import torch
 
 from src.common.math import q_diversity
-from src.inference.answer_parser import answer_segment, parse_answer
+from src.inference.answer_parser import INVALID, answer_segment, parse_answer
 from src.inference.backends import ModelBackend
 from src.inference.model_runner import ModelRunner
+from src.inference.refusal_detection import REFUSAL, is_refusal
 
 from experiment.stability.degenerate_check import is_degenerate
 from experiment.stability.greedy_readout_schema import GreedyReadout, GreedyReadoutDataset
+
+
+def option_texts_of(rec: dict) -> list[str]:
+    """Option texts aligned to ``rec['option_labels']``, pulled from the prompt lines, so a
+    prose answer that states an option's text can be matched to that option."""
+    lines = rec["text"] if isinstance(rec["text"], list) else str(rec["text"]).split("\n")
+    return [next((ln.strip()[len(lab):].strip() for ln in lines if ln.strip().startswith(lab)), "")
+            for lab in rec["option_labels"]]
 
 # "Unbounded" generation: a high cap that EOS almost always hits first, so the CoT
 # finishes naturally (per the spec — do not bound greedy thinking by max tokens).
@@ -100,7 +109,10 @@ def _readout(runner: ModelRunner, rec: dict, thinking: bool, max_reasoning: int)
     generated = runner.decode_ids(full_ids[len(prompt_ids):])
 
     label, choice, off = parse_answer(
-        generated, rec["option_labels"], rec["position_labels"], rec.get("answer_cue", ""))
+        generated, rec["option_labels"], rec["position_labels"], rec.get("answer_cue", ""),
+        option_texts_of(rec))
+    if choice == INVALID and is_refusal(generated):
+        choice = REFUSAL  # explicit safety decline, kept distinct from an unparseable answer
     # Token index of the answer position: the parsed label, else the first post-thinking
     # token (so a no-answer case still gets a defined readout position).
     if off >= 0:
@@ -124,7 +136,7 @@ def _readout(runner: ModelRunner, rec: dict, thinking: bool, max_reasoning: int)
     degenerate = is_degenerate(answer_segment(generated))
     return GreedyReadout(
         sample_idx=rec["sample_idx"], prompt_id=rec["prompt_id"], prompt_text=templated,
-        response_text=generated, choice="invalid" if degenerate else choice, label=label,
+        response_text=generated, choice=choice, label=label,
         label_prob=math.exp(float(ct.logprobs[pos])), vocab_diversity=float(q_diversity(dist, 1.0)),
         degenerate=degenerate,
     )
